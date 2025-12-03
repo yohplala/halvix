@@ -251,9 +251,10 @@ class PriceDataCache:
         Cache price data for a coin.
 
         Normalizes the DatetimeIndex to midnight UTC for consistent lookups.
+        Trims leading rows where price is 0 (dates before coin existed).
 
         Args:
-            coin_id: CoinGecko coin ID
+            coin_id: Coin ID (lowercase symbol)
             df: DataFrame with price data
 
         Returns:
@@ -265,6 +266,13 @@ class PriceDataCache:
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
         df.index = df.index.normalize()
+
+        # Trim leading rows where price is 0 (dates before coin existed)
+        # CryptoCompare returns zeros for dates before a coin was listed
+        if "price" in df.columns:
+            first_valid_idx = (df["price"] > 0).idxmax()
+            if first_valid_idx is not None:
+                df = df.loc[first_valid_idx:]
 
         df.to_parquet(filepath, index=True)
         return filepath
