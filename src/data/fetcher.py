@@ -3,12 +3,12 @@ Data fetching orchestration for Halvix.
 
 Coordinates API calls, caching, and filtering to build the coin dataset.
 
-Data source strategy:
-- CoinGecko: Coin list, market cap rankings, current metadata
-- CryptoCompare: Historical price data (no 365-day limit like CoinGecko free tier)
+Data source: CryptoCompare (single source of truth)
+- Top coins by market cap for coin discovery
+- Historical price data with full history
+- Volume data for TOTAL2 calculation
 
 Features:
-- Symbol mapping validation: Cross-checks prices between APIs
 - Incremental fetching: Only downloads new data since last cache
 - Yesterday as end date: Avoids incomplete intraday data
 """
@@ -21,7 +21,6 @@ from typing import Any
 
 import pandas as pd
 from analysis.filters import TokenFilter
-from api.coingecko import CoinGeckoClient, CoinGeckoError
 from api.cryptocompare import CryptoCompareClient, CryptoCompareError
 from config import (
     ACCEPTED_COINS_JSON,
@@ -37,7 +36,6 @@ from tqdm import tqdm
 from utils.logging import get_logger
 
 from data.cache import FileCache, PriceDataCache
-from data.symbol_mapping import SymbolMappingCache
 
 # Module logger
 logger = get_logger(__name__)
@@ -63,51 +61,40 @@ class FetchResult:
 
 class DataFetcher:
     """
-    Orchestrates data fetching from multiple APIs.
+    Orchestrates data fetching from CryptoCompare API.
 
-    Data sources:
-    - CoinGecko: Coin list, market cap rankings, metadata
-    - CryptoCompare: Historical price data (full history, no 365-day limit)
-
-    Features:
-    - Symbol mapping validation: Ensures CoinGecko IDs map to correct CryptoCompare symbols
-    - Incremental fetching: Only downloads new data since last cache update
-    - Yesterday as end date: Avoids incomplete intraday data
+    Data source: CryptoCompare (single source)
+    - Top coins by market cap
+    - Historical price data (full history, no time limit)
+    - Volume data for TOTAL2 calculation
 
     Workflow:
-    1. Fetch top N coins by market cap (CoinGecko)
+    1. Fetch top N coins by market cap
     2. Filter out wrapped/staked/bridged tokens
-    3. Validate symbol mappings (cross-check prices)
-    4. Cache the filtered coin list
-    5. Fetch historical prices for each coin (CryptoCompare)
+    3. Cache the filtered coin list
+    4. Fetch historical prices for each coin
     """
 
     def __init__(
         self,
-        client: CoinGeckoClient | None = None,
-        cryptocompare_client: CryptoCompareClient | None = None,
+        client: CryptoCompareClient | None = None,
         cache: FileCache | None = None,
         price_cache: PriceDataCache | None = None,
         token_filter: TokenFilter | None = None,
-        symbol_mapping: SymbolMappingCache | None = None,
     ):
         """
         Initialize the data fetcher.
 
         Args:
-            client: CoinGecko API client (default: new instance)
-            cryptocompare_client: CryptoCompare API client (default: new instance)
+            client: CryptoCompare API client (default: new instance)
             cache: File cache for API responses (default: new instance)
             price_cache: Price data cache (default: new instance)
             token_filter: Token filter (default: new instance)
-            symbol_mapping: Symbol mapping cache (default: new instance)
         """
-        self.client = client or CoinGeckoClient()
-        self.cryptocompare = cryptocompare_client or CryptoCompareClient()
+        self.client = client or CryptoCompareClient()
         self.cache = cache or FileCache()
         self.price_cache = price_cache or PriceDataCache()
         self.token_filter = token_filter or TokenFilter()
-        self.symbol_mapping = symbol_mapping or SymbolMappingCache()
 
         # Calculate the date range needed for all halving cycles
         # First halving minus DAYS_BEFORE to last halving plus DAYS_AFTER
@@ -144,7 +131,7 @@ class DataFetcher:
             if cached is not None:
                 return cached
 
-        coins = self.client.get_top_coins(n=n)
+        coins = self.client.get_top_coins_by_market_cap(n=n)
         coin_dicts = [coin.to_dict() for coin in coins]
 
         self.cache.set_json(f"{cache_key}_{n}", coin_dicts)
@@ -199,7 +186,7 @@ class DataFetcher:
                 coins_accepted=len(filtered_coins),
             )
 
-        except CoinGeckoError as e:
+        except CryptoCompareError as e:
             return FetchResult(
                 success=False,
                 message=f"API error: {e}",
@@ -232,19 +219,19 @@ class DataFetcher:
     def fetch_coin_prices(
         self,
         coin_id: str,
-        symbol: str = "",
+        symbol: str,
         vs_currency: str = "BTC",
         use_cache: bool = True,
         incremental: bool = True,
     ) -> pd.DataFrame:
         """
-        Fetch historical price data for a single coin using CryptoCompare.
+        Fetch historical price data for a single coin.
 
         Supports incremental fetching: if cached data exists, only fetch new data
         from the last cached date to yesterday.
 
         Args:
-            coin_id: CoinGecko coin ID (used for cache key)
+            coin_id: Coin ID (lowercase symbol)
             symbol: Coin symbol for CryptoCompare (e.g., "ETH")
             vs_currency: Quote currency (default: "BTC")
             use_cache: Whether to check cache first
@@ -254,12 +241,7 @@ class DataFetcher:
             DataFrame with date index and price/volume columns
         """
         # Use symbol for CryptoCompare (uppercase)
-        if not symbol:
-            # Try to get from validated mapping, otherwise use coin_id
-            validated_symbol = self.symbol_mapping.get_cryptocompare_symbol(coin_id)
-            symbol = validated_symbol or coin_id.upper()
-        else:
-            symbol = symbol.upper()
+        symbol = symbol.upper()
 
         # Calculate end date (yesterday for complete data)
         yesterday = date.today() - timedelta(days=1)
@@ -283,7 +265,7 @@ class DataFetcher:
                     return cached
 
                 try:
-                    new_data = self.cryptocompare.get_full_daily_history(
+                    new_data = self.client.get_full_daily_history(
                         symbol=symbol,
                         vs_currency=vs_currency.upper(),
                         start_date=fetch_start,
@@ -307,7 +289,7 @@ class DataFetcher:
 
         # No cache, non-incremental mode, or cache miss - fetch full history
         try:
-            df = self.cryptocompare.get_full_daily_history(
+            df = self.client.get_full_daily_history(
                 symbol=symbol,
                 vs_currency=vs_currency.upper(),
                 start_date=self.history_start_date,
@@ -332,10 +314,9 @@ class DataFetcher:
         use_cache: bool = True,
         incremental: bool = True,
         show_progress: bool = True,
-        validate_symbols: bool = False,
     ) -> dict[str, pd.DataFrame]:
         """
-        Fetch price data for all accepted coins using CryptoCompare.
+        Fetch price data for all accepted coins.
 
         Fetches full historical data needed for halving cycle analysis
         (from 550 days before first halving to 550 days after last halving).
@@ -349,7 +330,6 @@ class DataFetcher:
             use_cache: Whether to use cache
             incremental: If True, only fetch new data since last cache
             show_progress: Show progress bar
-            validate_symbols: If True, validate symbol mappings first
 
         Returns:
             Dictionary mapping coin_id to price DataFrame
@@ -357,15 +337,8 @@ class DataFetcher:
         if coins is None:
             coins = self.load_accepted_coins()
 
-        # Optionally validate symbol mappings first
-        if validate_symbols:
-            if show_progress:
-                logger.info("Validating symbol mappings...")
-            self.validate_symbol_mappings(coins, show_progress=show_progress)
-
         results = {}
         errors = []
-        skipped_invalid = []
 
         # Separate description based on mode
         desc = "Fetching prices"
@@ -376,12 +349,7 @@ class DataFetcher:
 
         for coin in iterator:
             coin_id = coin["id"]
-            symbol = coin.get("symbol", "")
-
-            # Skip coins with invalid symbol mappings if validation was done
-            if validate_symbols and not self.symbol_mapping.has_valid_mapping(coin_id):
-                skipped_invalid.append(coin_id)
-                continue
+            symbol = coin.get("symbol", coin_id)
 
             try:
                 df = self.fetch_coin_prices(
@@ -395,57 +363,19 @@ class DataFetcher:
                 if not df.empty:
                     results[coin_id] = df
 
-            except (CoinGeckoError, CryptoCompareError) as e:
+            except CryptoCompareError as e:
                 errors.append(f"{coin_id} ({symbol}): {e}")
             except Exception as e:
                 errors.append(f"{coin_id} ({symbol}): Unexpected error - {e}")
 
-        if show_progress:
-            if skipped_invalid:
-                logger.warning(
-                    "Skipped %d coins with invalid symbol mappings", len(skipped_invalid)
-                )
-            if errors:
-                logger.warning("%d errors occurred:", len(errors))
-                for error in errors[:10]:
-                    logger.warning("  - %s", error)
-                if len(errors) > 10:
-                    logger.warning("  ... and %d more", len(errors) - 10)
+        if show_progress and errors:
+            logger.warning("%d errors occurred:", len(errors))
+            for error in errors[:10]:
+                logger.warning("  - %s", error)
+            if len(errors) > 10:
+                logger.warning("  ... and %d more", len(errors) - 10)
 
         return results
-
-    def validate_symbol_mappings(
-        self,
-        coins: list[dict] | None = None,
-        skip_validated: bool = True,
-        show_progress: bool = True,
-    ) -> dict[str, Any]:
-        """
-        Validate symbol mappings for coins by cross-checking prices.
-
-        Compares prices from CoinGecko and CryptoCompare to ensure
-        the symbol mapping is correct.
-
-        Args:
-            coins: List of coin dicts (default: load from accepted_coins.json)
-            skip_validated: Skip coins already validated in cache
-            show_progress: Show progress messages
-
-        Returns:
-            Dictionary with validation summary
-        """
-        if coins is None:
-            coins = self.load_accepted_coins()
-
-        self.symbol_mapping.validate_batch(
-            coins=coins,
-            coingecko_client=self.client,
-            cryptocompare_client=self.cryptocompare,
-            skip_validated=skip_validated,
-            show_progress=show_progress,
-        )
-
-        return self.symbol_mapping.get_summary()
 
     def get_coins_with_data_before(
         self,

@@ -26,8 +26,11 @@ halvix/
 ├── pyproject.toml              # Poetry dependency management
 ├── poetry.lock
 ├── README.md
+├── CHANGELOG.md                # Version history
 ├── PROJECT_CONTEXT.md          # This file (AI agent context)
 ├── docs/
+│   ├── DATA_SOURCES.md         # CryptoCompare API documentation
+│   ├── EDGE_CASES.md           # Edge cases and solutions
 │   └── TOTAL2_CALCULATION.md   # TOTAL2 index methodology
 ├── .vscode/
 │   └── settings.json           # VS Code pytest configuration
@@ -35,36 +38,30 @@ halvix/
 ├── src/                        # Source code (modules directly in src/)
 │   ├── __init__.py
 │   ├── config.py               # Constants, halving dates, API settings
+│   ├── main.py                 # CLI entry point
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── coingecko.py        # CoinGecko API client ✅ IMPLEMENTED
-│   │   └── cryptocompare.py    # CryptoCompare API client ✅ IMPLEMENTED
+│   │   └── cryptocompare.py    # CryptoCompare API client
 │   ├── data/
 │   │   ├── __init__.py
-│   │   ├── fetcher.py          # Data retrieval ✅ IMPLEMENTED
-│   │   ├── processor.py        # TOTAL2 calculation ✅ IMPLEMENTED
-│   │   ├── cache.py            # File-based caching ✅ IMPLEMENTED
-│   │   └── symbol_mapping.py   # Symbol validation ✅ IMPLEMENTED
+│   │   ├── fetcher.py          # Data retrieval
+│   │   ├── processor.py        # TOTAL2 calculation
+│   │   └── cache.py            # File-based caching
 │   ├── analysis/
 │   │   ├── __init__.py
-│   │   ├── filters.py          # Token filtering ✅ IMPLEMENTED
+│   │   ├── filters.py          # Token filtering
 │   │   └── regression.py       # Linear regression (to implement)
-│   ├── visualization/
+│   ├── utils/
 │   │   ├── __init__.py
-│   │   ├── charts.py           # Plotly charts (to implement)
-│   │   └── styles.py           # Color schemes (to implement)
-│   └── main.py                 # Entry point ✅ IMPLEMENTED
+│   │   └── logging.py          # Logging configuration
+│   └── visualization/
+│       ├── __init__.py
+│       ├── charts.py           # Plotly charts (to implement)
+│       └── styles.py           # Color schemes (to implement)
 │
-├── tests/
+├── tests/                      # Test suite
 │   ├── __init__.py
-│   ├── conftest.py             # Pytest configuration
-│   ├── test_filters.py         # Token filtering tests ✅ IMPLEMENTED
-│   ├── test_coingecko.py       # CoinGecko client tests ✅ IMPLEMENTED
-│   ├── test_cryptocompare.py   # CryptoCompare client tests ✅ IMPLEMENTED
-│   ├── test_cache.py           # Cache tests ✅ IMPLEMENTED
-│   ├── test_fetcher.py         # Data fetcher tests ✅ IMPLEMENTED
-│   ├── test_processor.py       # TOTAL2 processor tests ✅ IMPLEMENTED
-│   └── test_symbol_mapping.py  # Symbol validation tests ✅ IMPLEMENTED
+│   └── conftest.py             # Pytest configuration
 │
 ├── data/
 │   ├── raw/prices/             # Raw price data (parquet files)
@@ -98,66 +95,61 @@ halvix/
 - **Days after halving**: 550
 - **Total window**: 1100 days
 
-### 3.3 Data Sources
+### 3.3 Data Source
 
-**CoinGecko API** (for coin list and metadata):
-- **Base URL**: `https://api.coingecko.com/api/v3`
-- **Rate limit**: 10-30 calls/minute (free tier)
-- **Used for**: Top coins list, market cap rankings, filtering
-- **Limitation**: Free tier limited to 365 days of historical data
-
-**CryptoCompare API** (for historical prices):
+**CryptoCompare API** (single source of truth):
 - **Base URL**: `https://min-api.cryptocompare.com`
-- **Rate limit**: 100k calls/month (free tier)
-- **Used for**: Historical daily prices (OHLCV)
+- **Rate limit**: 10 calls/second (free tier)
+- **Used for**:
+  - Top coins by market cap (`/data/top/mktcapfull`)
+  - Historical daily prices (`/data/v2/histoday`)
+  - Volume data for TOTAL2 weighting
 - **Advantage**: **No time limit** on free tier - can fetch full history
-- **Price denomination**: BTC (`tsym=BTC`)
 
 ---
 
 ## 4. Token Filtering
 
 ### 4.1 Filter Implementation
-Located in `src/analysis/filters.py` - **IMPLEMENTED**
+Located in `src/analysis/filters.py`
 
 ### 4.2 Exclusion Categories
 
 #### Wrapped/Staked/Bridged (excluded from all analysis):
 
 Defined in `config.py` as `EXCLUDED_WRAPPED_STAKED_IDS` and `EXCLUDED_PATTERNS`:
-- **Wrapped BTC**: wrapped-bitcoin, tbtc, fbtc, lbtc, solvbtc, cbbtc, etc.
-- **Staked ETH**: staked-ether, lido-staked-ether, wrapped-steth, rocket-pool-eth, coinbase-wrapped-staked-eth, etc.
-- **Wrapped ETH**: wrapped-ether, wrapped-beacon-eth, wrapped-eeth
-- **Staked SOL**: jito-staked-sol, marinade-staked-sol, bnsol
-- **Bridged**: arbitrum-bridged-btc, l2-standard-bridged-weth, binance-bridged-usdt-bnb-smart-chain, etc.
+- **Wrapped BTC**: WBTC, TBTC, FBTC, LBTC, SOLVBTC, CBBTC, etc.
+- **Staked ETH**: STETH, WSTETH, RETH, CBETH, etc.
+- **Wrapped ETH**: WETH, WBETH, WEETH
+- **Staked SOL**: JITOSOL, MSOL, BNSOL
+- **Bridged**: Various bridged tokens
 
 Plus pattern-based filtering for tokens matching: `^wrapped-`, `^staked-`, `^bridged-`, `lido`, `rocket.?pool`, etc.
 
 #### Stablecoins (excluded from TOTAL2):
 
 Defined in `config.py` as `EXCLUDED_STABLECOINS`:
-- **USD**: tether, usd-coin, dai, usds, ethena-usde, first-digital-usd, true-usd, frax, gho, etc.
-- **Euro**: stasis-euro, tether-eurt, angle-euro
-- **Bridged stablecoins**: binance-bridged-usdt-bnb-smart-chain, polygon-bridged-dai, etc.
+- **USD**: USDT, USDC, DAI, USDS, USDE, FDUSD, TUSD, FRAX, GHO, etc.
+- **Euro**: EURS, EURT, AGEUR
 
 #### Allowed Tokens (never filtered):
 
 Defined in `config.py` as `ALLOWED_TOKENS` - these override pattern-based exclusions:
 ```python
 ALLOWED_TOKENS = {
-    "sui", "sei-network", "sei",       # L1 blockchains (not "staked" tokens)
-    "stk", "the-sandbox", "sand",      # Legitimate tokens
-    "dogwifhat", "wif",                # Meme tokens with "wif" prefix
-    "stellar", "stacks", "starknet",   # Tokens with "st" prefix but not staked
-    "storj", "status", "stratis",      # Other "st" prefix tokens
-    "wilder-world", "wifi",            # Tokens with "wi" prefix
+    "sui", "sei",           # L1 blockchains (not "staked" tokens)
+    "stk", "sand",          # Legitimate tokens
+    "wif",                  # Meme tokens with "wif" prefix
+    "xlm", "stx", "strk",   # Tokens with "st" prefix but not staked
+    "storj", "snt", "strax",
+    "stpt", "wild", "wifi",
 }
 ```
 
 ### 4.3 CSV Export
 Rejected coins exported to `data/processed/rejected_coins.csv`:
 - Semicolon delimiter (Excel compatible)
-- Columns: Coin ID, Name, Symbol, Reason, CoinGecko URL
+- Columns: Coin ID, Name, Symbol, Reason, URL
 
 ---
 
@@ -166,21 +158,21 @@ Rejected coins exported to `data/processed/rejected_coins.csv`:
 > **Detailed documentation:** [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md)
 
 ### 5.1 Definition
-Weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 50) by market cap, excluding:
+Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 50), excluding:
 - Bitcoin
-- All wrapped/staked/bridged BTC tokens
+- All wrapped/staked/bridged tokens
 - All stablecoins
 
 ### 5.2 Algorithm
 ```python
 def compute_total2_daily(coins_data: dict, date: date) -> float:
     # 1. Filter out BTC, derivatives, stablecoins
-    # 2. Get market caps for date
-    # 3. Sort by market cap, take top 50
-    # 4. Calculate weighted average price
-    total_market_cap = sum(c['market_cap'] for c in top_50)
+    # 2. Get 24h volume for date
+    # 3. Sort by volume, take top 50
+    # 4. Calculate volume-weighted average price
+    total_volume = sum(c['volume'] for c in top_50)
     weighted_price = sum(
-        c['price_btc'] * (c['market_cap'] / total_market_cap)
+        c['price_btc'] * (c['volume'] / total_volume)
         for c in top_50
     )
     return weighted_price
@@ -254,20 +246,12 @@ Keep only coins with `a > 0` (positive trend)
 |--------|------|--------|
 | Configuration | `src/config.py` | ✅ Complete |
 | Token Filtering | `src/analysis/filters.py` | ✅ Complete |
-| Filter Tests | `tests/test_filters.py` | ✅ Complete |
-| CoinGecko Client | `src/api/coingecko.py` | ✅ Complete |
-| CoinGecko Tests | `tests/test_coingecko.py` | ✅ Complete |
-| File Cache | `src/data/cache.py` | ✅ Complete |
-| Cache Tests | `tests/test_cache.py` | ✅ Complete |
-| Data Fetcher | `src/data/fetcher.py` | ✅ Complete |
-| Fetcher Tests | `tests/test_fetcher.py` | ✅ Complete |
-| CLI Entry Point | `src/main.py` | ✅ Complete |
 | CryptoCompare Client | `src/api/cryptocompare.py` | ✅ Complete |
-| CryptoCompare Tests | `tests/test_cryptocompare.py` | ✅ Complete |
+| File Cache | `src/data/cache.py` | ✅ Complete |
+| Data Fetcher | `src/data/fetcher.py` | ✅ Complete |
+| CLI Entry Point | `src/main.py` | ✅ Complete |
 | Data Processor | `src/data/processor.py` | ✅ Complete |
-| Processor Tests | `tests/test_processor.py` | ✅ Complete |
-| Symbol Mapping | `src/data/symbol_mapping.py` | ✅ Complete |
-| Symbol Mapping Tests | `tests/test_symbol_mapping.py` | ✅ Complete |
+| Logging | `src/utils/logging.py` | ✅ Complete |
 | Regression | `src/analysis/regression.py` | ⏳ To implement |
 | Charts | `src/visualization/charts.py` | ⏳ To implement |
 
@@ -322,7 +306,8 @@ TOP_N_COINS = 300
 TOP_N_FOR_TOTAL2 = 50
 TOP_N_SUMMARY = 10
 
-API_CALLS_PER_MINUTE = 10
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
 HALF_MONTHLY_FREQ = "SMS"
 ```
 
@@ -353,11 +338,11 @@ from analysis.filters import TokenFilter
 ### 12.4 Common Pitfalls
 1. Always check `ALLOWED_TOKENS` before filtering
 2. Use `for_total2=True` when filtering for TOTAL2 calculation
-3. Rate limit API calls (10/minute)
+3. Rate limit API calls (30/minute for CryptoCompare)
 4. Handle missing data with backfilling
 
 ---
 
 *Last updated: 2025-12-03*
-*Document version: 3.0*
+*Document version: 4.0*
 *Project name: Halvix*

@@ -24,83 +24,59 @@ class TestWrappedStakedTokenFiltering:
         return TokenFilter()
 
     # =========================================================================
-    # Tokens that MUST be filtered out
+    # Tokens that MUST be filtered out (using lowercase symbols as IDs)
     # =========================================================================
 
     @pytest.mark.parametrize(
         "coin_id,name,symbol",
         [
             # Staked ETH variants
-            ("lido-staked-ether", "Lido Staked Ether", "stETH"),
-            ("staked-ether", "Staked Ether", "stETH"),
-            ("wrapped-steth", "Wrapped stETH", "wstETH"),
+            ("steth", "Lido Staked Ether", "STETH"),
+            ("wsteth", "Wrapped stETH", "WSTETH"),
             # Wrapped BTC variants
-            ("wrapped-bitcoin", "Wrapped Bitcoin", "wBTC"),
             ("wbtc", "Wrapped Bitcoin", "WBTC"),
             # Wrapped ETH variants
             ("weth", "Wrapped Ether", "WETH"),
-            ("wrapped-ether", "Wrapped Ether", "WETH"),
-            ("wrapped-beacon-eth", "Wrapped Beacon ETH", "wbETH"),
-            ("wrapped-eeth", "Wrapped eETH", "weETH"),
+            ("wbeth", "Wrapped Beacon ETH", "WBETH"),
+            ("weeth", "Wrapped eETH", "WEETH"),
             # Liquid staking tokens
-            ("jito-staked-sol", "Jito Staked SOL", "JitoSOL"),
-            ("rocket-pool-eth", "Rocket Pool ETH", "rETH"),
+            ("jitosol", "Jito Staked SOL", "JITOSOL"),
+            ("reth", "Rocket Pool ETH", "RETH"),
             # Wrapped BNB
-            ("wrapped-bnb", "Wrapped BNB", "wBNB"),
             ("wbnb", "Wrapped BNB", "WBNB"),
             # Binance staked
             ("bnsol", "Binance Staked SOL", "BNSOL"),
             # Kelp/Renzo restaked
-            ("kelp-dao-restaked-eth", "Kelp DAO Restaked ETH", "rsETH"),
+            ("rseth", "Kelp DAO Restaked ETH", "RSETH"),
             # Various BTC derivatives
             ("fbtc", "Ignition FBTC", "FBTC"),
             ("lbtc", "Lombard Staked BTC", "LBTC"),
-            ("solvbtc", "Solv BTC", "solvBTC"),
-            ("lseth", "Liquid Staked ETH", "lsETH"),
-            # KHYPE
-            ("khype", "KHYPE", "KHYPE"),
-            # Arbitrum bridged
-            ("arbitrum-bridged-btc", "Arbitrum Bridged BTC", "BTC"),
+            ("solvbtc", "Solv BTC", "SOLVBTC"),
+            ("lseth", "Liquid Staked ETH", "LSETH"),
             # Renzo
-            ("renzo-restaked-eth", "Renzo Restaked ETH", "ezETH"),
+            ("ezeth", "Renzo Restaked ETH", "EZETH"),
             # Mantle staked
-            ("mantle-staked-ether", "Mantle Staked Ether", "mETH"),
-            # CLBTC
-            ("clbtc", "CLBTC", "CLBTC"),
+            ("meth", "Mantle Staked Ether", "METH"),
             # osETH
-            ("oseth", "StakeWise Staked ETH", "osETH"),
-            # L2 bridged WETH
-            ("l2-standard-bridged-weth-base", "L2 Standard Bridged WETH", "WETH"),
-            ("arbitrum-bridged-weth", "Arbitrum Bridged WETH", "WETH"),
+            ("oseth", "StakeWise Staked ETH", "OSETH"),
             # tBTC
-            ("tbtc", "tBTC", "tBTC"),
-            ("threshold-btc", "Threshold BTC", "tBTC"),
+            ("tbtc", "tBTC", "TBTC"),
             # Marinade
-            ("marinade-staked-sol", "Marinade Staked SOL", "mSOL"),
-            # Stader
-            ("stader-ethx", "Stader ETHx", "ETHx"),
-            # Ether.fi
-            ("ether-fi-staked-eth", "Ether.fi Staked ETH", "eETH"),
+            ("msol", "Marinade Staked SOL", "MSOL"),
+            # ETHx
+            ("ethx", "Stader ETHx", "ETHX"),
+            # eETH
+            ("eeth", "Ether.fi Staked ETH", "EETH"),
             # Swell
-            ("swell-staked-eth", "Swell Staked ETH", "swETH"),
-            # sBTC
-            ("sbtc", "Synth sBTC", "sBTC"),
+            ("sweth", "Swell Staked ETH", "SWETH"),
             # cbETH
-            ("coinbase-wrapped-staked-eth", "Coinbase Wrapped Staked ETH", "cbETH"),
-            # enzoBTC
-            ("enzobtc", "Enzo BTC", "enzoBTC"),
-            ("enzo-btc", "Enzo BTC", "enzoBTC"),
-            # Wrapped SOL
-            ("wrapped-solana", "Wrapped SOL", "SOL"),
-            ("wrapped-sol", "Wrapped SOL", "wSOL"),
-            # syrupUSDC
-            ("syrup-usdc", "Syrup USDC", "syrupUSDC"),
+            ("cbeth", "Coinbase Wrapped Staked ETH", "CBETH"),
         ],
     )
     def test_wrapped_staked_tokens_are_filtered(self, token_filter, coin_id, name, symbol):
         """Test that wrapped/staked/bridged tokens are correctly identified and filtered."""
         assert token_filter.is_wrapped_or_staked(
-            coin_id, name
+            coin_id, name, symbol
         ), f"Token {coin_id} ({name}) should be filtered as wrapped/staked"
 
     # =========================================================================
@@ -112,28 +88,28 @@ class TestWrappedStakedTokenFiltering:
         [
             # Explicitly allowed tokens
             ("sui", "Sui", "SUI"),
-            ("sei-network", "Sei", "SEI"),
+            ("sei", "Sei", "SEI"),
             ("stk", "STK", "STK"),
-            ("the-sandbox", "The Sandbox", "SAND"),
-            ("dogwifhat", "dogwifhat", "WIF"),
+            ("sand", "The Sandbox", "SAND"),
+            ("wif", "dogwifhat", "WIF"),
             # Other legitimate tokens that might match patterns
-            ("stellar", "Stellar", "XLM"),
-            ("stacks", "Stacks", "STX"),
-            ("starknet", "Starknet", "STRK"),
+            ("xlm", "Stellar", "XLM"),
+            ("stx", "Stacks", "STX"),
+            ("strk", "Starknet", "STRK"),
             ("storj", "Storj", "STORJ"),
             # Major coins
-            ("ethereum", "Ethereum", "ETH"),
-            ("solana", "Solana", "SOL"),
-            ("cardano", "Cardano", "ADA"),
-            ("polkadot", "Polkadot", "DOT"),
-            ("avalanche-2", "Avalanche", "AVAX"),
-            ("chainlink", "Chainlink", "LINK"),
+            ("eth", "Ethereum", "ETH"),
+            ("sol", "Solana", "SOL"),
+            ("ada", "Cardano", "ADA"),
+            ("dot", "Polkadot", "DOT"),
+            ("avax", "Avalanche", "AVAX"),
+            ("link", "Chainlink", "LINK"),
         ],
     )
     def test_legitimate_tokens_are_accepted(self, token_filter, coin_id, name, symbol):
         """Test that legitimate tokens are NOT filtered out."""
         assert not token_filter.is_wrapped_or_staked(
-            coin_id, name
+            coin_id, name, symbol
         ), f"Token {coin_id} ({name}) should NOT be filtered"
 
     # =========================================================================
@@ -143,10 +119,10 @@ class TestWrappedStakedTokenFiltering:
     def test_filter_coins_excludes_wrapped_staked(self, token_filter):
         """Test that filter_coins correctly excludes wrapped/staked tokens."""
         coins = [
-            {"id": "ethereum", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "wrapped-bitcoin", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
-            {"id": "solana", "name": "Solana", "symbol": "SOL"},
-            {"id": "lido-staked-ether", "name": "Lido Staked Ether", "symbol": "stETH"},
+            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
+            {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
+            {"id": "sol", "name": "Solana", "symbol": "SOL"},
+            {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
             {"id": "sui", "name": "Sui", "symbol": "SUI"},
         ]
 
@@ -155,26 +131,26 @@ class TestWrappedStakedTokenFiltering:
         # Should have 3 coins: ETH, SOL, SUI
         assert len(filtered) == 3
         filtered_ids = {c["id"] for c in filtered}
-        assert "ethereum" in filtered_ids
-        assert "solana" in filtered_ids
+        assert "eth" in filtered_ids
+        assert "sol" in filtered_ids
         assert "sui" in filtered_ids
-        assert "wrapped-bitcoin" not in filtered_ids
-        assert "lido-staked-ether" not in filtered_ids
+        assert "wbtc" not in filtered_ids
+        assert "steth" not in filtered_ids
 
     def test_filter_coins_records_filtered_tokens(self, token_filter):
         """Test that filtered tokens are recorded for export."""
         coins = [
-            {"id": "ethereum", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "wrapped-bitcoin", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
-            {"id": "lido-staked-ether", "name": "Lido Staked Ether", "symbol": "stETH"},
+            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
+            {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
+            {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
         token_filter.filter_coins(coins, for_total2=False, record_filtered=True)
 
         assert len(token_filter.filtered_tokens) == 2
         filtered_ids = {t.coin_id for t in token_filter.filtered_tokens}
-        assert "wrapped-bitcoin" in filtered_ids
-        assert "lido-staked-ether" in filtered_ids
+        assert "wbtc" in filtered_ids
+        assert "steth" in filtered_ids
 
 
 class TestStablecoinFiltering:
@@ -187,14 +163,14 @@ class TestStablecoinFiltering:
     @pytest.mark.parametrize(
         "coin_id,name,symbol",
         [
-            ("tether", "Tether", "USDT"),
-            ("usd-coin", "USD Coin", "USDC"),
+            ("usdt", "Tether", "USDT"),
+            ("usdc", "USD Coin", "USDC"),
             ("dai", "Dai", "DAI"),
             ("usds", "USDS", "USDS"),
-            ("ethena-usde", "Ethena USDe", "USDe"),
-            ("paypal-usd", "PayPal USD", "PYUSD"),
-            ("first-digital-usd", "First Digital USD", "FDUSD"),
-            ("true-usd", "TrueUSD", "TUSD"),
+            ("usde", "Ethena USDe", "USDE"),
+            ("pyusd", "PayPal USD", "PYUSD"),
+            ("fdusd", "First Digital USD", "FDUSD"),
+            ("tusd", "TrueUSD", "TUSD"),
             ("frax", "Frax", "FRAX"),
             ("gho", "GHO", "GHO"),
             ("usdd", "USDD", "USDD"),
@@ -209,26 +185,26 @@ class TestStablecoinFiltering:
     def test_filter_coins_excludes_stablecoins_for_total2(self, token_filter):
         """Test that stablecoins are excluded when for_total2=True."""
         coins = [
-            {"id": "ethereum", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "tether", "name": "Tether", "symbol": "USDT"},
-            {"id": "usd-coin", "name": "USD Coin", "symbol": "USDC"},
-            {"id": "solana", "name": "Solana", "symbol": "SOL"},
+            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
+            {"id": "usdt", "name": "Tether", "symbol": "USDT"},
+            {"id": "usdc", "name": "USD Coin", "symbol": "USDC"},
+            {"id": "sol", "name": "Solana", "symbol": "SOL"},
         ]
 
         filtered = token_filter.filter_coins(coins, for_total2=True)
 
         assert len(filtered) == 2
         filtered_ids = {c["id"] for c in filtered}
-        assert "ethereum" in filtered_ids
-        assert "solana" in filtered_ids
-        assert "tether" not in filtered_ids
-        assert "usd-coin" not in filtered_ids
+        assert "eth" in filtered_ids
+        assert "sol" in filtered_ids
+        assert "usdt" not in filtered_ids
+        assert "usdc" not in filtered_ids
 
     def test_stablecoins_kept_when_not_for_total2(self, token_filter):
         """Test that stablecoins are NOT excluded when for_total2=False."""
         coins = [
-            {"id": "ethereum", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "tether", "name": "Tether", "symbol": "USDT"},
+            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
+            {"id": "usdt", "name": "Tether", "symbol": "USDT"},
         ]
 
         filtered = token_filter.filter_coins(coins, for_total2=False)
@@ -246,16 +222,16 @@ class TestBTCDerivativeFiltering:
 
     def test_bitcoin_is_not_filtered_as_derivative(self, token_filter):
         """Test that Bitcoin itself is not filtered as a derivative."""
-        assert not token_filter.is_btc_derivative("bitcoin", "Bitcoin", "BTC")
+        assert not token_filter.is_btc_derivative("btc", "Bitcoin", "BTC")
 
     @pytest.mark.parametrize(
         "coin_id,name,symbol",
         [
-            ("wrapped-bitcoin", "Wrapped Bitcoin", "WBTC"),
-            ("tbtc", "tBTC", "tBTC"),
-            ("solvbtc", "Solv BTC", "solvBTC"),
+            ("wbtc", "Wrapped Bitcoin", "WBTC"),
+            ("tbtc", "tBTC", "TBTC"),
+            ("solvbtc", "Solv BTC", "SOLVBTC"),
             ("lbtc", "Lombard Staked BTC", "LBTC"),
-            ("cbbtc", "Coinbase Wrapped BTC", "cbBTC"),
+            ("cbbtc", "Coinbase Wrapped BTC", "CBBTC"),
         ],
     )
     def test_btc_derivatives_are_detected(self, token_filter, coin_id, name, symbol):
@@ -275,9 +251,9 @@ class TestCSVExport:
     def test_export_rejected_coins_csv(self, token_filter):
         """Test that rejected coins can be exported to CSV."""
         coins = [
-            {"id": "ethereum", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "wrapped-bitcoin", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
-            {"id": "lido-staked-ether", "name": "Lido Staked Ether", "symbol": "stETH"},
+            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
+            {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
+            {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
         token_filter.filter_coins(coins, for_total2=False, record_filtered=True)
@@ -292,14 +268,14 @@ class TestCSVExport:
             with open(result_path, encoding="utf-8") as f:
                 content = f.read()
 
-            assert "wrapped-bitcoin" in content
-            assert "lido-staked-ether" in content
-            assert "coingecko.com" in content
+            assert "wbtc" in content
+            assert "steth" in content
+            assert "cryptocompare.com" in content
 
     def test_csv_uses_semicolon_delimiter(self, token_filter):
         """Test that CSV uses semicolon delimiter for Excel compatibility."""
         coins = [
-            {"id": "wrapped-bitcoin", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
+            {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
         ]
 
         token_filter.filter_coins(coins, for_total2=False, record_filtered=True)
@@ -326,11 +302,11 @@ class TestFilteredSummary:
     def test_get_filtered_summary(self, token_filter):
         """Test that summary counts are correct."""
         coins = [
-            {"id": "ethereum", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "wrapped-bitcoin", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
-            {"id": "lido-staked-ether", "name": "Lido Staked Ether", "symbol": "stETH"},
-            {"id": "tether", "name": "Tether", "symbol": "USDT"},
-            {"id": "usd-coin", "name": "USD Coin", "symbol": "USDC"},
+            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
+            {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
+            {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
+            {"id": "usdt", "name": "Tether", "symbol": "USDT"},
+            {"id": "usdc", "name": "USD Coin", "symbol": "USDC"},
         ]
 
         token_filter.filter_coins(coins, for_total2=True, record_filtered=True)
@@ -354,16 +330,13 @@ class TestAllowedTokensOverride:
         "coin_id",
         [
             "sui",
-            "sei-network",
             "sei",
             "stk",
-            "the-sandbox",
             "sand",
-            "dogwifhat",
             "wif",
-            "stellar",
-            "stacks",
-            "starknet",
+            "xlm",
+            "stx",
+            "strk",
         ],
     )
     def test_allowed_tokens_are_never_filtered(self, token_filter, coin_id):
@@ -371,9 +344,9 @@ class TestAllowedTokensOverride:
         assert token_filter.is_allowed_token(coin_id), f"Token {coin_id} should be in allowed list"
 
         assert not token_filter.is_wrapped_or_staked(
-            coin_id, ""
+            coin_id, "", coin_id.upper()
         ), f"Token {coin_id} should not be filtered as wrapped/staked"
 
         assert not token_filter.is_stablecoin(
-            coin_id, "", ""
+            coin_id, "", coin_id.upper()
         ), f"Token {coin_id} should not be filtered as stablecoin"

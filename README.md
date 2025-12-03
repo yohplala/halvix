@@ -2,7 +2,7 @@
 
 **Cryptocurrency price analysis relative to Bitcoin halving cycles.**
 
-Halvix analyzes cryptocurrency performance across BTC halving cycles, comparing each coin's price action against the TOTAL2 market index (all coins excluding BTC).
+Halvix analyzes cryptocurrency performance across BTC halving cycles, comparing each coin's price action against the TOTAL2 market index (volume-weighted index of top altcoins).
 
 ## Features
 
@@ -59,7 +59,7 @@ The analysis is run in stages via the command line:
 
 #### Step 1: Fetch and Filter Top Coins
 
-Fetch the top N coins by market cap from CoinGecko and apply filtering to exclude wrapped, staked, bridged tokens:
+Fetch the top N coins by market cap from CryptoCompare and apply filtering to exclude wrapped, staked, bridged tokens:
 
 ```bash
 # Fetch top 300 coins (default)
@@ -80,24 +80,7 @@ poetry run python -m main list-coins --no-cache
 - `data/processed/accepted_coins.json` - Coins accepted for analysis
 - `data/processed/rejected_coins.csv` - Coins rejected with reasons
 
-#### Step 2: Validate Symbol Mappings (Optional)
-
-Validate that CoinGecko coin IDs correctly map to CryptoCompare symbols by cross-checking prices:
-
-```bash
-# Validate all symbols (only new ones if cache exists)
-poetry run python -m main validate-symbols
-
-# Force revalidation of all symbols
-poetry run python -m main validate-symbols --force
-
-# Show detailed info about invalid mappings
-poetry run python -m main validate-symbols --verbose
-```
-
-**Output:** Symbol mapping cache in `data/processed/symbol_mappings.json`
-
-#### Step 3: Fetch Price Data
+#### Step 2: Fetch Price Data
 
 Fetch historical price data (in BTC) for all filtered coins:
 
@@ -108,9 +91,6 @@ poetry run python -m main fetch-prices
 # Full refresh (fetch complete history)
 poetry run python -m main fetch-prices --full-refresh
 
-# Validate symbols before fetching
-poetry run python -m main fetch-prices --validate
-
 # Limit to first N coins (for testing)
 poetry run python -m main fetch-prices --limit 10
 ```
@@ -118,15 +98,14 @@ poetry run python -m main fetch-prices --limit 10
 **Features:**
 - **Incremental updates**: Only fetches new data since last cache update
 - **Yesterday as end date**: Avoids incomplete intraday data
-- **Symbol validation**: Optional cross-check with CoinGecko prices
 
 **Note:** This step uses CryptoCompare API for full historical data (~5000+ days). Rate limiting is applied automatically.
 
 **Output:** Price data cached in `data/raw/prices/` as parquet files.
 
-#### Step 4: Calculate TOTAL2 Index
+#### Step 3: Calculate TOTAL2 Index
 
-Calculate the market-cap weighted TOTAL2 index from cached price data:
+Calculate the volume-weighted TOTAL2 index from cached price data:
 
 ```bash
 # Calculate TOTAL2 with default 50 coins
@@ -145,7 +124,7 @@ poetry run python -m main calculate-total2 --dry-run
 
 See [TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md) for methodology details.
 
-#### Step 5: Check Data Status
+#### Step 4: Check Data Status
 
 View current data status and cached files:
 
@@ -157,7 +136,7 @@ poetry run python -m main status
 poetry run python -m main status --verbose
 ```
 
-#### Step 6: Clear Cache (Optional)
+#### Step 5: Clear Cache (Optional)
 
 Clear cached data when needed:
 
@@ -168,11 +147,8 @@ poetry run python -m main clear-cache --prices
 # Clear API response cache
 poetry run python -m main clear-cache --api
 
-# Clear symbol mapping cache
-poetry run python -m main clear-cache --symbols
-
 # Clear all caches
-poetry run python -m main clear-cache --prices --api --symbols
+poetry run python -m main clear-cache --prices --api
 ```
 
 ### Alternative: Running with Poetry Shell
@@ -206,12 +182,6 @@ poetry run pytest tests/test_filters.py -v
 # Run tests with coverage report
 poetry run pytest --cov=src --cov-report=html
 
-# Run a specific test class
-poetry run pytest tests/test_filters.py::TestWrappedStakedTokenFiltering -v
-
-# Run a specific test
-poetry run pytest tests/test_filters.py::TestWrappedStakedTokenFiltering::test_filter_coins_excludes_wrapped_staked -v
-
 # Run integration tests (actual API calls)
 poetry run pytest --run-integration -v
 ```
@@ -229,38 +199,11 @@ poetry run ruff check src/ tests/
 poetry run ruff check --fix src/ tests/
 ```
 
-## Project Structure
-
-```
-halvix/
-├── src/                     # Source code
-│   ├── config.py            # Configuration constants
-│   ├── analysis/            # Filtering & regression
-│   │   └── filters.py       # Token filtering logic
-│   ├── api/                 # API clients (CoinGecko + CryptoCompare)
-│   ├── data/                # Data fetching & processing
-│   └── visualization/       # Chart generation
-├── tests/                   # Test suite
-│   └── test_filters.py      # Token filtering tests
-├── data/                    # Cached data files
-│   ├── raw/prices/          # Raw price data
-│   ├── processed/           # Processed data & results
-│   └── cache/               # API cache
-├── output/                  # Generated outputs
-│   ├── charts/individual/   # Per-coin charts
-│   └── reports/             # Analysis reports
-├── docs/                    # Documentation
-│   └── TOTAL2_CALCULATION.md  # TOTAL2 index methodology
-├── pyproject.toml           # Poetry configuration
-├── PROJECT_CONTEXT.md       # Full project specification
-└── README.md                # This file
-```
-
 ## Documentation
 
-- **[Data Sources & API Strategy](docs/DATA_SOURCES.md)** - CoinGecko vs CryptoCompare, rate limits, data flow
+- **[CHANGELOG](CHANGELOG.md)** - Version history and release notes
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
-- **[Edge Cases & Solutions](docs/EDGE_CASES.md)** - Symbol validation, incremental fetching, data quality
+- **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, data flow
 - **[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)** - Full project specification for developers
 
 ## Configuration
@@ -275,7 +218,7 @@ Key parameters in `src/config.py`:
 | `DAYS_BEFORE_HALVING` | 550 | Days before halving in time window |
 | `DAYS_AFTER_HALVING` | 550 | Days after halving in time window |
 | `REGRESSION_START_DATE` | 2023-11-01 | Start of regression analysis window |
-| `API_CALLS_PER_MINUTE` | 10 | CoinGecko rate limit (free tier) |
+| `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` | 30 | CryptoCompare rate limit |
 
 ## Token Filtering
 
@@ -297,18 +240,18 @@ The project automatically filters out:
 
 Rejected coins are exported to `data/processed/rejected_coins.csv` for review.
 
-## Data Sources
+## Data Source
 
-The project uses **two complementary APIs**:
+Halvix uses **CryptoCompare** as its single data source:
 
-| API | Purpose | Free Tier Rate Limit | History Limit |
-|-----|---------|---------------------|---------------|
-| [CoinGecko](https://docs.coingecko.com/) | Coin list, market cap rankings | 5-15 calls/min | 365 days |
-| [CryptoCompare](https://min-api.cryptocompare.com/) | Historical daily prices (OHLCV) | 600 calls/min | **Unlimited** ✅ |
+| Feature | Details |
+|---------|---------|
+| **Top coins** | `/data/top/mktcapfull` - Market cap rankings with full data |
+| **Historical prices** | `/data/v2/histoday` - Daily OHLCV with **unlimited** history |
+| **Volume data** | 24h volume for TOTAL2 weighting |
+| **Rate limit** | 10 calls/second (free tier) |
 
-This dual-source approach allows fetching **full historical data** needed for all 4 halving cycles (~5000+ days), which would not be possible with CoinGecko's free tier alone.
-
-📖 **See [Data Sources & API Strategy](docs/DATA_SOURCES.md)** for detailed rate limits, implementation, and troubleshooting.
+📖 **See [Data Sources](docs/DATA_SOURCES.md)** for detailed rate limits and troubleshooting.
 
 ## Development
 
@@ -318,13 +261,11 @@ This dual-source approach allows fetching **full historical data** needed for al
 |--------|--------|
 | Configuration (`config.py`) | ✅ Complete |
 | Token Filtering (`analysis/filters.py`) | ✅ Complete |
-| CoinGecko API Client (`api/coingecko.py`) | ✅ Complete |
+| CryptoCompare Client (`api/cryptocompare.py`) | ✅ Complete |
 | File Caching (`data/cache.py`) | ✅ Complete |
 | Data Fetcher (`data/fetcher.py`) | ✅ Complete |
 | CLI Entry Point (`main.py`) | ✅ Complete |
-| CryptoCompare Client (`api/cryptocompare.py`) | ✅ Complete |
 | Data Processor/TOTAL2 (`data/processor.py`) | ✅ Complete |
-| All Tests (171 tests) | ✅ Complete |
 | Linear Regression | ⏳ To implement |
 | Visualization | ⏳ To implement |
 
@@ -354,10 +295,10 @@ poetry run ptw
 # Start IPython in project context
 poetry run ipython
 
-# Then in IPython:
+# Then in IPython (after cd src):
 # >>> from analysis.filters import TokenFilter
 # >>> tf = TokenFilter()
-# >>> tf.is_wrapped_or_staked("wrapped-bitcoin", "Wrapped BTC")
+# >>> tf.is_wrapped_or_staked("wbtc", "Wrapped BTC")
 # True
 ```
 

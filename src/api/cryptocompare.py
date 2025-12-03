@@ -1,8 +1,10 @@
 """
-CryptoCompare API client for historical price data.
+CryptoCompare API client for cryptocurrency data.
 
-CryptoCompare offers free access to full historical data (2000+ days per request),
-making it ideal for halving cycle analysis that spans multiple years.
+CryptoCompare offers free access to:
+- Full historical data (2000+ days per request) for halving cycle analysis
+- Top coins by market cap for coin discovery
+- No symbol mapping needed - single source of truth
 
 API Documentation: https://min-api.cryptocompare.com/documentation
 """
@@ -10,6 +12,7 @@ API Documentation: https://min-api.cryptocompare.com/documentation
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from importlib.metadata import version
 from typing import Any
 
 import pandas as pd
@@ -24,6 +27,14 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+
+
+def get_version() -> str:
+    """Get package version for User-Agent."""
+    try:
+        return version("halvix")
+    except Exception:
+        return "dev"
 
 
 class CryptoCompareError(Exception):
@@ -55,6 +66,32 @@ class HistoricalPrice:
     close: float
     volume_from: float
     volume_to: float
+
+
+@dataclass
+class Coin:
+    """Represents a coin from CryptoCompare."""
+
+    symbol: str
+    name: str
+    market_cap: float
+    market_cap_rank: int
+    current_price: float
+    volume_24h: float
+    circulating_supply: float
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for filtering and processing."""
+        return {
+            "id": self.symbol.lower(),  # Use lowercase symbol as ID
+            "symbol": self.symbol,
+            "name": self.name,
+            "market_cap": self.market_cap,
+            "market_cap_rank": self.market_cap_rank,
+            "current_price": self.current_price,
+            "volume_24h": self.volume_24h,
+            "circulating_supply": self.circulating_supply,
+        }
 
 
 class CryptoCompareClient:
@@ -92,7 +129,7 @@ class CryptoCompareClient:
         self.session = requests.Session()
         headers = {
             "Accept": "application/json",
-            "User-Agent": "Halvix/0.1.0",
+            "User-Agent": f"Halvix/{get_version()}",
         }
         if api_key:
             headers["authorization"] = f"Apikey {api_key}"
@@ -297,6 +334,71 @@ class CryptoCompareClient:
         """
         data = self._request("/data/all/coinlist")
         return data.get("Data", {})
+
+    def get_top_coins_by_market_cap(
+        self,
+        n: int = 300,
+        vs_currency: str = "USD",
+    ) -> list[Coin]:
+        """
+        Get top N coins by market capitalization.
+
+        Uses pagination (100 coins per page) to fetch up to N coins.
+
+        Args:
+            n: Number of top coins to fetch (default: 300)
+            vs_currency: Quote currency for prices (default: "USD")
+
+        Returns:
+            List of Coin objects sorted by market cap rank
+        """
+        coins: list[Coin] = []
+        page = 0
+        per_page = 100  # CryptoCompare returns 100 per page max
+
+        while len(coins) < n:
+            data = self._request(
+                "/data/top/mktcapfull",
+                params={
+                    "limit": per_page,
+                    "page": page,
+                    "tsym": vs_currency.upper(),
+                },
+            )
+
+            coin_data_list = data.get("Data", [])
+            if not coin_data_list:
+                break
+
+            for coin_data in coin_data_list:
+                coin_info = coin_data.get("CoinInfo", {})
+                raw_data = coin_data.get("RAW", {}).get(vs_currency.upper(), {})
+
+                if not raw_data:
+                    continue
+
+                coins.append(
+                    Coin(
+                        symbol=coin_info.get("Name", ""),
+                        name=coin_info.get("FullName", ""),
+                        market_cap=raw_data.get("MKTCAP", 0),
+                        market_cap_rank=len(coins) + 1,
+                        current_price=raw_data.get("PRICE", 0),
+                        volume_24h=raw_data.get("VOLUME24HOUR", 0),
+                        circulating_supply=raw_data.get("CIRCULATINGSUPPLY", 0),
+                    )
+                )
+
+                if len(coins) >= n:
+                    break
+
+            page += 1
+
+            # Safety check - API may not have more data
+            if len(coin_data_list) < per_page:
+                break
+
+        return coins[:n]
 
     def ping(self) -> bool:
         """

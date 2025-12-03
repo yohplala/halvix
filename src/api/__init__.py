@@ -1,43 +1,24 @@
 """
-API client modules for external data sources.
+API client module for CryptoCompare.
 
-Data source strategy:
-- CoinGecko: Coin list, market cap rankings, metadata
-- CryptoCompare: Historical price data (no time limit on free tier)
+CryptoCompare is the single data source for Halvix:
+- Top coins by market cap
+- Historical price data (no time limit on free tier)
+- Volume data for TOTAL2 calculation
 """
 
-from .coingecko import (
-    APIError as CoinGeckoAPIError,
-)
-from .coingecko import (
+from .cryptocompare import (
+    APIError,
     Coin,
-    CoinGeckoClient,
-    CoinGeckoError,
-)
-from .coingecko import (
-    RateLimitError as CoinGeckoRateLimitError,
-)
-from .cryptocompare import (
-    APIError as CryptoCompareAPIError,
-)
-from .cryptocompare import (
     CryptoCompareClient,
     CryptoCompareError,
-)
-from .cryptocompare import (
-    RateLimitError as CryptoCompareRateLimitError,
+    RateLimitError,
 )
 
 __all__ = [
-    # CoinGecko
     "Coin",
-    "CoinGeckoClient",
-    "CoinGeckoError",
-    "CoinGeckoAPIError",
-    "CoinGeckoRateLimitError",
-    # CryptoCompare
     "CryptoCompareClient",
     "CryptoCompareError",
-    "CryptoCompareAPIError",
-    "CryptoCompareRateLimitError",
+    "APIError",
+    "RateLimitError",
 ]

@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 from api.cryptocompare import (
     APIError,
+    Coin,
     CryptoCompareClient,
     RateLimitError,
 )
@@ -52,6 +53,74 @@ class TestCryptoCompareIntegrationPing:
 
         # Should respond within 15 seconds (includes rate limit wait)
         assert elapsed < 15.0
+
+
+class TestCryptoCompareIntegrationTopCoins:
+    """Integration tests for top coins by market cap endpoint."""
+
+    def test_get_top_coins_by_market_cap(self, client):
+        """Test fetching top coins by market cap."""
+        coins = client.get_top_coins_by_market_cap(n=50)
+
+        assert isinstance(coins, list)
+        assert len(coins) == 50
+
+        # All items should be Coin objects
+        assert all(isinstance(c, Coin) for c in coins)
+
+        # First coin should be BTC
+        assert coins[0].symbol == "BTC"
+
+    def test_get_top_100_coins(self, client):
+        """Test fetching top 100 coins (requires pagination)."""
+        coins = client.get_top_coins_by_market_cap(n=100)
+
+        assert isinstance(coins, list)
+        assert len(coins) == 100
+
+        # Should have BTC and ETH
+        symbols = [c.symbol for c in coins]
+        assert "BTC" in symbols
+        assert "ETH" in symbols
+
+    def test_get_top_300_coins(self, client):
+        """Test fetching top 300 coins (requires 3 pages)."""
+        coins = client.get_top_coins_by_market_cap(n=300)
+
+        assert isinstance(coins, list)
+        assert len(coins) == 300
+
+        # Check coin structure
+        coin = coins[0]
+        assert coin.symbol != ""
+        assert coin.name != ""
+        assert coin.market_cap > 0
+        assert coin.current_price > 0
+        assert coin.volume_24h >= 0
+
+    def test_coin_to_dict_format(self, client):
+        """Test that Coin.to_dict() returns expected format for filtering."""
+        coins = client.get_top_coins_by_market_cap(n=10)
+
+        coin_dict = coins[0].to_dict()
+
+        # Check required fields for filtering
+        assert "id" in coin_dict  # lowercase symbol
+        assert "symbol" in coin_dict
+        assert "name" in coin_dict
+        assert "market_cap" in coin_dict
+        assert "volume_24h" in coin_dict
+
+        # id should be lowercase
+        assert coin_dict["id"] == coin_dict["symbol"].lower()
+
+    def test_top_coins_have_volume_data(self, client):
+        """Test that top coins have volume data for TOTAL2 calculation."""
+        coins = client.get_top_coins_by_market_cap(n=50)
+
+        # Most top coins should have non-zero volume
+        coins_with_volume = [c for c in coins if c.volume_24h > 0]
+        assert len(coins_with_volume) >= 40  # At least 80% should have volume
 
 
 class TestCryptoCompareIntegrationDailyHistory:
@@ -194,18 +263,6 @@ class TestCryptoCompareIntegrationCoinList:
         btc = coins["BTC"]
         assert "CoinName" in btc or "FullName" in btc
         assert "Symbol" in btc
-
-
-class TestCryptoCompareIntegrationSymbolMapping:
-    """Integration tests for symbol mapping."""
-
-    def test_symbol_mapping_common_coins(self, client):
-        """Test that common CoinGecko IDs map to correct symbols."""
-        # These should all return valid symbols
-        assert client.get_symbol_for_coingecko_id("bitcoin", "btc") == "BTC"
-        assert client.get_symbol_for_coingecko_id("ethereum", "eth") == "ETH"
-        assert client.get_symbol_for_coingecko_id("solana", "sol") == "SOL"
-        assert client.get_symbol_for_coingecko_id("cardano", "ada") == "ADA"
 
 
 class TestCryptoCompareIntegrationRateLimiting:

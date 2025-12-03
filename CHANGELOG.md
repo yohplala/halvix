@@ -12,33 +12,33 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.2] - 2025-12-03
+
+**Major refactoring: single data source with volume-weighted TOTAL2**
+
+- **Removed:** CoinGecko API client (coingecko.py)
+- **Removed:** Symbol mapping module (symbol_mapping.py)
+- **Removed:** python-dateutil dependency
+- **Changed:** CryptoCompare is now the single data source for all data
+- **Changed:** TOTAL2 calculation now uses volume-weighting instead of market-cap weighting
+- **Changed:** Coin IDs now use lowercase symbols (e.g., "eth" instead of "ethereum")
+- **Changed:** User-Agent now uses dynamic version from package metadata
+- **Updated:** All documentation to reflect new architecture
+- **Updated:** Tests to use volume-based TOTAL2 calculation
+- **Fixed:** Entry point in pyproject.toml follows typical pattern
+
+**Categories:** Refactoring, API, Documentation, Tests
+
 ### [2025.12.1] - 2025-12-03
 
-```
-- Feature: Initial release of halvix
-- Feature: Data fetching from CoinGecko and CryptoCompare APIs
-- Feature: Price data processing and caching with Parquet format
-- Feature: Symbol mapping between different data sources
-- Feature: Analysis filters for halving cycle comparison
-- Feature: Visualization support with Plotly
-- Testing: Comprehensive test suite for all components
-- Documentation: Project context, data sources, and edge cases documentation
+**Initial release - Bitcoin halving cycle analysis**
 
-Files in this release:
-- src/api/coingecko.py
-- src/api/cryptocompare.py
-- src/data/cache.py
-- src/data/fetcher.py
-- src/data/processor.py
-- src/data/symbol_mapping.py
-- src/analysis/filters.py
-- src/visualization/__init__.py
-- src/config.py
-- src/main.py
-- tests/
-- docs/
-```
+- **Feature:** Data fetching from CoinGecko and CryptoCompare APIs
+- **Feature:** Price data processing and caching with Parquet format
+- **Feature:** Symbol mapping between different data sources
+- **Feature:** Analysis filters for halving cycle comparison
+- **Feature:** Visualization support with Plotly
+- **Testing:** Comprehensive test suite for all components
+- **Documentation:** Project context, data sources, and edge cases documentation
 
-**Initial release - Review of BTC halving cycles**
-
-- **Categories:** Features, Testing, Documentation, Data, API
+**Categories:** Features, Testing, Documentation, Data, API

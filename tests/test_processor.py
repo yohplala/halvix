@@ -2,7 +2,7 @@
 Tests for TOTAL2 processor.
 
 Tests cover:
-- TOTAL2 calculation logic
+- Volume-weighted TOTAL2 calculation logic
 - Daily composition tracking
 - Filtering for TOTAL2 eligibility
 - Edge cases
@@ -46,36 +46,36 @@ class TestTotal2FilterCoins:
 
     def test_filters_bitcoin(self, processor):
         """Test that Bitcoin is filtered out."""
-        coins = ["bitcoin", "ethereum", "solana"]
+        coins = ["btc", "eth", "sol"]
         filtered = processor.filter_coins_for_total2(coins)
 
-        assert "bitcoin" not in filtered
-        assert "ethereum" in filtered
-        assert "solana" in filtered
+        assert "btc" not in filtered
+        assert "eth" in filtered
+        assert "sol" in filtered
 
     def test_filters_wrapped_tokens(self, processor):
         """Test that wrapped tokens are filtered out."""
-        coins = ["ethereum", "wrapped-bitcoin", "lido-staked-ether", "solana"]
+        coins = ["eth", "wbtc", "steth", "sol"]
         filtered = processor.filter_coins_for_total2(coins)
 
-        assert "ethereum" in filtered
-        assert "wrapped-bitcoin" not in filtered
-        assert "lido-staked-ether" not in filtered
-        assert "solana" in filtered
+        assert "eth" in filtered
+        assert "wbtc" not in filtered
+        assert "steth" not in filtered
+        assert "sol" in filtered
 
     def test_filters_stablecoins(self, processor):
         """Test that stablecoins are filtered out for TOTAL2."""
-        coins = ["ethereum", "tether", "usd-coin", "solana"]
+        coins = ["eth", "usdt", "usdc", "sol"]
         filtered = processor.filter_coins_for_total2(coins)
 
-        assert "ethereum" in filtered
-        assert "tether" not in filtered
-        assert "usd-coin" not in filtered
-        assert "solana" in filtered
+        assert "eth" in filtered
+        assert "usdt" not in filtered
+        assert "usdc" not in filtered
+        assert "sol" in filtered
 
 
 class TestTotal2Calculation:
-    """Tests for TOTAL2 calculation logic."""
+    """Tests for volume-weighted TOTAL2 calculation logic."""
 
     @pytest.fixture
     def temp_dir(self):
@@ -85,14 +85,13 @@ class TestTotal2Calculation:
 
     @pytest.fixture
     def sample_price_data(self):
-        """Create sample price data for testing."""
+        """Create sample price data for testing with volume."""
         dates = pd.date_range("2024-01-01", periods=5, freq="D")
 
         eth_data = pd.DataFrame(
             {
                 "price": [0.05, 0.052, 0.051, 0.053, 0.054],
-                "market_cap": [400e9, 410e9, 405e9, 420e9, 430e9],
-                "volume": [10e9, 11e9, 10.5e9, 12e9, 11.5e9],
+                "volume_to": [10000, 11000, 10500, 12000, 11500],  # Volume in BTC
             },
             index=dates,
         )
@@ -100,8 +99,7 @@ class TestTotal2Calculation:
         sol_data = pd.DataFrame(
             {
                 "price": [0.003, 0.0031, 0.0029, 0.0032, 0.0033],
-                "market_cap": [80e9, 82e9, 78e9, 85e9, 88e9],
-                "volume": [2e9, 2.1e9, 1.9e9, 2.2e9, 2.3e9],
+                "volume_to": [2000, 2100, 1900, 2200, 2300],
             },
             index=dates,
         )
@@ -109,20 +107,19 @@ class TestTotal2Calculation:
         ada_data = pd.DataFrame(
             {
                 "price": [0.00002, 0.000021, 0.000019, 0.000022, 0.000023],
-                "market_cap": [20e9, 21e9, 19e9, 22e9, 23e9],
-                "volume": [0.5e9, 0.55e9, 0.45e9, 0.6e9, 0.58e9],
+                "volume_to": [500, 550, 450, 600, 580],
             },
             index=dates,
         )
 
         return {
-            "ethereum": eth_data,
-            "solana": sol_data,
-            "cardano": ada_data,
+            "eth": eth_data,
+            "sol": sol_data,
+            "ada": ada_data,
         }
 
     def test_calculate_daily_total2(self, temp_dir, sample_price_data):
-        """Test daily TOTAL2 calculation."""
+        """Test daily volume-weighted TOTAL2 calculation."""
         # Create price cache and save sample data
         cache = PriceDataCache(prices_dir=temp_dir)
         for coin_id, df in sample_price_data.items():
@@ -139,18 +136,18 @@ class TestTotal2Calculation:
 
         # Check index record
         assert "total2_price" in index_record
-        assert "total_market_cap" in index_record
+        assert "total_volume" in index_record
         assert "coin_count" in index_record
         assert index_record["coin_count"] == 3
 
         # Check composition
         assert len(composition) == 3
-        # ETH should be rank 1 (highest market cap)
-        eth_entry = [c for c in composition if c["coin_id"] == "ethereum"][0]
+        # ETH should be rank 1 (highest volume)
+        eth_entry = [c for c in composition if c["coin_id"] == "eth"][0]
         assert eth_entry["rank"] == 1
 
-    def test_weighted_average_calculation(self, temp_dir, sample_price_data):
-        """Test that weighted average is calculated correctly."""
+    def test_volume_weighted_average_calculation(self, temp_dir, sample_price_data):
+        """Test that volume-weighted average is calculated correctly."""
         cache = PriceDataCache(prices_dir=temp_dir)
         for coin_id, df in sample_price_data.items():
             cache.set_prices(coin_id, df)
@@ -163,12 +160,12 @@ class TestTotal2Calculation:
         index_record, _ = result
 
         # Manual calculation for 2024-01-01:
-        # ETH: price=0.05, mcap=400e9
-        # SOL: price=0.003, mcap=80e9
-        # ADA: price=0.00002, mcap=20e9
-        # Total mcap = 500e9
-        # Weighted = (0.05*400e9 + 0.003*80e9 + 0.00002*20e9) / 500e9
-        expected_weighted = (0.05 * 400e9 + 0.003 * 80e9 + 0.00002 * 20e9) / 500e9
+        # ETH: price=0.05, volume=10000
+        # SOL: price=0.003, volume=2000
+        # ADA: price=0.00002, volume=500
+        # Total volume = 12500
+        # Weighted = (0.05*10000 + 0.003*2000 + 0.00002*500) / 12500
+        expected_weighted = (0.05 * 10000 + 0.003 * 2000 + 0.00002 * 500) / 12500
 
         assert abs(index_record["total2_price"] - expected_weighted) < 1e-10
 
@@ -189,7 +186,7 @@ class TestTotal2Calculation:
 
         # Check all expected columns
         assert "total2_price" in result.index_df.columns
-        assert "total_market_cap" in result.index_df.columns
+        assert "total_volume" in result.index_df.columns
         assert "coin_count" in result.index_df.columns
 
 
@@ -209,7 +206,7 @@ class TestTotal2SaveLoad:
         index_df = pd.DataFrame(
             {
                 "total2_price": [0.04, 0.041, 0.042],
-                "total_market_cap": [500e9, 510e9, 520e9],
+                "total_volume": [12500, 13000, 13500],
                 "coin_count": [50, 50, 50],
             },
             index=dates,
@@ -220,8 +217,8 @@ class TestTotal2SaveLoad:
             {
                 "date": pd.to_datetime(["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-02"]),
                 "rank": [1, 2, 1, 2],
-                "coin_id": ["ethereum", "solana", "ethereum", "solana"],
-                "market_cap": [400e9, 80e9, 410e9, 82e9],
+                "coin_id": ["eth", "sol", "eth", "sol"],
+                "volume": [10000, 2000, 10500, 2100],
                 "weight": [0.8, 0.2, 0.8, 0.2],
                 "price_btc": [0.05, 0.003, 0.051, 0.0031],
             }
@@ -282,11 +279,11 @@ class TestTotal2EdgeCases:
         wbtc_data = pd.DataFrame(
             {
                 "price": [1.0, 1.0, 1.0],
-                "market_cap": [10e9, 10e9, 10e9],
+                "volume_to": [1000, 1000, 1000],
             },
             index=dates,
         )
-        cache.set_prices("wrapped-bitcoin", wbtc_data)
+        cache.set_prices("wbtc", wbtc_data)
 
         processor = Total2Processor(price_cache=cache)
 
@@ -301,28 +298,28 @@ class TestTotal2EdgeCases:
         eth_data = pd.DataFrame(
             {
                 "price": [0.05, 0.051, 0.052],
-                "market_cap": [400e9, 410e9, 420e9],
+                "volume_to": [10000, 10500, 11000],
             },
             index=dates,
         )
         sol_data = pd.DataFrame(
             {
                 "price": [0.003, 0.0031, 0.0032],
-                "market_cap": [80e9, 82e9, 85e9],
+                "volume_to": [2000, 2100, 2200],
             },
             index=dates,
         )
         ada_data = pd.DataFrame(
             {
                 "price": [0.00002, 0.000021, 0.000022],
-                "market_cap": [20e9, 21e9, 22e9],
+                "volume_to": [500, 550, 600],
             },
             index=dates,
         )
 
-        cache.set_prices("ethereum", eth_data)
-        cache.set_prices("solana", sol_data)
-        cache.set_prices("cardano", ada_data)
+        cache.set_prices("eth", eth_data)
+        cache.set_prices("sol", sol_data)
+        cache.set_prices("ada", ada_data)
 
         # Request top 50, but only 3 available
         processor = Total2Processor(price_cache=cache, top_n=50)

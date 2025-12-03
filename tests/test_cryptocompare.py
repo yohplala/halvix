@@ -241,26 +241,6 @@ class TestCryptoCompareClientDailyHistory:
             assert not df.empty
 
 
-class TestCryptoCompareClientSymbolMapping:
-    """Tests for symbol mapping."""
-
-    @pytest.fixture
-    def client(self):
-        return CryptoCompareClient()
-
-    def test_get_symbol_for_coingecko_id(self, client):
-        """Test mapping CoinGecko ID to CryptoCompare symbol."""
-        # Method takes (coingecko_id, coingecko_symbol)
-        assert client.get_symbol_for_coingecko_id("bitcoin", "btc") == "BTC"
-        assert client.get_symbol_for_coingecko_id("ethereum", "eth") == "ETH"
-        assert client.get_symbol_for_coingecko_id("solana", "sol") == "SOL"
-
-    def test_special_symbol_mapping(self, client):
-        """Test special symbol overrides."""
-        # IOTA has a special mapping
-        assert client.get_symbol_for_coingecko_id("miota", "miota") == "IOTA"
-
-
 class TestCryptoCompareClientPing:
     """Tests for ping method."""
 

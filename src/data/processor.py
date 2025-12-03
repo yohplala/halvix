@@ -1,10 +1,10 @@
 """
 Data processor for TOTAL2 index calculation.
 
-Calculates the market-cap weighted TOTAL2 index:
-- For each day, identifies top N coins by market cap
+Calculates the volume-weighted TOTAL2 index:
+- For each day, identifies top N coins by 24h trading volume
 - Excludes BTC, derivatives, and stablecoins
-- Computes weighted average price in BTC
+- Computes volume-weighted average price in BTC
 - Tracks daily composition (which coins were in the index)
 """
 
@@ -44,12 +44,17 @@ class Total2Result:
 
 class Total2Processor:
     """
-    Processor for calculating the TOTAL2 market index.
+    Processor for calculating the volume-weighted TOTAL2 market index.
 
-    TOTAL2 is a market-cap weighted index of top N altcoins,
+    TOTAL2 is a volume-weighted index of top N altcoins,
     excluding BTC, derivatives, and stablecoins.
 
-    The composition changes daily based on market cap rankings.
+    The composition changes daily based on 24h trading volume rankings.
+
+    Algorithm:
+    - For each day, rank coins by their 24h volume (volumeto in BTC)
+    - Take top N coins
+    - Calculate: TOTAL2 = Σ(price × volume) / Σ(volume)
 
     Usage:
         processor = Total2Processor()
@@ -121,10 +126,11 @@ class Total2Processor:
 
         for coin_id in coin_ids:
             # Check if should be excluded for TOTAL2
+            # coin_id is lowercase symbol (e.g., "eth")
             should_exclude, reason = self.token_filter.should_exclude(
                 coin_id=coin_id,
                 name="",  # We only have ID from cache
-                symbol="",
+                symbol=coin_id.upper(),
                 for_total2=True,  # Include stablecoin check
             )
 
@@ -170,7 +176,7 @@ class Total2Processor:
         show_progress: bool = True,
     ) -> Total2Result:
         """
-        Calculate the TOTAL2 index for all available dates.
+        Calculate the volume-weighted TOTAL2 index for all available dates.
 
         Args:
             coin_ids: Optional list of coin IDs (default: all cached, filtered)
@@ -262,7 +268,11 @@ class Total2Processor:
         target_date: datetime,
     ) -> tuple[dict, list[dict]] | None:
         """
-        Calculate TOTAL2 for a single day.
+        Calculate volume-weighted TOTAL2 for a single day.
+
+        Uses 24h trading volume (volumeto) for both:
+        - Ranking coins (top N by volume)
+        - Weighting the average price
 
         Args:
             price_data: Dictionary of price DataFrames (with normalized DatetimeIndex)
@@ -285,14 +295,15 @@ class Total2Processor:
 
                 # Extract values from the Series
                 price = row["price"] if "price" in row.index else None
-                market_cap = row["market_cap"] if "market_cap" in row.index else None
+                # Use volume_to (volume in quote currency, i.e., BTC)
+                volume = row["volume_to"] if "volume_to" in row.index else None
 
-                if pd.notna(price) and pd.notna(market_cap) and market_cap > 0:
+                if pd.notna(price) and pd.notna(volume) and volume > 0 and price > 0:
                     daily_data.append(
                         {
                             "coin_id": coin_id,
                             "price": float(price),
-                            "market_cap": float(market_cap),
+                            "volume": float(volume),
                         }
                     )
             except (KeyError, IndexError, TypeError):
@@ -301,20 +312,20 @@ class Total2Processor:
         if len(daily_data) < 3:  # Need at least 3 coins for meaningful index
             return None
 
-        # Sort by market cap and take top N
-        daily_data.sort(key=lambda x: x["market_cap"], reverse=True)
+        # Sort by volume and take top N
+        daily_data.sort(key=lambda x: x["volume"], reverse=True)
         top_n = daily_data[: self.top_n]
 
-        # Calculate weighted average
-        total_mcap = sum(c["market_cap"] for c in top_n)
-        weighted_sum = sum(c["price"] * c["market_cap"] for c in top_n)
-        total2_price = weighted_sum / total_mcap if total_mcap > 0 else 0
+        # Calculate volume-weighted average price
+        total_volume = sum(c["volume"] for c in top_n)
+        weighted_sum = sum(c["price"] * c["volume"] for c in top_n)
+        total2_price = weighted_sum / total_volume if total_volume > 0 else 0
 
         # Build index record
         index_record = {
             "date": target_date.date() if hasattr(target_date, "date") else target_date,
             "total2_price": total2_price,
-            "total_market_cap": total_mcap,
+            "total_volume": total_volume,
             "coin_count": len(top_n),
         }
 
@@ -326,8 +337,8 @@ class Total2Processor:
                     "date": target_date.date() if hasattr(target_date, "date") else target_date,
                     "rank": rank,
                     "coin_id": coin["coin_id"],
-                    "market_cap": coin["market_cap"],
-                    "weight": coin["market_cap"] / total_mcap if total_mcap > 0 else 0,
+                    "volume": coin["volume"],
+                    "weight": coin["volume"] / total_volume if total_volume > 0 else 0,
                     "price_btc": coin["price"],
                 }
             )
@@ -431,7 +442,7 @@ class Total2Processor:
         Get the history of a coin's inclusion in TOTAL2.
 
         Args:
-            coin_id: CoinGecko coin ID
+            coin_id: Coin ID (lowercase symbol)
             composition_df: Optional pre-loaded composition (default: load from file)
 
         Returns:

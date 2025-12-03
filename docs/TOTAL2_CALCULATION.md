@@ -1,10 +1,10 @@
 # TOTAL2 Index Calculation
 
-> **TOTAL2** is a weighted market index representing the cryptocurrency market excluding Bitcoin. This document describes how Halvix calculates the TOTAL2 index.
+> **TOTAL2** is a volume-weighted market index representing the cryptocurrency market excluding Bitcoin. This document describes how Halvix calculates the TOTAL2 index.
 
 ## Overview
 
-TOTAL2 provides a benchmark to compare individual coin performance against the overall altcoin market. Unlike a simple average, TOTAL2 is **market-cap weighted**, meaning larger coins have proportionally more influence on the index.
+TOTAL2 provides a benchmark to compare individual coin performance against the overall altcoin market. Unlike a simple average, TOTAL2 is **volume-weighted**, meaning coins with higher trading volume have proportionally more influence on the index.
 
 ## Configuration
 
@@ -24,13 +24,13 @@ This value can be modified to include more or fewer coins in the index.
 For **each day** in the analysis window, TOTAL2 is calculated as follows:
 
 ```
-TOTAL2(day) = Σ(price_btc[i] × market_cap[i]) / Σ(market_cap[i])
-              for i in top N coins on that day
+TOTAL2(day) = Σ(price_btc[i] × volume[i]) / Σ(volume[i])
+              for i in top N coins by volume on that day
 ```
 
 Where:
 - `price_btc[i]` = Price of coin i in BTC on that day
-- `market_cap[i]` = Market capitalization of coin i on that day
+- `volume[i]` = 24h trading volume of coin i in BTC on that day
 - `N` = `TOP_N_FOR_TOTAL2` (default: 50)
 
 ### Step-by-Step Process
@@ -38,7 +38,7 @@ Where:
 ```
 For each day in the analysis window:
 
-    1. COLLECT market_cap for all coins on that day
+    1. COLLECT 24h volume for all coins on that day
 
     2. FILTER OUT:
        - Bitcoin (BTC) - base currency
@@ -48,13 +48,13 @@ For each day in the analysis window:
        - Liquid staking derivatives
        - Stablecoins (USDT, USDC, DAI, etc.)
 
-    3. SORT remaining coins by market_cap descending
+    3. SORT remaining coins by 24h volume descending
 
     4. SELECT top N coins (default: 50)
 
-    5. CALCULATE weighted average:
-       total_mcap = sum(market_cap[i] for i in top_N)
-       total2 = sum(price_btc[i] * market_cap[i] for i in top_N) / total_mcap
+    5. CALCULATE volume-weighted average:
+       total_volume = sum(volume[i] for i in top_N)
+       total2 = sum(price_btc[i] * volume[i] for i in top_N) / total_volume
 
     6. RECORD:
        - TOTAL2 value for that day
@@ -65,40 +65,40 @@ For each day in the analysis window:
 
 For a given day with these top 3 coins (simplified example):
 
-| Coin | Price (BTC) | Market Cap |
-|------|-------------|------------|
-| ETH  | 0.050       | $400B      |
-| SOL  | 0.003       | $80B       |
-| XRP  | 0.00002     | $60B       |
+| Coin | Price (BTC) | 24h Volume (BTC) |
+|------|-------------|------------------|
+| ETH  | 0.050       | 50,000           |
+| SOL  | 0.003       | 30,000           |
+| XRP  | 0.00002     | 20,000           |
 
 ```
-Total Market Cap = 400B + 80B + 60B = 540B
+Total Volume = 50,000 + 30,000 + 20,000 = 100,000 BTC
 
-TOTAL2 = (0.050 × 400B + 0.003 × 80B + 0.00002 × 60B) / 540B
-       = (20B + 0.24B + 0.0012B) / 540B
-       = 20.2412B / 540B
-       = 0.0375 BTC
+TOTAL2 = (0.050 × 50,000 + 0.003 × 30,000 + 0.00002 × 20,000) / 100,000
+       = (2,500 + 90 + 0.4) / 100,000
+       = 2,590.4 / 100,000
+       = 0.02590 BTC
 ```
 
 ## Dynamic Composition
 
-**Important:** The coins included in TOTAL2 change day by day based on market cap rankings.
+**Important:** The coins included in TOTAL2 change day by day based on trading volume rankings.
 
 - A coin might be #45 one day and #55 the next (dropping out of TOTAL2)
-- New coins can enter the index as they grow in market cap
+- New coins can enter the index as they gain trading activity
 - This reflects the actual market dynamics over time
 
 ### Composition Tracking
 
 Halvix saves the daily composition to `data/processed/total2_daily_composition.parquet`:
 
-| date       | rank | coin_id    | market_cap    | weight   |
-|------------|------|------------|---------------|----------|
-| 2024-01-01 | 1    | ethereum   | 400000000000  | 0.741    |
-| 2024-01-01 | 2    | solana     | 80000000000   | 0.148    |
-| 2024-01-01 | 3    | ripple     | 60000000000   | 0.111    |
-| 2024-01-02 | 1    | ethereum   | 410000000000  | 0.745    |
-| ...        | ...  | ...        | ...           | ...      |
+| date       | rank | coin_id    | volume        | weight   | price_btc |
+|------------|------|------------|---------------|----------|-----------|
+| 2024-01-01 | 1    | eth        | 50000         | 0.50     | 0.050     |
+| 2024-01-01 | 2    | sol        | 30000         | 0.30     | 0.003     |
+| 2024-01-01 | 3    | xrp        | 20000         | 0.20     | 0.00002   |
+| 2024-01-02 | 1    | eth        | 52000         | 0.48     | 0.051     |
+| ...        | ...  | ...        | ...           | ...      | ...       |
 
 ## Exclusions
 
@@ -138,8 +138,8 @@ Some tokens with pattern-matching names are explicitly allowed:
 
 ```
 date: datetime (index)
-total2_price: float      # Weighted average price in BTC
-total_market_cap: float  # Sum of market caps of top N coins
+total2_price: float      # Volume-weighted average price in BTC
+total_volume: float      # Sum of volumes of top N coins
 coin_count: int          # Number of coins included (may be < N if not enough data)
 ```
 
@@ -148,9 +148,9 @@ coin_count: int          # Number of coins included (may be < N if not enough da
 ```
 date: datetime
 rank: int               # 1 to N
-coin_id: str            # CoinGecko coin ID
-market_cap: float       # Market cap on that day
-weight: float           # Proportion of total market cap (0-1)
+coin_id: str            # Coin symbol (lowercase)
+volume: float           # 24h volume in BTC on that day
+weight: float           # Proportion of total volume (0-1)
 price_btc: float        # Price in BTC on that day
 ```
 
@@ -161,6 +161,15 @@ Once calculated, TOTAL2 is used as:
 1. **Benchmark overlay** - Displayed as a grey line on individual coin charts
 2. **Backfilling reference** - For coins without early data, their history is estimated using TOTAL2
 3. **Performance comparison** - Coins are compared against TOTAL2 to identify outperformers
+
+## Why Volume-Weighted?
+
+Volume-weighted TOTAL2 has advantages over market-cap-weighted:
+
+1. **Reflects actual market activity** - High volume means active trading
+2. **Available historically** - Volume data is part of daily OHLCV
+3. **Filters out dormant coins** - Low volume coins don't distort the index
+4. **Single data source** - No need for separate market cap data
 
 ## Related Configuration
 

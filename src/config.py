@@ -123,177 +123,91 @@ TOP_N_SUMMARY = 10
 
 # These coins are excluded from TOTAL2 index calculation
 # Stablecoins pegged to USD or other fiat currencies
+# Use lowercase symbols for matching
 EXCLUDED_STABLECOINS = {
-    # Major USD stablecoins
-    "tether",
+    # Major USD stablecoins (by symbol)
     "usdt",
-    "usd-coin",
     "usdc",
     "dai",
-    "multi-collateral-dai",
     "usds",
-    "sky-dollar",
-    "ethena-usde",
     "usde",
     "susds",
-    "staked-usds",
-    "paypal-usd",
     "pyusd",
-    "usdt0",
-    "ethena-staked-usde",
     "susde",
     "usd1",
     "usdf",
     "usdtb",
     "bfusd",
-    "binance-fiat-usd",
     "rlusd",
-    "ripple-usd",
     "usdg",
     "usyc",
-    "first-digital-usd",
     "fdusd",
-    "ondo-us-dollar-yield",
     "usdy",
-    "bridged-usdc-polygon-pos-bridge",
-    "usdc-e",
-    "polygon-bridged-dai",
-    "usdai",
-    "usual-usd",
     "usd0",
     "usdd",
-    "decentralized-usd",
-    "true-usd",
     "tusd",
-    "mantle-bridged-usdt",
     "gho",
-    "aave-gho",
-    "steakhouse-usdc",
     "usdb",
     "frax",
-    "frax-finance",
     "lusd",
-    "liquity-usd",
     "crvusd",
-    "curve-usd",
     "gusd",
-    "gemini-dollar",
     "busd",
-    "binance-usd",
     "usdp",
-    "pax-dollar",
     "susd",
     "nusd",
-    "synthetix-usd",
+    # Euro stablecoins
     "eurs",
-    "stasis-euro",
     "eurt",
-    "tether-eurt",
     "ageur",
-    "angle-euro",
+    # Other stablecoins
     "mim",
-    "magic-internet-money",
     "dola",
-    "dola-usd",
-    "aleph-zero-usd",
-    "azero-usd",
-    # Binance bridged stablecoins
-    "binance-bridged-usdt-bnb-smart-chain",
-    "binance-bridged-usdc-bnb-smart-chain",
-    "binance-peg-busd",
-    # Other bridged stablecoins
-    "bridged-usdt",
-    "bridged-usdc",
-    "bridged-dai",
 }
 
 # =============================================================================
 # Wrapped/Staked/Bridged Token Exclusion
 # =============================================================================
 
-# Exact coin IDs to exclude (wrapped, staked, bridged, liquid staking tokens)
+# Exact symbols to exclude (wrapped, staked, bridged, liquid staking tokens)
+# Use lowercase for matching
 EXCLUDED_WRAPPED_STAKED_IDS = {
     # Wrapped BTC variants
-    "wrapped-bitcoin",
     "wbtc",
     "tbtc",
-    "threshold-btc",
     "hbtc",
-    "huobi-btc",
     "renbtc",
-    "ren-btc",
     "sbtc",
-    "synth-sbtc",
     "fbtc",
-    "ignition-fbtc",
     "lbtc",
-    "lombard-btc",
-    "lombard-staked-btc",
     "solvbtc",
-    "solv-btc",
     "clbtc",
-    "enzobtc",
-    "enzo-btc",
-    "arbitrum-bridged-btc",
     "cbbtc",
-    "coinbase-wrapped-btc",
+    "enzobtc",
     # Wrapped/Staked ETH variants
-    "staked-ether",
-    "lido-staked-ether",
     "steth",
-    "wrapped-steth",
     "wsteth",
-    "wrapped-ether",
     "weth",
-    "wrapped-beacon-eth",
     "wbeth",
-    "wrapped-eeth",
     "weeth",
-    "ether-fi-staked-eth",
-    "rocket-pool-eth",
     "reth",
-    "coinbase-wrapped-staked-eth",
     "cbeth",
-    "frax-staked-ether",
     "sfrxeth",
-    "mantle-staked-ether",
     "meth",
-    "binance-staked-eth",
     "lseth",
-    "liquid-staked-eth",
-    "kelp-dao-restaked-eth",
     "rseth",
-    "renzo-restaked-eth",
     "ezeth",
     "oseth",
-    "stakewise-staked-eth",
-    "l2-standard-bridged-weth-base",
-    "arbitrum-bridged-weth",
-    "stader-ethx",
     "ethx",
     "eeth",
-    "swell-staked-eth",
     "sweth",
     # Wrapped/Staked SOL variants
-    "wrapped-solana",
-    "wrapped-sol",
-    "jito-staked-sol",
+    "wsol",
     "jitosol",
-    "marinade-staked-sol",
     "msol",
     "bnsol",
-    "binance-staked-sol",
     # Wrapped BNB
-    "wrapped-bnb",
     "wbnb",
-    # Other wrapped/bridged tokens
-    "syrup-usdc",
-    "syrupusdc",
-    "khype",
-    # L2/Bridge wrapped tokens
-    "l2-standard-bridged-weth",
-    "polygon-bridged-weth",
-    "optimism-bridged-weth",
 }
 
 # Patterns to match in coin ID or name (case-insensitive regex)
@@ -337,61 +251,51 @@ EXCLUDED_PATTERNS = [
 # =============================================================================
 # Allowed Tokens (override exclusions)
 # These tokens should NEVER be filtered out despite matching patterns
+# Use lowercase symbols for matching
 # =============================================================================
 
 ALLOWED_TOKENS = {
     "sui",  # SUI blockchain native token
-    "sei-network",  # SEI blockchain native token
-    "sei",
+    "sei",  # SEI blockchain native token
     "stk",  # STK token
-    "the-sandbox",  # SAND token
-    "sand",
-    "dogwifhat",  # WIF meme token
-    "wif",
-    "stellar",  # XLM (has 'st' prefix but is not staked)
-    "stacks",  # STX (has 'st' prefix but is not staked)
+    "sand",  # The Sandbox
+    "wif",  # dogwifhat meme token
+    "xlm",  # Stellar (has 'st' in name but is not staked)
+    "stx",  # Stacks (has 'st' prefix but is not staked)
     "storm",  # STORM token
-    "status",  # SNT token
+    "snt",  # Status
     "storj",  # STORJ token
-    "stratis",  # STRAX token
-    "stp-network",  # STPT token
-    "starknet",  # STRK token
-    "wilder-world",  # WILD token
+    "strax",  # Stratis
+    "stpt",  # STP Network
+    "strk",  # Starknet
+    "wild",  # Wilder World
     "wifi",  # WIFI token
 }
 
 # =============================================================================
-# CoinGecko API Configuration
+# CryptoCompare API Configuration
 # =============================================================================
 
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-COINGECKO_COIN_URL = "https://www.coingecko.com/en/coins"
+# CryptoCompare is the sole data source for Halvix:
+# - Top coins by market cap for coin discovery
+# - Historical price data with full history (no time limit on free tier)
+# - Volume data for TOTAL2 calculation
+CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
+CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
-# Rate limiting (free tier: ~10-30 calls per minute)
-API_CALLS_PER_MINUTE = 10
-API_MIN_INTERVAL = 60.0 / API_CALLS_PER_MINUTE  # seconds between calls
+# Rate limiting (free tier: 10 calls/second, we stay conservative)
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
+
+# Maximum days per request (API limit)
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
 
 # Retry configuration
 API_MAX_RETRIES = 5
 API_RETRY_MIN_WAIT = 1  # seconds
 API_RETRY_MAX_WAIT = 60  # seconds
 
-# Cache expiry (24 hours for historical data)
+# Cache expiry (24 hours for coin list data)
 CACHE_EXPIRY_SECONDS = 86400
-
-# =============================================================================
-# CryptoCompare API Configuration
-# =============================================================================
-
-# CryptoCompare is used for historical price data (free tier has no time limit)
-# Unlike CoinGecko which limits free users to 365 days
-CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
-
-# Rate limiting (free tier: generous, but we stay conservative)
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
-
-# Maximum days per request (API limit)
-CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
 
 # =============================================================================
 # Visualization Configuration
@@ -438,18 +342,6 @@ REJECTED_COINS_CSV = PROCESSED_DIR / "rejected_coins.csv"
 REGRESSION_RESULTS_CSV = PROCESSED_DIR / "regression_results.csv"
 TOTAL2_INDEX_FILE = PROCESSED_DIR / "total2_index.parquet"
 TOTAL2_COMPOSITION_FILE = PROCESSED_DIR / "total2_daily_composition.parquet"
-
-# =============================================================================
-# Symbol Mapping Configuration
-# =============================================================================
-
-# Symbol mapping cache file
-SYMBOL_MAPPING_FILE = PROCESSED_DIR / "symbol_mappings.json"
-
-# Maximum allowed price difference (%) for symbol validation
-# If prices from CoinGecko and CryptoCompare differ by more than this,
-# the mapping is considered invalid
-SYMBOL_MAPPING_TOLERANCE_PERCENT = 4.0
 
 # =============================================================================
 # Data Fetching Configuration

@@ -1,60 +1,61 @@
 # Data Sources and API Strategy
 
-This document details the dual-API strategy used by Halvix for cryptocurrency data retrieval, including rate limits, data types, and implementation details.
+This document details the API strategy used by Halvix for cryptocurrency data retrieval, including rate limits, data types, and implementation details.
 
 ## Overview
 
-Halvix uses a **dual-API strategy** to work within free tier limitations while obtaining comprehensive historical data:
+Halvix uses **CryptoCompare** as its single data source:
 
-| API | Purpose | Key Advantage |
-|-----|---------|---------------|
-| **CoinGecko** | Coin lists, metadata, current market data | Comprehensive coin coverage, reliable market cap rankings |
-| **CryptoCompare** | Historical price data (OHLCV) | **Unlimited historical depth** (5000+ days) |
+| Feature | Details |
+|---------|---------|
+| **Top coins by market cap** | `/data/top/mktcapfull` endpoint |
+| **Historical prices** | `/data/v2/histoday` endpoint |
+| **Volume data** | Included in historical data for TOTAL2 weighting |
+| **Rate limit** | 10 calls/second (free tier) |
+| **Historical depth** | **Unlimited** - full history available |
 
-This strategy was chosen because:
-- CoinGecko's free tier limits historical data to **365 days**
-- Halving cycle analysis requires **4000+ days** of data (covering multiple cycles)
-- CryptoCompare's free tier provides **full historical access** with no time restrictions
+This single-source approach provides:
+- No symbol mapping issues between different APIs
+- Consistent data quality
+- Simpler architecture
+- Full historical data needed for halving cycle analysis (5000+ days)
 
 ---
 
-## CoinGecko API
+## CryptoCompare API
 
-### Usage in Halvix
+### Endpoints Used
 
 | Data Type | Endpoint | CLI Command |
 |-----------|----------|-------------|
-| Top N coins by market cap | `/coins/markets` | `python -m main list-coins` |
-| Coin metadata (name, symbol, rank) | `/coins/markets` | `python -m main list-coins` |
-| API connectivity check | `/ping` | `python -m main status` |
+| Top N coins by market cap | `/data/top/mktcapfull` | `python -m main list-coins` |
+| Daily OHLCV prices | `/data/v2/histoday` | `python -m main fetch-prices` |
+| Full historical prices (with pagination) | `/data/v2/histoday` | `python -m main fetch-prices` |
+| API connectivity check | `/data/v2/histoday` | `python -m main status` |
 
 ### Rate Limits
 
 | Tier | Rate Limit | Notes |
 |------|------------|-------|
-| **Public (Free)** | 5-15 calls/minute | Variable based on server load |
-| Demo (Free with key) | 30 calls/minute | Requires registration |
-| Paid plans | 500-1000 calls/minute | Subscription required |
+| **Free** | 10 calls/second | No API key required |
+| Professional | 50 calls/second | Paid |
+| Enterprise | Custom | Contact sales |
 
 ### Halvix Configuration
 
 ```python
 # src/config.py
-API_CALLS_PER_MINUTE = 10  # Conservative setting for free tier
-API_MIN_INTERVAL = 6.0     # 6 seconds between calls
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30  # Conservative (could go to 600)
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Max days per request
 ```
 
 ### Implementation Details
 
-The `CoinGeckoClient` (`src/api/coingecko.py`) implements:
+The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
 1. **Proactive Rate Limiting**: Waits between requests to stay under limits
    ```python
-   def _wait_for_rate_limit(self) -> None:
-       if self._last_request_time is not None:
-           elapsed = time.time() - self._last_request_time
-           if elapsed < self.min_interval:
-               time.sleep(self.min_interval - elapsed)
+   self.min_interval = 60.0 / calls_per_minute  # 2 seconds at 30 calls/min
    ```
 
 2. **Automatic Retry with Exponential Backoff**: Uses `tenacity` library
@@ -66,65 +67,18 @@ The `CoinGeckoClient` (`src/api/coingecko.py`) implements:
    )
    ```
 
-3. **Error Detection**: Catches HTTP 429 and raises `RateLimitError`
-
-### Free Tier Limitations
-
-| Limitation | Impact on Halvix |
-|------------|------------------|
-| 365-day historical data limit | ❌ Cannot use for halving analysis |
-| Variable rate limits | ✅ Handled with conservative settings |
-| No API key required | ✅ Simple setup |
-
----
-
-## CryptoCompare API
-
-### Usage in Halvix
-
-| Data Type | Endpoint | CLI Command |
-|-----------|----------|-------------|
-| Daily OHLCV prices | `/data/v2/histoday` | `python -m main fetch-prices` |
-| Full historical prices (with pagination) | `/data/v2/histoday` | `python -m main fetch-prices` |
-| Coin symbol list | `/data/all/coinlist` | Internal mapping |
-| API connectivity check | `/data/v2/histoday` | `python -m main status` |
-
-### Rate Limits
-
-| Tier | Rate Limit | Monthly Limit | Notes |
-|------|------------|---------------|-------|
-| **Free** | 10 calls/second | Unlimited | No API key required |
-| Professional | 50 calls/second | 1,000,000 calls | Paid |
-| Enterprise | Custom | Custom | Contact sales |
-
-### Halvix Configuration
-
-```python
-# src/config.py
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30  # Conservative (could go to 600)
-CRYPTOCOMPARE_MAX_LIMIT = 2000           # Max days per request
-```
-
-### Implementation Details
-
-The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
-
-1. **Proactive Rate Limiting**: Same pattern as CoinGecko
-   ```python
-   self.min_interval = 60.0 / calls_per_minute  # 2 seconds at 30 calls/min
-   ```
-
-2. **Automatic Pagination**: For requests exceeding 2000 days
+3. **Automatic Pagination**: For requests exceeding 2000 days
    ```python
    def get_full_daily_history(self, symbol, vs_currency, start_date, end_date):
        # Automatically fetches in 2000-day chunks
        # Handles deduplication and chronological sorting
    ```
 
-3. **Symbol Mapping**: Converts CoinGecko IDs to CryptoCompare symbols
+4. **Top Coins by Market Cap**: Fetches current rankings with pagination
    ```python
-   def get_symbol_for_coingecko_id(self, coingecko_id, coingecko_symbol):
-       return coingecko_symbol.upper()  # Most coins: ETH -> ETH
+   def get_top_coins_by_market_cap(self, n: int = 300):
+       # Fetches coins in pages of 100
+       # Returns Coin objects with market cap, price, volume
    ```
 
 ### Free Tier Advantages
@@ -135,6 +89,8 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 | High rate limit (10/second) | ✅ Fast data retrieval |
 | No API key required | ✅ Simple setup |
 | 2000 days per request | ✅ Efficient pagination |
+| Market cap rankings | ✅ Top coins discovery |
+| Volume data | ✅ Volume-weighted TOTAL2 calculation |
 
 ---
 
@@ -145,10 +101,10 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 │                         Halvix Pipeline                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Step 1: Discover Coins (CoinGecko)                            │
+│  Step 1: Discover Coins (CryptoCompare)                        │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ GET /coins/markets?per_page=300                          │  │
-│  │ Returns: id, symbol, name, market_cap, market_cap_rank   │  │
+│  │ GET /data/top/mktcapfull?limit=100&page=0..2             │  │
+│  │ Returns: symbol, name, market_cap, price, volume         │  │
 │  │ Output: data/processed/accepted_coins.json               │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                  │
@@ -165,14 +121,14 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 │  │ GET /data/v2/histoday?fsym=ETH&tsym=BTC&limit=2000      │  │
 │  │ Pagination: Multiple requests for 4000+ days            │  │
 │  │ Returns: date, open, high, low, close, volume           │  │
-│  │ Output: data/prices/{coin_id}.parquet                   │  │
+│  │ Output: data/raw/prices/{symbol}.parquet                │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                  │
 │                              ▼                                  │
-│  Step 4: Calculate TOTAL2 Index (Local)                        │
+│  Step 4: Calculate Volume-Weighted TOTAL2 (Local)              │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Daily selection of top 50 altcoins by market cap         │  │
-│  │ Market-cap weighted average price                        │  │
+│  │ Daily selection of top 50 altcoins by volume             │  │
+│  │ Volume-weighted average price                            │  │
 │  │ Output: data/processed/total2_index.parquet             │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -183,18 +139,18 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
 ## Data Retrieved
 
-### From CoinGecko
+### From /data/top/mktcapfull
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | string | Unique coin identifier (e.g., "ethereum") |
-| `symbol` | string | Trading symbol (e.g., "eth") |
-| `name` | string | Full name (e.g., "Ethereum") |
-| `market_cap` | float | Current market capitalization in USD |
-| `market_cap_rank` | int | Rank by market cap (1 = largest) |
-| `current_price` | float | Current price in requested currency |
+| `CoinInfo.Name` | string | Trading symbol (e.g., "ETH") |
+| `CoinInfo.FullName` | string | Full name (e.g., "Ethereum") |
+| `RAW.MKTCAP` | float | Current market capitalization |
+| `RAW.PRICE` | float | Current price in quote currency |
+| `RAW.VOLUME24HOUR` | float | 24h trading volume |
+| `RAW.CIRCULATINGSUPPLY` | float | Circulating supply |
 
-### From CryptoCompare
+### From /data/v2/histoday
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -208,53 +164,9 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
 ---
 
-## Symbol Mapping
-
-CoinGecko uses human-readable IDs (`bitcoin`, `ethereum`) while CryptoCompare uses uppercase trading symbols (`BTC`, `ETH`).
-
-### Mapping Strategy
-
-```python
-# Most coins: uppercase the CoinGecko symbol
-coingecko_symbol = "eth"  → cryptocompare_symbol = "ETH"
-
-# Special cases handled via overrides
-coingecko_id = "miota"    → cryptocompare_symbol = "IOTA"
-```
-
-### Potential Issues
-
-Some coins may have:
-- Different symbols on different exchanges
-- No CryptoCompare listing (newer coins)
-- Name/symbol conflicts
-
-These are handled by the filtering process—coins without valid CryptoCompare data are excluded from analysis.
-
----
-
-## Rate Limit Comparison
-
-| Feature | CoinGecko (Free) | CryptoCompare (Free) |
-|---------|-----------------|---------------------|
-| **Calls/minute** | 5-15 (variable) | 600 (10/second) |
-| **Historical limit** | 365 days | **Unlimited** |
-| **API key required** | No | No |
-| **Data freshness** | Real-time | ~10 min delay |
-| **Retry on 429** | Yes (with backoff) | Yes (with backoff) |
-
-### Why This Matters
-
-For halving cycle analysis spanning 4 cycles (2012-2024):
-- Required: ~4,500 days of data
-- CoinGecko: ❌ Max 365 days
-- CryptoCompare: ✅ Full history available
-
----
-
 ## Error Handling
 
-Both clients implement:
+The client implements:
 
 1. **HTTP 429 Detection**: Catches rate limit responses
 2. **Automatic Retry**: Up to 5 attempts with exponential backoff
@@ -262,7 +174,7 @@ Both clients implement:
 4. **Logging**: Errors are logged for debugging
 
 ```python
-# Retry configuration (both clients)
+# Retry configuration
 @retry(
     retry=retry_if_exception_type(RateLimitError),
     stop=stop_after_attempt(5),
@@ -278,18 +190,17 @@ Both clients implement:
 
 ```bash
 # Run all unit tests (no API calls)
-poetry run pytest tests/test_coingecko.py tests/test_cryptocompare.py -v
+poetry run pytest tests/test_cryptocompare.py -v
 ```
 
 ### Integration Tests (Real API)
 
 ```bash
 # Run integration tests (makes real API calls)
-poetry run pytest tests/test_coingecko_integration.py --run-integration -v
 poetry run pytest tests/test_cryptocompare_integration.py --run-integration -v
 ```
 
-⚠️ **Note**: Integration tests use conservative rate limits (5 calls/minute) to avoid triggering rate limits during testing.
+⚠️ **Note**: Integration tests use conservative rate limits to avoid triggering rate limits during testing.
 
 ---
 
@@ -298,58 +209,17 @@ poetry run pytest tests/test_cryptocompare_integration.py --run-integration -v
 All API settings are in `src/config.py`:
 
 ```python
-# CoinGecko
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-API_CALLS_PER_MINUTE = 10      # Conservative for free tier
+# CryptoCompare
+CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
+CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30  # Very conservative
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Days per request
+
+# Retry configuration
 API_MAX_RETRIES = 5
 API_RETRY_MIN_WAIT = 1         # seconds
 API_RETRY_MAX_WAIT = 60        # seconds
-
-# CryptoCompare
-CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30  # Very conservative
-CRYPTOCOMPARE_MAX_LIMIT = 2000           # Days per request
 ```
-
----
-
-## Why Not Asyncio?
-
-The current implementation uses **synchronous requests** with rate limiting. Here's why asyncio wasn't implemented:
-
-### Rate Limiting Constraints
-
-| API | Free Tier Limit | Effective Throughput |
-|-----|-----------------|---------------------|
-| CoinGecko | 5-15 calls/min | ~1 call every 6-12 seconds |
-| CryptoCompare | 600 calls/min | ~1 call every 0.1 seconds |
-
-**Analysis:**
-
-1. **CoinGecko is the bottleneck**: With only 5-15 calls/minute, we can't benefit from parallel requests - we'd hit rate limits immediately.
-
-2. **Sequential is actually faster for CoinGecko**: The rate limiter forces us to wait between calls anyway. Asyncio would add complexity without speed benefits.
-
-3. **CryptoCompare could benefit from asyncio**, but:
-   - Full history for one coin requires ~3 requests (6000 days / 2000 per request)
-   - We typically fetch ~200 coins → ~600 requests
-   - At 10 req/sec, this takes ~60 seconds
-   - With incremental fetching, we often fetch 0 requests (cache is current)
-
-4. **Complexity vs. Benefit**: Asyncio would require:
-   - Converting all API clients to async
-   - Managing concurrent rate limiters
-   - Error handling across parallel tasks
-   - Session management with aiohttp
-
-**Conclusion:** The rate limiting overhead dominates execution time. Asyncio would add significant complexity for marginal improvement. The current synchronous implementation with incremental caching is the pragmatic choice.
-
-### When to Reconsider
-
-Consider asyncio if:
-- Moving to paid API tiers with higher rate limits
-- Adding more data sources that can be queried in parallel
-- Building a real-time dashboard that needs concurrent updates
 
 ---
 
@@ -361,16 +231,14 @@ Consider asyncio if:
 2. Wait a few minutes before retrying
 3. Check if another process is using the same API
 
-### "Market does not exist" errors (CryptoCompare)
+### "Market does not exist" errors
 
 - The coin symbol may not be listed on CryptoCompare
-- Check symbol mapping in `get_symbol_for_coingecko_id()`
 - Coin will be excluded from analysis automatically
 
 ### Empty historical data
 
 - Coin may be too new (created after requested start date)
-- Symbol mapping may be incorrect
 - Check CryptoCompare directly: `https://min-api.cryptocompare.com/data/v2/histoday?fsym=ETH&tsym=BTC&limit=10`
 
 ---

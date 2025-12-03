@@ -8,7 +8,7 @@ This document analyzes edge cases identified in the data fetching pipeline and t
 
 ### Status: ✅ Already Implemented
 
-CryptoCompare supports BTC as the quote currency (`tsym=BTC`). Our implementation already defaults to this:
+CryptoCompare supports BTC as the quote currency (`tsym=BTC`). Our implementation defaults to this:
 
 ```python
 # src/api/cryptocompare.py
@@ -24,175 +24,43 @@ def get_daily_history(
 
 ---
 
-## 2. Symbol Mapping Validation
+## 2. Single Data Source (No Symbol Mapping)
 
-### Problem
+### Status: ✅ Implemented
 
-CoinGecko uses human-readable IDs (`ethereum`, `solana`) while CryptoCompare uses uppercase trading symbols (`ETH`, `SOL`). There's no guarantee the mapping is correct:
+By using CryptoCompare as the single data source for both coin discovery and historical data:
 
-- Some coins have different symbols on different exchanges
-- Symbol conflicts exist (e.g., "LUNA" could refer to Terra Classic or Terra 2.0)
-- New coins may not exist on CryptoCompare
-
-### Solution: Cross-Validation with Price Comparison
-
-**Validation Strategy:**
-1. For each coin, fetch **yesterday's close price** from both APIs
-2. CoinGecko: Get current price (in BTC) via `/coins/markets`
-3. CryptoCompare: Get yesterday's close via `/data/v2/histoday`
-4. Compare prices - if within **4% tolerance**, consider mapping valid
-5. Cache validated mappings to avoid re-validation on restart
+- **No symbol mapping required** - we use CryptoCompare symbols throughout
+- **No validation needed** - data comes from same source
+- **Simpler architecture** - fewer moving parts
 
 ### Implementation
 
 ```python
-# New file: src/data/symbol_mapping.py
+# src/api/cryptocompare.py
 
-@dataclass
-class SymbolMapping:
-    coingecko_id: str
-    coingecko_symbol: str
-    cryptocompare_symbol: str
-    validated_at: datetime
-    coingecko_price: float
-    cryptocompare_price: float
-    price_diff_percent: float
-    is_valid: bool
-
-class SymbolMappingCache:
+def get_top_coins_by_market_cap(self, n: int = 300) -> list[Coin]:
     """
-    Manages and validates mappings between CoinGecko IDs and CryptoCompare symbols.
-
-    Validation process:
-    1. Get yesterday's price from CoinGecko
-    2. Get yesterday's close price from CryptoCompare
-    3. Compare prices (must be within 4% tolerance)
-    4. Cache valid mappings for future use
+    Get top N coins by market capitalization.
+    Returns Coin objects with symbol, name, market_cap, price, volume.
     """
+    ...
 
-    TOLERANCE_PERCENT = 4.0  # 4% price difference allowed
-
-    def __init__(self, cache_file: Path):
-        self.cache_file = cache_file
-        self._mappings: dict[str, SymbolMapping] = {}
-        self._load_cache()
-
-    def validate_mapping(
-        self,
-        coingecko_id: str,
-        coingecko_symbol: str,
-        coingecko_client: CoinGeckoClient,
-        cryptocompare_client: CryptoCompareClient,
-    ) -> SymbolMapping:
-        """
-        Validate that a CoinGecko ID maps to the correct CryptoCompare symbol.
-
-        Returns:
-            SymbolMapping with validation results
-        """
-        ...
-
-    def has_mapping(self, coingecko_id: str) -> bool:
-        """Check if a coin has already been validated (whether valid or invalid)."""
-        return coingecko_id in self._mappings
-
-    def get_cryptocompare_symbol(self, coingecko_id: str) -> str | None:
-        """Get the validated CryptoCompare symbol for a CoinGecko ID."""
-        mapping = self._mappings.get(coingecko_id)
-        if mapping and mapping.is_valid:
-            return mapping.cryptocompare_symbol
-        return None
-```
-
-### Validation Logic
-
-```python
-def _calculate_price_diff(self, price1: float, price2: float) -> float:
-    """Calculate percentage difference between two prices."""
-    if price1 == 0 or price2 == 0:
-        return float('inf')
-    avg = (price1 + price2) / 2
-    return abs(price1 - price2) / avg * 100
-
-def validate_mapping(self, coingecko_id: str, coingecko_symbol: str, ...) -> SymbolMapping:
-    # Already validated?
-    if self.is_validated(coingecko_id):
-        return self._mappings[coingecko_id]
-
-    cryptocompare_symbol = coingecko_symbol.upper()
-    yesterday = date.today() - timedelta(days=1)
-
-    # Get CoinGecko price (current price, close to yesterday's close)
-    cg_price = coingecko_client.get_current_price(coingecko_id, vs_currency="btc")
-
-    # Get CryptoCompare yesterday's close
-    cc_data = cryptocompare_client.get_daily_history(
-        symbol=cryptocompare_symbol,
-        vs_currency="BTC",
-        limit=1,
-    )
-    cc_price = cc_data[-1]["close"] if cc_data else 0
-
-    # Calculate difference
-    diff_percent = self._calculate_price_diff(cg_price, cc_price)
-    is_valid = diff_percent <= self.TOLERANCE_PERCENT
-
-    mapping = SymbolMapping(
-        coingecko_id=coingecko_id,
-        coingecko_symbol=coingecko_symbol,
-        cryptocompare_symbol=cryptocompare_symbol,
-        validated_at=datetime.now(),
-        coingecko_price=cg_price,
-        cryptocompare_price=cc_price,
-        price_diff_percent=diff_percent,
-        is_valid=is_valid,
-    )
-
-    self._mappings[coingecko_id] = mapping
-    self._save_cache()
-
-    return mapping
-```
-
-### Cache File Format
-
-```json
-{
-  "ethereum": {
-    "coingecko_id": "ethereum",
-    "coingecko_symbol": "eth",
-    "cryptocompare_symbol": "ETH",
-    "validated_at": "2025-12-03T10:30:00",
-    "coingecko_price": 0.0412,
-    "cryptocompare_price": 0.0415,
-    "price_diff_percent": 0.72,
-    "is_valid": true
-  },
-  "some-scam-coin": {
-    "coingecko_id": "some-scam-coin",
-    "coingecko_symbol": "scam",
-    "cryptocompare_symbol": "SCAM",
-    "validated_at": "2025-12-03T10:31:00",
-    "coingecko_price": 0.0001,
-    "cryptocompare_price": 0.5000,
-    "price_diff_percent": 199.98,
-    "is_valid": false
-  }
-}
+def get_full_daily_history(self, symbol: str, ...) -> pd.DataFrame:
+    """
+    Use the same symbol from get_top_coins_by_market_cap directly.
+    No mapping needed!
+    """
+    ...
 ```
 
 ---
 
 ## 3. Incremental Data Fetching
 
-### Problem
+### Status: ✅ Implemented
 
-Currently, every price fetch retrieves the **full history** (5000+ days), even if we already have most of it cached. This is:
-- Slow (multiple paginated requests)
-- Wasteful of API quota
-- Unnecessary after initial fetch
-
-### Solution: Fetch Only New Data
+Fetches only new data since last cache, avoiding unnecessary API calls.
 
 ```python
 # In DataFetcher.fetch_coin_prices()
@@ -203,7 +71,7 @@ def fetch_coin_prices(
     symbol: str,
     vs_currency: str = "BTC",
     use_cache: bool = True,
-    incremental: bool = True,  # NEW
+    incremental: bool = True,  # ✅ Incremental by default
 ) -> pd.DataFrame:
     """
     Fetch historical price data, with incremental updates.
@@ -223,7 +91,7 @@ def fetch_coin_prices(
             return cached
 
         # Fetch only new data
-        new_data = self.cryptocompare.get_full_daily_history(
+        new_data = self.client.get_full_daily_history(
             symbol=symbol,
             vs_currency=vs_currency,
             start_date=last_cached + timedelta(days=1),
@@ -248,22 +116,13 @@ def fetch_coin_prices(
 
 ## 4. End Date Should Be Yesterday
 
-### Problem
+### Status: ✅ Implemented
 
-Today's price data is incomplete:
-- CryptoCompare's `close` price for today is the **current price**, not the end-of-day price
-- This creates data quality issues for analysis
-
-### Solution: Always Use Yesterday as End Date
+Today's price data is incomplete - CryptoCompare's `close` price for today is the **current price**, not the end-of-day price.
 
 ```python
 # In multiple places
-
 from datetime import date, timedelta
-
-def get_safe_end_date() -> date:
-    """Get yesterday's date (latest date with complete data)."""
-    return date.today() - timedelta(days=1)
 
 # Update get_full_daily_history default
 def get_full_daily_history(
@@ -271,7 +130,7 @@ def get_full_daily_history(
     symbol: str,
     vs_currency: str = "BTC",
     start_date: date | None = None,
-    end_date: date | None = None,  # Default will be yesterday, not today
+    end_date: date | None = None,  # Default is yesterday, not today
     ...
 ):
     if end_date is None:
@@ -280,14 +139,59 @@ def get_full_daily_history(
 
 ---
 
-## 5. Configuration Changes
+## 5. Volume-Weighted TOTAL2
 
-Add to `src/config.py`:
+### Status: ✅ Implemented
+
+TOTAL2 uses 24h trading volume for both ranking and weighting:
 
 ```python
-# Symbol mapping validation
-SYMBOL_MAPPING_FILE = PROCESSED_DIR / "symbol_mappings.json"
-SYMBOL_MAPPING_TOLERANCE_PERCENT = 5.0  # Maximum allowed price difference
+# src/data/processor.py
+
+def _calculate_daily_total2(self, price_data, target_date):
+    """
+    Calculate volume-weighted TOTAL2 for a single day.
+
+    Uses 24h trading volume (volumeto) for both:
+    - Ranking coins (top N by volume)
+    - Weighting the average price
+    """
+    daily_data = []
+
+    for coin_id, df in price_data.items():
+        row = df.loc[target_date]
+        price = row["price"]
+        volume = row["volume_to"]  # Volume in quote currency (BTC)
+
+        if price > 0 and volume > 0:
+            daily_data.append({
+                "coin_id": coin_id,
+                "price": price,
+                "volume": volume,
+            })
+
+    # Sort by volume and take top N
+    daily_data.sort(key=lambda x: x["volume"], reverse=True)
+    top_n = daily_data[:self.top_n]
+
+    # Calculate volume-weighted average
+    total_volume = sum(c["volume"] for c in top_n)
+    total2_price = sum(c["price"] * c["volume"] for c in top_n) / total_volume
+
+    return total2_price
+```
+
+---
+
+## 6. Configuration Settings
+
+From `src/config.py`:
+
+```python
+# CryptoCompare API
+CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
 
 # Data completeness
 USE_YESTERDAY_AS_END_DATE = True  # Don't fetch incomplete today's data
@@ -295,25 +199,23 @@ USE_YESTERDAY_AS_END_DATE = True  # Don't fetch incomplete today's data
 
 ---
 
-## 6. Updated Data Flow
+## 7. Updated Data Flow
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                     Updated Fetch Pipeline                          │
+│                     Simplified Fetch Pipeline                       │
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  1. Load Symbol Mapping Cache                                       │
-│     └── data/processed/symbol_mappings.json                        │
+│  1. Fetch Top Coins (CryptoCompare)                                │
+│     └── /data/top/mktcapfull                                       │
+│         ├── Returns: symbol, name, market_cap, volume              │
+│         └── Pagination: 100 coins per page                         │
 │                                                                     │
-│  2. For each coin from CoinGecko:                                  │
-│     ├── Already validated? → Use cached mapping                    │
-│     └── New coin? → Validate mapping:                              │
-│         ├── Get CoinGecko price (yesterday)                        │
-│         ├── Get CryptoCompare price (yesterday)                    │
-│         ├── Compare (within 5%?) → Valid                           │
-│         └── Save to mapping cache                                  │
+│  2. Filter Coins Locally                                           │
+│     ├── Remove wrapped/staked/bridged/stablecoins                  │
+│     └── Export rejected to CSV                                     │
 │                                                                     │
-│  3. For each validated coin:                                       │
+│  3. For each filtered coin:                                        │
 │     ├── Has cached prices?                                         │
 │     │   ├── Up to yesterday? → Skip (cache is current)            │
 │     │   └── Older? → Fetch incrementally from last_date           │
@@ -322,66 +224,29 @@ USE_YESTERDAY_AS_END_DATE = True  # Don't fetch incomplete today's data
 │  4. All fetches end at YESTERDAY (not today)                       │
 │     └── Today's data is incomplete                                 │
 │                                                                     │
+│  5. Calculate Volume-Weighted TOTAL2                               │
+│     ├── For each day: rank by volume, take top 50                  │
+│     └── Weighted average: Σ(price × volume) / Σ(volume)           │
+│                                                                     │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 7. Implementation Priority
+## 8. Test Cases
 
-| Task | Complexity | Impact | Priority |
-|------|------------|--------|----------|
-| End date = yesterday | Low | High | 1️⃣ |
-| Incremental fetching | Medium | High | 2️⃣ |
-| Symbol mapping validation | Medium | High | 3️⃣ |
-| Mapping cache persistence | Low | Medium | 4️⃣ |
-
-### Estimated Effort
-
-- **End date fix**: ~30 minutes (simple parameter change)
-- **Incremental fetching**: ~2 hours (logic + tests)
-- **Symbol mapping validation**: ~3 hours (new module + tests)
-- **Integration**: ~1 hour
-
-**Total: ~6-7 hours**
-
----
-
-## 8. CLI Integration
-
-```bash
-# Validate new symbol mappings
-python -m main validate-symbols
-
-# Fetch prices (incremental by default)
-python -m main fetch-prices --incremental
-
-# Force full refresh
-python -m main fetch-prices --full-refresh
-
-# Show mapping status
-python -m main status --show-mappings
-```
-
----
-
-## 9. Test Cases
-
-### Symbol Mapping Validation Tests
+### Token Filtering Tests
 
 ```python
-class TestSymbolMappingValidation:
-    def test_valid_mapping_within_tolerance(self):
-        """ETH prices from both APIs should match within 5%."""
+class TestTokenFiltering:
+    def test_filters_wrapped_tokens(self):
+        """wBTC, wETH, etc. should be excluded."""
 
-    def test_invalid_mapping_outside_tolerance(self):
-        """Mismatched coins should fail validation."""
+    def test_filters_staked_tokens(self):
+        """stETH, JitoSOL, etc. should be excluded."""
 
-    def test_cached_mapping_skips_validation(self):
-        """Already-validated coins shouldn't re-validate."""
-
-    def test_nonexistent_cryptocompare_symbol(self):
-        """Coins not on CryptoCompare should fail gracefully."""
+    def test_allows_legitimate_tokens(self):
+        """SUI, SEI, STX, etc. should pass filtering."""
 ```
 
 ### Incremental Fetching Tests
@@ -398,6 +263,21 @@ class TestIncrementalFetching:
         """Should fetch full history when no cache exists."""
 ```
 
+### Volume-Weighted TOTAL2 Tests
+
+```python
+class TestVolumeWeightedTotal2:
+    def test_ranks_by_volume(self):
+        """Coins should be ranked by 24h volume, not market cap."""
+
+    def test_weighted_average_calculation(self):
+        """TOTAL2 should be volume-weighted average of prices."""
+
+    def test_excludes_stablecoins(self):
+        """Stablecoins should not be included in TOTAL2."""
+```
+
 ---
 
 *Document created: 2025-12-03*
+*Updated: 2025-12-03 (simplified for single data source)*

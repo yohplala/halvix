@@ -16,7 +16,7 @@ from pathlib import Path
 
 from config import (
     ALLOWED_TOKENS,
-    COINGECKO_COIN_URL,
+    CRYPTOCOMPARE_COIN_URL,
     EXCLUDED_PATTERNS,
     EXCLUDED_STABLECOINS,
     EXCLUDED_WRAPPED_STAKED_IDS,
@@ -32,7 +32,7 @@ class FilteredToken:
     name: str
     symbol: str
     reason: str
-    coingecko_url: str
+    url: str
 
 
 class TokenFilter:
@@ -58,24 +58,27 @@ class TokenFilter:
         """Clear the filtered tokens list."""
         self.filtered_tokens = []
 
-    def is_allowed_token(self, coin_id: str) -> bool:
+    def is_allowed_token(self, coin_id: str, symbol: str = "") -> bool:
         """
         Check if token is in the allowed list (override exclusions).
 
         Args:
-            coin_id: The CoinGecko coin ID
+            coin_id: The coin ID (lowercase symbol)
+            symbol: The coin symbol (optional, for additional matching)
 
         Returns:
             True if token should never be filtered out
         """
-        return coin_id.lower() in ALLOWED_TOKENS
+        coin_id_lower = coin_id.lower()
+        symbol_lower = symbol.lower() if symbol else ""
+        return coin_id_lower in ALLOWED_TOKENS or symbol_lower in ALLOWED_TOKENS
 
     def is_stablecoin(self, coin_id: str, name: str = "", symbol: str = "") -> bool:
         """
         Check if token is a stablecoin.
 
         Args:
-            coin_id: The CoinGecko coin ID
+            coin_id: The coin ID (lowercase symbol)
             name: The coin name (optional)
             symbol: The coin symbol (optional)
 
@@ -83,7 +86,7 @@ class TokenFilter:
             True if token is a stablecoin
         """
         # Check allowed list first
-        if self.is_allowed_token(coin_id):
+        if self.is_allowed_token(coin_id, symbol):
             return False
 
         coin_id_lower = coin_id.lower()
@@ -122,19 +125,20 @@ class TokenFilter:
 
         return False
 
-    def is_wrapped_or_staked(self, coin_id: str, name: str = "") -> bool:
+    def is_wrapped_or_staked(self, coin_id: str, name: str = "", symbol: str = "") -> bool:
         """
         Check if token is a wrapped, staked, or bridged token.
 
         Args:
-            coin_id: The CoinGecko coin ID
+            coin_id: The coin ID (lowercase symbol)
             name: The coin name (optional)
+            symbol: The coin symbol (optional)
 
         Returns:
             True if token is wrapped, staked, or bridged
         """
         # Check allowed list first
-        if self.is_allowed_token(coin_id):
+        if self.is_allowed_token(coin_id, symbol):
             return False
 
         coin_id_lower = coin_id.lower()
@@ -158,7 +162,7 @@ class TokenFilter:
         Check if token is a BTC derivative (wrapped, staked, bridged BTC).
 
         Args:
-            coin_id: The CoinGecko coin ID
+            coin_id: The coin ID (lowercase symbol)
             name: The coin name (optional)
             symbol: The coin symbol (optional)
 
@@ -166,15 +170,15 @@ class TokenFilter:
             True if token is a BTC derivative
         """
         # Check allowed list first
-        if self.is_allowed_token(coin_id):
+        if self.is_allowed_token(coin_id, symbol):
             return False
 
         coin_id_lower = coin_id.lower()
         name_lower = name.lower() if name else ""
         symbol_lower = symbol.lower() if symbol else ""
 
-        # Check if it's a BTC token (but not the original Bitcoin)
-        if coin_id_lower == "bitcoin":
+        # Check if it's the original Bitcoin (BTC) - not a derivative
+        if coin_id_lower == "btc" or symbol_lower == "btc":
             return False
 
         combined = f"{coin_id_lower} {name_lower} {symbol_lower}"
@@ -194,10 +198,9 @@ class TokenFilter:
         if has_btc and has_derivative:
             return True
 
-        # Check specific BTC derivative IDs
-        btc_derivative_ids = {
+        # Check specific BTC derivative symbols
+        btc_derivative_symbols = {
             "wbtc",
-            "wrapped-bitcoin",
             "tbtc",
             "hbtc",
             "renbtc",
@@ -208,10 +211,9 @@ class TokenFilter:
             "clbtc",
             "cbbtc",
             "enzobtc",
-            "arbitrum-bridged-btc",
         }
 
-        return coin_id_lower in btc_derivative_ids
+        return coin_id_lower in btc_derivative_symbols or symbol_lower in btc_derivative_symbols
 
     def should_exclude(
         self, coin_id: str, name: str = "", symbol: str = "", for_total2: bool = False
@@ -220,7 +222,7 @@ class TokenFilter:
         Check if a token should be excluded.
 
         Args:
-            coin_id: The CoinGecko coin ID
+            coin_id: The coin ID (lowercase symbol)
             name: The coin name
             symbol: The coin symbol
             for_total2: If True, also check stablecoin exclusion
@@ -228,16 +230,19 @@ class TokenFilter:
         Returns:
             Tuple of (should_exclude, reason)
         """
+        coin_id_lower = coin_id.lower()
+        symbol_lower = symbol.lower() if symbol else ""
+
         # Check allowed list first
-        if self.is_allowed_token(coin_id):
+        if self.is_allowed_token(coin_id, symbol):
             return (False, "")
 
         # Check if it's Bitcoin itself (always exclude from non-BTC analysis)
-        if coin_id.lower() == "bitcoin":
+        if coin_id_lower == "btc" or symbol_lower == "btc":
             return (True, "Bitcoin (base currency)")
 
         # Check wrapped/staked/bridged
-        if self.is_wrapped_or_staked(coin_id, name):
+        if self.is_wrapped_or_staked(coin_id, name, symbol):
             return (True, "Wrapped/Staked/Bridged token")
 
         # Check BTC derivatives
@@ -283,7 +288,7 @@ class TokenFilter:
                             name=name,
                             symbol=symbol,
                             reason=reason,
-                            coingecko_url=f"{COINGECKO_COIN_URL}/{coin_id}",
+                            url=f"{CRYPTOCOMPARE_COIN_URL}/{symbol.upper()}/overview",
                         )
                     )
             else:
@@ -306,12 +311,10 @@ class TokenFilter:
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f, delimiter=";")  # Use semicolon for Excel compatibility
-            writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "CoinGecko URL"])
+            writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
 
             for token in sorted(self.filtered_tokens, key=lambda t: t.coin_id):
-                writer.writerow(
-                    [token.coin_id, token.name, token.symbol, token.reason, token.coingecko_url]
-                )
+                writer.writerow([token.coin_id, token.name, token.symbol, token.reason, token.url])
 
         return filepath
 
