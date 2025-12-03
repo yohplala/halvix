@@ -132,22 +132,28 @@ Located in `src/analysis/filters.py`
 
 ### 4.2 Exclusion Categories
 
-#### Wrapped/Staked/Bridged (excluded from all analysis):
+All categories below are excluded from **all analysis** (halving cycles and TOTAL2):
+
+#### Bitcoin (base currency):
+- Bitcoin is excluded as it's the base currency for price analysis
+
+#### Stablecoins (no price movement vs BTC):
+
+Defined in `config.py` as `EXCLUDED_STABLECOINS`:
+- **USD**: USDT, USDC, DAI, USDS, USDE, FDUSD, TUSD, FRAX, GHO, USD1, RLUSD, etc.
+- **Euro**: EURS, EURT, EURC, AGEUR
+
+#### Wrapped/Staked/Bridged:
 
 Defined in `config.py` as `EXCLUDED_WRAPPED_STAKED_IDS` and `EXCLUDED_PATTERNS`:
 - **Wrapped BTC**: WBTC, TBTC, FBTC, LBTC, SOLVBTC, CBBTC, etc.
 - **Staked ETH**: STETH, WSTETH, RETH, CBETH, etc.
 - **Wrapped ETH**: WETH, WBETH, WEETH
+- **Aave wrapped**: AETHWETH, AWETH, AUSDC, etc.
 - **Staked SOL**: JITOSOL, MSOL, BNSOL
 - **Bridged**: Various bridged tokens
 
-Plus pattern-based filtering for tokens matching: `^wrapped-`, `^staked-`, `^bridged-`, `lido`, `rocket.?pool`, etc.
-
-#### Stablecoins (excluded from TOTAL2):
-
-Defined in `config.py` as `EXCLUDED_STABLECOINS`:
-- **USD**: USDT, USDC, DAI, USDS, USDE, FDUSD, TUSD, FRAX, GHO, etc.
-- **Euro**: EURS, EURT, AGEUR
+Plus pattern-based filtering for tokens matching: `^wrapped-`, `^staked-`, `^bridged-`, `^aeth`, `lido`, `rocket.?pool`, etc.
 
 #### Allowed Tokens (never filtered):
 

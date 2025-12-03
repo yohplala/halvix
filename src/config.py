@@ -118,11 +118,11 @@ TOP_N_FOR_TOTAL2 = 50
 TOP_N_SUMMARY = 10
 
 # =============================================================================
-# Stablecoin Exclusion List (for TOTAL2 calculation)
+# Stablecoin Exclusion List
 # =============================================================================
 
-# These coins are excluded from TOTAL2 index calculation
-# Stablecoins pegged to USD or other fiat currencies
+# These coins are excluded from ALL analysis (halving cycles and TOTAL2)
+# Stablecoins have no meaningful price movement relative to BTC
 # Use lowercase symbols for matching
 EXCLUDED_STABLECOINS = {
     # Major USD stablecoins (by symbol)
@@ -159,6 +159,7 @@ EXCLUDED_STABLECOINS = {
     # Euro stablecoins
     "eurs",
     "eurt",
+    "eurc",
     "ageur",
     # Other stablecoins
     "mim",
@@ -201,6 +202,15 @@ EXCLUDED_WRAPPED_STAKED_IDS = {
     "ethx",
     "eeth",
     "sweth",
+    # Aave wrapped tokens
+    "aethweth",
+    "aethusdc",
+    "aethusdt",
+    "aethdai",
+    "aweth",
+    "ausdc",
+    "ausdt",
+    "adai",
     # Wrapped/Staked SOL variants
     "wsol",
     "jitosol",
@@ -246,6 +256,10 @@ EXCLUDED_PATTERNS = [
     r"lombard",
     r"solv.?btc",
     r"threshold.?btc",
+    # Aave wrapped/deposited tokens
+    r"^aave.*weth",
+    r"^aave.*eth",
+    r"^aeth",  # aETH variants like aETHWETH
 ]
 
 # =============================================================================

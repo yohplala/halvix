@@ -1,12 +1,14 @@
 """
 Token filtering module for Halvix.
 
-Filters out from analyzed tokens and TOTAL2 calculation:
-- Stablecoins
-- Wrapped tokens (wBTC, wETH, etc.)
+Filters out from all analysis (halving cycles and TOTAL2):
+- Bitcoin (base currency)
+- Stablecoins (no price movement vs BTC)
+- Wrapped tokens (wBTC, wETH, AETHWETH, etc.)
 - Staked tokens (stETH, stSOL, etc.)
 - Bridged tokens
 - Liquid staking derivatives
+- BTC derivatives
 """
 
 import csv
@@ -39,11 +41,13 @@ class TokenFilter:
     """
     Filter tokens based on various exclusion criteria.
 
-    Excludes:
-    - Stablecoins (for TOTAL2)
-    - Wrapped tokens
-    - Staked/Liquid staking tokens
+    Always excludes:
+    - Bitcoin (base currency for analysis)
+    - Stablecoins (no meaningful price movement vs BTC)
+    - Wrapped tokens (wBTC, wETH, etc.)
+    - Staked/Liquid staking tokens (stETH, JitoSOL, etc.)
     - Bridged tokens
+    - BTC derivatives
 
     Maintains a list of filtered tokens for export and review.
     """
@@ -225,7 +229,7 @@ class TokenFilter:
             coin_id: The coin ID (lowercase symbol)
             name: The coin name
             symbol: The coin symbol
-            for_total2: If True, also check stablecoin exclusion
+            for_total2: Deprecated, kept for backwards compatibility (stablecoins always excluded)
 
         Returns:
             Tuple of (should_exclude, reason)
@@ -241,6 +245,10 @@ class TokenFilter:
         if coin_id_lower == "btc" or symbol_lower == "btc":
             return (True, "Bitcoin (base currency)")
 
+        # Check stablecoins (always excluded - no price movement relative to BTC)
+        if self.is_stablecoin(coin_id, name, symbol):
+            return (True, "Stablecoin")
+
         # Check wrapped/staked/bridged
         if self.is_wrapped_or_staked(coin_id, name, symbol):
             return (True, "Wrapped/Staked/Bridged token")
@@ -248,10 +256,6 @@ class TokenFilter:
         # Check BTC derivatives
         if self.is_btc_derivative(coin_id, name, symbol):
             return (True, "BTC derivative")
-
-        # Check stablecoins (only for TOTAL2)
-        if for_total2 and self.is_stablecoin(coin_id, name, symbol):
-            return (True, "Stablecoin")
 
         return (False, "")
 

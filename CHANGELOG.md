@@ -12,6 +12,21 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.3] - 2025-12-03
+
+**Filter stablecoins by default + GitHub Pages documentation**
+
+- **Changed:** Stablecoins now always excluded from analysis (not just TOTAL2)
+- **Added:** GitHub Pages deployment with live data status page
+- **Added:** Automatic documentation generation after `list-coins` and `fetch-prices` commands
+- **Added:** AETHWETH and other Aave wrapped tokens to exclusion list
+- **Added:** EURC to stablecoin exclusion list
+- **Improved:** HTML tables now have clickable coin names linking to CryptoCompare
+- **Improved:** Removed redundant ID column from HTML tables
+- **Updated:** Documentation to reflect new filtering behavior
+
+**Categories:** Features, Documentation, Filtering
+
 ### [2025.12.2] - 2025-12-03
 
 **Major refactoring: single data source with volume-weighted TOTAL2**

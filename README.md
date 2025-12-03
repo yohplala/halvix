@@ -223,17 +223,16 @@ Key parameters in `src/config.py`:
 
 ## Token Filtering
 
-The project automatically filters out:
+The project automatically filters out tokens that are not suitable for halving cycle analysis:
 
 ### Excluded from all analysis:
-- **Wrapped tokens**: wBTC, wETH, wSOL, wBNB, etc.
+- **Bitcoin**: Base currency (we analyze prices relative to BTC)
+- **Stablecoins**: USDT, USDC, DAI, FRAX, GHO, EURC, etc. (no price movement vs BTC)
+- **Wrapped tokens**: wBTC, wETH, wSOL, wBNB, AETHWETH, etc.
 - **Staked tokens**: stETH, JitoSOL, mSOL, cbETH, etc.
 - **Bridged tokens**: Arbitrum bridged BTC, L2 bridged WETH, etc.
-- **Liquid staking derivatives**: Lido, Rocket Pool, Renzo, etc.
-
-### Excluded from TOTAL2 calculation:
-- All of the above, plus:
-- **Stablecoins**: USDT, USDC, DAI, FRAX, GHO, etc.
+- **Liquid staking derivatives**: Lido, Rocket Pool, Renzo, Aave wrapped tokens, etc.
+- **BTC derivatives**: tBTC, renBTC, sBTC, etc.
 
 ### Always allowed (never filtered):
 - SUI, SEI, STK, SAND, WIF

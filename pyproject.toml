@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "halvix"
-version = "2025.12.2"
+version = "2025.12.3"
 description = "Cryptocurrency price analysis relative to Bitcoin halving cycles"
 authors = ["yohplala <yohplala@users.noreply.github.com>"]
 readme = "README.md"

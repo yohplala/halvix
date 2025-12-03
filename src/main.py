@@ -400,7 +400,8 @@ def _generate_html(
             <h2>✅ Accepted Coins ({len(accepted_coins)})</h2>
             <p class="section-description">
                 These coins passed the filter and are included in the analysis.
-                Wrapped, staked, bridged tokens and Bitcoin are excluded.
+                Wrapped, staked, bridged tokens, stablecoins and Bitcoin are excluded.
+                Click coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
                 <table>
@@ -409,7 +410,6 @@ def _generate_html(
                             <th>#</th>
                             <th>Symbol</th>
                             <th>Name</th>
-                            <th>ID</th>
                             <th>Market Cap</th>
                         </tr>
                     </thead>
@@ -425,11 +425,14 @@ def _generate_html(
         else:
             market_cap_str = f"${market_cap:,.0f}"
 
+        symbol = coin.get("symbol", "N/A")
+        name = coin.get("name", "N/A")
+        coin_url = f"https://www.cryptocompare.com/coins/{symbol.upper()}/overview"
+
         html += f"""                        <tr>
                             <td>{i}</td>
-                            <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
-                            <td class="coin-name">{coin.get('name', 'N/A')}</td>
-                            <td class="coin-id">{coin.get('id', 'N/A')}</td>
+                            <td class="coin-symbol">{symbol}</td>
+                            <td class="coin-name"><a href="{coin_url}" target="_blank">{name}</a></td>
                             <td class="market-cap">{market_cap_str}</td>
                         </tr>
 """
@@ -453,7 +456,6 @@ def _generate_html(
                         <tr>
                             <th>Symbol</th>
                             <th>Name</th>
-                            <th>ID</th>
                             <th>Reason</th>
                         </tr>
                     </thead>
@@ -472,7 +474,6 @@ def _generate_html(
         html += f"""                        <tr>
                             <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
                             <td class="coin-name"><a href="{coin.get('url', '#')}" target="_blank">{coin.get('name', 'N/A')}</a></td>
-                            <td class="coin-id">{coin.get('id', 'N/A')}</td>
                             <td><span class="reason-badge {reason_class}">{reason}</span></td>
                         </tr>
 """
@@ -875,7 +876,7 @@ def main() -> int:
     list_parser.add_argument(
         "--for-total2",
         action="store_true",
-        help="Also exclude stablecoins (for TOTAL2 calculation)",
+        help="Deprecated: stablecoins are now always excluded",
     )
     list_parser.add_argument(
         "--no-cache",
