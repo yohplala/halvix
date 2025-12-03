@@ -7,9 +7,9 @@ Halvix analyzes cryptocurrency performance across BTC halving cycles, comparing 
 ## Features
 
 - 📊 Retrieve and analyze top 300 cryptocurrencies by market cap
-- 📈 Compare price performance across 4 BTC halving cycles
 - 🔍 Filter out wrapped, staked, bridged tokens and stablecoins
 - 📉 Linear regression analysis to identify uptrending coins
+- 📈 Compare price performance across 4 BTC halving cycles
 - 🎨 Generate visual charts with Plotly (candlesticks + overlays)
 - 🏆 Rank top 10 performers by trend strength
 

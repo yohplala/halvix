@@ -224,7 +224,7 @@ class PriceDataCache:
         Returns a DataFrame with normalized DatetimeIndex at midnight.
 
         Args:
-            coin_id: CoinGecko coin ID
+            coin_id: Coin ID (lowercase symbol)
 
         Returns:
             DataFrame with DatetimeIndex and price/volume columns, or None
@@ -284,7 +284,7 @@ class PriceDataCache:
         Useful for incremental updates.
 
         Args:
-            coin_id: CoinGecko coin ID
+            coin_id: Coin ID (lowercase symbol)
 
         Returns:
             Last date in the cached data as pd.Timestamp, or None
@@ -313,7 +313,7 @@ class PriceDataCache:
         Delete cached price data for a coin.
 
         Args:
-            coin_id: CoinGecko coin ID
+            coin_id: Coin ID (lowercase symbol)
 
         Returns:
             True if deleted, False if not found

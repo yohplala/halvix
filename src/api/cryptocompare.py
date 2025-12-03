@@ -98,8 +98,7 @@ class CryptoCompareClient:
     """
     CryptoCompare API client for historical cryptocurrency prices.
 
-    Key advantage: Free tier provides full historical data (no time limit),
-    unlike CoinGecko which limits free users to 365 days.
+    Free tier provides full historical data (no time limit).
 
     Usage:
         client = CryptoCompareClient()
@@ -312,7 +311,7 @@ class CryptoCompareClient:
                 "open": "open",
                 "high": "high",
                 "low": "low",
-                "close": "price",  # Use 'price' for consistency with CoinGecko
+                "close": "price",
                 "volumefrom": "volume_from",
                 "volumeto": "volume_to",
             }

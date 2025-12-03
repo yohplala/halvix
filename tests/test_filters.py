@@ -4,7 +4,7 @@ Tests for token filtering in Halvix.
 Tests that:
 - Wrapped, staked, bridged tokens are correctly filtered out
 - Legitimate tokens (SUI, SEI, STK, SAND, WIF) are NOT filtered
-- Stablecoins are filtered for TOTAL2 calculation
+- Stablecoins are always filtered
 - CSV export works correctly
 """
 
@@ -126,7 +126,7 @@ class TestWrappedStakedTokenFiltering:
             {"id": "sui", "name": "Sui", "symbol": "SUI"},
         ]
 
-        filtered = token_filter.filter_coins(coins, for_total2=False)
+        filtered = token_filter.filter_coins(coins)
 
         # Should have 3 coins: ETH, SOL, SUI
         assert len(filtered) == 3
@@ -145,7 +145,7 @@ class TestWrappedStakedTokenFiltering:
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        token_filter.filter_coins(coins, for_total2=False, record_filtered=True)
+        token_filter.filter_coins(coins, record_filtered=True)
 
         assert len(token_filter.filtered_tokens) == 2
         filtered_ids = {t.coin_id for t in token_filter.filtered_tokens}
@@ -154,7 +154,7 @@ class TestWrappedStakedTokenFiltering:
 
 
 class TestStablecoinFiltering:
-    """Tests for stablecoin detection (for TOTAL2 calculation)."""
+    """Tests for stablecoin detection."""
 
     @pytest.fixture
     def token_filter(self):
@@ -182,8 +182,8 @@ class TestStablecoinFiltering:
             coin_id, name, symbol
         ), f"Token {coin_id} ({symbol}) should be identified as stablecoin"
 
-    def test_filter_coins_excludes_stablecoins_for_total2(self, token_filter):
-        """Test that stablecoins are excluded when for_total2=True."""
+    def test_filter_coins_excludes_stablecoins(self, token_filter):
+        """Test that stablecoins are always excluded."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
             {"id": "usdt", "name": "Tether", "symbol": "USDT"},
@@ -191,7 +191,7 @@ class TestStablecoinFiltering:
             {"id": "sol", "name": "Solana", "symbol": "SOL"},
         ]
 
-        filtered = token_filter.filter_coins(coins, for_total2=True)
+        filtered = token_filter.filter_coins(coins)
 
         assert len(filtered) == 2
         filtered_ids = {c["id"] for c in filtered}
@@ -199,18 +199,6 @@ class TestStablecoinFiltering:
         assert "sol" in filtered_ids
         assert "usdt" not in filtered_ids
         assert "usdc" not in filtered_ids
-
-    def test_stablecoins_kept_when_not_for_total2(self, token_filter):
-        """Test that stablecoins are NOT excluded when for_total2=False."""
-        coins = [
-            {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
-            {"id": "usdt", "name": "Tether", "symbol": "USDT"},
-        ]
-
-        filtered = token_filter.filter_coins(coins, for_total2=False)
-
-        # Stablecoins should be kept (only filtered for TOTAL2)
-        assert len(filtered) == 2
 
 
 class TestBTCDerivativeFiltering:
@@ -256,7 +244,7 @@ class TestCSVExport:
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        token_filter.filter_coins(coins, for_total2=False, record_filtered=True)
+        token_filter.filter_coins(coins, record_filtered=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "rejected.csv"
@@ -278,7 +266,7 @@ class TestCSVExport:
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
         ]
 
-        token_filter.filter_coins(coins, for_total2=False, record_filtered=True)
+        token_filter.filter_coins(coins, record_filtered=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "rejected.csv"
@@ -309,7 +297,7 @@ class TestFilteredSummary:
             {"id": "usdc", "name": "USD Coin", "symbol": "USDC"},
         ]
 
-        token_filter.filter_coins(coins, for_total2=True, record_filtered=True)
+        token_filter.filter_coins(coins, record_filtered=True)
 
         summary = token_filter.get_filtered_summary()
 

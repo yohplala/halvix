@@ -49,15 +49,12 @@ halvix/
 │   │   └── cache.py            # File-based caching
 │   ├── analysis/
 │   │   ├── __init__.py
-│   │   ├── filters.py          # Token filtering
-│   │   └── regression.py       # Linear regression (to implement)
+│   │   └── filters.py          # Token filtering
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   └── logging.py          # Logging configuration
 │   └── visualization/
-│       ├── __init__.py
-│       ├── charts.py           # Plotly charts (to implement)
-│       └── styles.py           # Color schemes (to implement)
+│       └── __init__.py         # Charts to implement
 │
 ├── tests/                      # Test suite
 │   ├── __init__.py
@@ -263,24 +260,7 @@ Keep only coins with `a > 0` (positive trend)
 
 ---
 
-## 9. Implementation Status
-
-| Module | File | Status |
-|--------|------|--------|
-| Configuration | `src/config.py` | ✅ Complete |
-| Token Filtering | `src/analysis/filters.py` | ✅ Complete |
-| CryptoCompare Client | `src/api/cryptocompare.py` | ✅ Complete |
-| File Cache | `src/data/cache.py` | ✅ Complete |
-| Data Fetcher | `src/data/fetcher.py` | ✅ Complete |
-| CLI Entry Point | `src/main.py` | ✅ Complete |
-| Data Processor | `src/data/processor.py` | ✅ Complete |
-| Logging | `src/utils/logging.py` | ✅ Complete |
-| Regression | `src/analysis/regression.py` | ⏳ To implement |
-| Charts | `src/visualization/charts.py` | ⏳ To implement |
-
----
-
-## 10. Development Commands
+## 9. Development Commands
 
 ```bash
 # Install dependencies
@@ -307,7 +287,7 @@ poetry run ruff src/ tests/
 
 ---
 
-## 11. Key Configuration Values
+## 10. Key Configuration Values
 
 ```python
 # From src/config.py
@@ -336,9 +316,9 @@ HALF_MONTHLY_FREQ = "SMS"
 
 ---
 
-## 12. Notes for AI Agents
+## 11. Notes for AI Agents
 
-### 12.1 Import Pattern
+### 11.1 Import Pattern
 Modules are directly in `src/`, not in a package subfolder:
 ```python
 # In src/analysis/filters.py
@@ -348,21 +328,20 @@ from config import ALLOWED_TOKENS, ...
 from analysis.filters import TokenFilter
 ```
 
-### 12.2 Path Configuration
+### 11.2 Path Configuration
 - `pyproject.toml` has `pythonpath = ["src"]`
 - `conftest.py` adds `src` to `sys.path`
 - VS Code settings have `python.analysis.extraPaths`
 
-### 12.3 Testing
+### 11.3 Testing
 - Use `token_filter` as fixture name (not `filter` - reserved keyword)
 - Tests use parametrization for extensive coverage
 - CSV export uses semicolon for Excel compatibility
 
-### 12.4 Common Pitfalls
+### 11.4 Common Pitfalls
 1. Always check `ALLOWED_TOKENS` before filtering
-2. Use `for_total2=True` when filtering for TOTAL2 calculation
-3. Rate limit API calls (30/minute for CryptoCompare)
-4. Handle missing data with backfilling
+2. Rate limit API calls (30/minute for CryptoCompare)
+3. Handle missing data with backfilling
 
 ---
 

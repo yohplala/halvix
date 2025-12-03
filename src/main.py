@@ -585,7 +585,6 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
 
     result = fetcher.fetch_and_filter_coins(
         n=n,
-        for_total2=args.for_total2,
         use_cache=not args.no_cache,
         export_filtered=True,
     )
@@ -872,11 +871,6 @@ def main() -> int:
         type=int,
         default=TOP_N_COINS,
         help=f"Number of top coins to fetch (default: {TOP_N_COINS})",
-    )
-    list_parser.add_argument(
-        "--for-total2",
-        action="store_true",
-        help="Deprecated: stablecoins are now always excluded",
     )
     list_parser.add_argument(
         "--no-cache",

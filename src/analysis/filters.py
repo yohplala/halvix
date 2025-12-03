@@ -219,9 +219,7 @@ class TokenFilter:
 
         return coin_id_lower in btc_derivative_symbols or symbol_lower in btc_derivative_symbols
 
-    def should_exclude(
-        self, coin_id: str, name: str = "", symbol: str = "", for_total2: bool = False
-    ) -> tuple[bool, str]:
+    def should_exclude(self, coin_id: str, name: str = "", symbol: str = "") -> tuple[bool, str]:
         """
         Check if a token should be excluded.
 
@@ -229,7 +227,6 @@ class TokenFilter:
             coin_id: The coin ID (lowercase symbol)
             name: The coin name
             symbol: The coin symbol
-            for_total2: Deprecated, kept for backwards compatibility (stablecoins always excluded)
 
         Returns:
             Tuple of (should_exclude, reason)
@@ -259,15 +256,12 @@ class TokenFilter:
 
         return (False, "")
 
-    def filter_coins(
-        self, coins: list[dict], for_total2: bool = False, record_filtered: bool = True
-    ) -> list[dict]:
+    def filter_coins(self, coins: list[dict], record_filtered: bool = True) -> list[dict]:
         """
         Filter a list of coins based on exclusion criteria.
 
         Args:
             coins: List of coin dictionaries with 'id', 'name', 'symbol' keys
-            for_total2: If True, also exclude stablecoins
             record_filtered: If True, record filtered tokens for export
 
         Returns:
@@ -280,9 +274,7 @@ class TokenFilter:
             name = coin.get("name", "")
             symbol = coin.get("symbol", "")
 
-            should_exclude, reason = self.should_exclude(
-                coin_id, name, symbol, for_total2=for_total2
-            )
+            should_exclude, reason = self.should_exclude(coin_id, name, symbol)
 
             if should_exclude:
                 if record_filtered:

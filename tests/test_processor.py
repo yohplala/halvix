@@ -64,7 +64,7 @@ class TestTotal2FilterCoins:
         assert "sol" in filtered
 
     def test_filters_stablecoins(self, processor):
-        """Test that stablecoins are filtered out for TOTAL2."""
+        """Test that stablecoins are filtered out."""
         coins = ["eth", "usdt", "usdc", "sol"]
         filtered = processor.filter_coins_for_total2(coins)
 

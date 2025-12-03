@@ -262,8 +262,8 @@ class TestDataFetcherFilterCoins:
             ),
         ]
 
-    def test_fetch_and_filter_excludes_wrapped(self, temp_dirs, sample_coins):
-        """Test that wrapped/staked tokens are filtered."""
+    def test_fetch_and_filter_excludes_wrapped_and_stablecoins(self, temp_dirs, sample_coins):
+        """Test that wrapped/staked tokens and stablecoins are filtered."""
         cache_dir, prices_dir, processed_dir = temp_dirs
 
         mock_client = MagicMock(spec=CryptoCompareClient)
@@ -284,44 +284,17 @@ class TestDataFetcherFilterCoins:
         ):
             result = fetcher.fetch_and_filter_coins(
                 n=7,
-                for_total2=False,
                 use_cache=False,
                 export_filtered=False,
             )
 
         assert result.success is True
         assert result.coins_fetched == 7
-        # Should filter: BTC, WBTC, STETH
-        # Accept: ETH, SOL, SUI, USDT (stablecoin kept when not for_total2)
-        assert result.coins_filtered >= 2  # At least wrapped and staked
-
-    def test_fetch_and_filter_excludes_stablecoins_for_total2(self, temp_dirs, sample_coins):
-        """Test that stablecoins are filtered for TOTAL2."""
-        cache_dir, prices_dir, processed_dir = temp_dirs
-
-        mock_client = MagicMock(spec=CryptoCompareClient)
-        mock_client.get_top_coins_by_market_cap.return_value = sample_coins
-
-        fetcher = DataFetcher(
-            client=mock_client,
-            cache=FileCache(cache_dir=cache_dir),
-            price_cache=PriceDataCache(prices_dir=prices_dir),
-        )
-
-        with patch("data.fetcher.ACCEPTED_COINS_JSON", processed_dir / "accepted.json"), patch(
-            "data.fetcher.PROCESSED_DIR", processed_dir
-        ):
-            result = fetcher.fetch_and_filter_coins(
-                n=7,
-                for_total2=True,  # Should also exclude stablecoins
-                use_cache=False,
-                export_filtered=False,
-            )
-
-        assert result.success is True
-        # USDT should now also be filtered
+        # Should filter: BTC, WBTC, STETH, USDT
+        # Accept: ETH, SOL, SUI
         summary = fetcher.get_filter_summary()
         reasons = summary["by_reason"]
+        assert "Wrapped/Staked/Bridged token" in reasons
         assert "Stablecoin" in reasons
 
     def test_fetch_and_filter_handles_api_error(self, temp_dirs):

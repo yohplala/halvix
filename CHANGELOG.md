@@ -12,6 +12,22 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.4] - 2025-12-03
+
+**Codebase cleanup and consistency fixes**
+
+- **Removed:** Obsolete CoinGecko references from code and documentation
+- **Removed:** `--for-total2` CLI option (stablecoins are always excluded)
+- **Removed:** `for_total2` parameter from all filter functions
+- **Removed:** Obsolete files: `coingecko.py`, `symbol_mapping.py`, and related tests
+- **Removed:** Redundant implementation status table from `PROJECT_CONTEXT.md`
+- **Fixed:** `__version__` removed from `src/__init__.py` (use `importlib.metadata`)
+- **Fixed:** Test `test_stablecoins_kept_when_not_for_total2` removed (obsolete)
+- **Updated:** Cache docstrings to use "Coin ID" instead of "CoinGecko coin ID"
+- **Updated:** Project structure in docs to reflect actual files
+
+**Categories:** Cleanup, Documentation, Tests
+
 ### [2025.12.3] - 2025-12-03
 
 **Filter stablecoins by default + GitHub Pages documentation**

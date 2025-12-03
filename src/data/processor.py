@@ -125,13 +125,12 @@ class Total2Processor:
         eligible = []
 
         for coin_id in coin_ids:
-            # Check if should be excluded for TOTAL2
+            # Check if should be excluded
             # coin_id is lowercase symbol (e.g., "eth")
             should_exclude, reason = self.token_filter.should_exclude(
                 coin_id=coin_id,
                 name="",  # We only have ID from cache
                 symbol=coin_id.upper(),
-                for_total2=True,  # Include stablecoin check
             )
 
             if not should_exclude:

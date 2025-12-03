@@ -141,7 +141,6 @@ class DataFetcher:
     def fetch_and_filter_coins(
         self,
         n: int = TOP_N_COINS,
-        for_total2: bool = False,
         use_cache: bool = True,
         export_filtered: bool = True,
     ) -> FetchResult:
@@ -150,7 +149,6 @@ class DataFetcher:
 
         Args:
             n: Number of coins to fetch
-            for_total2: If True, also exclude stablecoins
             use_cache: Whether to use cached data
             export_filtered: If True, export filtered tokens to CSV
 
@@ -167,7 +165,6 @@ class DataFetcher:
             # Apply filtering
             filtered_coins = self.token_filter.filter_coins(
                 all_coins,
-                for_total2=for_total2,
                 record_filtered=True,
             )
 
