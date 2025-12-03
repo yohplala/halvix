@@ -96,12 +96,12 @@ poetry run python -m main fetch-prices --limit 10
 ```
 
 **Features:**
-- **Incremental updates**: Only fetches new data since last cache update
+- **Incremental updates**: Only fetches new data since last cache, then merges with existing data and overwrites the parquet file (efficient for small daily updates)
 - **Yesterday as end date**: Avoids incomplete intraday data
 
 **Note:** This step uses CryptoCompare API for full historical data (~5000+ days). Rate limiting is applied automatically.
 
-**Output:** Price data cached in `data/raw/prices/` as parquet files.
+**Output:** Price data cached in `data/raw/prices/` as parquet files (one file per coin, overwritten on each update).
 
 #### Step 3: Calculate TOTAL2 Index
 
@@ -201,6 +201,7 @@ poetry run ruff check --fix src/ tests/
 
 ## Documentation
 
+- **📊 [Live Data Status](https://yohplala.github.io/halvix/)** - Current coin lists and price data status (GitHub Pages)
 - **[CHANGELOG](CHANGELOG.md)** - Version history and release notes
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
 - **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, data flow

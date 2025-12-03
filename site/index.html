@@ -1,0 +1,2451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Halvix - Cryptocurrency Data Status</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent-orange: #f0883e;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-blue: #58a6ff;
+            --border-color: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            padding: 3rem 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            color: var(--accent-orange);
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .update-time {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.red { color: var(--accent-red); }
+        .stat-value.orange { color: var(--accent-orange); }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        section {
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            color: var(--text-primary);
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--accent-orange);
+            display: inline-block;
+        }
+
+        .section-description {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+
+        tr:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .coin-symbol {
+            font-weight: 600;
+            color: var(--accent-orange);
+        }
+
+        .coin-name {
+            color: var(--text-primary);
+        }
+
+        .coin-id {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .market-cap {
+            color: var(--accent-green);
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+
+        .reason-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .reason-wrapped { background: #3f2d1e; color: #f0883e; }
+        .reason-btc { background: #2d1e3f; color: #a371f7; }
+        .reason-stablecoin { background: #1e2d3f; color: #58a6ff; }
+
+        .date-range {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .days-count {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-color);
+            margin-top: 3rem;
+        }
+
+        .github-link {
+            color: var(--accent-orange);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .stat-value {
+                font-size: 2rem;
+            }
+
+            th, td {
+                padding: 0.5rem;
+                font-size: 0.85rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔶 Halvix Data Status</h1>
+            <p class="subtitle">Cryptocurrency Price Analysis Relative to Bitcoin Halving Cycles</p>
+            <p class="update-time">Last updated: 2025-12-03 21:53:53 UTC</p>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">300</div>
+                <div class="stat-label">Total Coins Fetched</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value green">285</div>
+                <div class="stat-label">Accepted Coins</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value red">15</div>
+                <div class="stat-label">Filtered Out</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value orange">5</div>
+                <div class="stat-label">Coins with Price Data</div>
+            </div>
+        </div>
+
+        <section id="accepted">
+            <h2>✅ Accepted Coins (285)</h2>
+            <p class="section-description">
+                These coins passed the filter and are included in the analysis.
+                Wrapped, staked, bridged tokens and Bitcoin are excluded.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Symbol</th>
+                            <th>Name</th>
+                            <th>ID</th>
+                            <th>Market Cap</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td class="coin-symbol">ETH</td>
+                            <td class="coin-name">Ethereum</td>
+                            <td class="coin-id">eth</td>
+                            <td class="market-cap">$377.34B</td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td class="coin-symbol">XRP</td>
+                            <td class="coin-name">XRP</td>
+                            <td class="coin-id">xrp</td>
+                            <td class="market-cap">$218.89B</td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td class="coin-symbol">USDT</td>
+                            <td class="coin-name">Tether</td>
+                            <td class="coin-id">usdt</td>
+                            <td class="market-cap">$190.19B</td>
+                        </tr>
+                        <tr>
+                            <td>4</td>
+                            <td class="coin-symbol">BNB</td>
+                            <td class="coin-name">Binance Coin</td>
+                            <td class="coin-id">bnb</td>
+                            <td class="market-cap">$125.14B</td>
+                        </tr>
+                        <tr>
+                            <td>5</td>
+                            <td class="coin-symbol">SOL</td>
+                            <td class="coin-name">Solana</td>
+                            <td class="coin-id">sol</td>
+                            <td class="market-cap">$86.95B</td>
+                        </tr>
+                        <tr>
+                            <td>6</td>
+                            <td class="coin-symbol">USDC</td>
+                            <td class="coin-name">USD Coin</td>
+                            <td class="coin-id">usdc</td>
+                            <td class="market-cap">$77.81B</td>
+                        </tr>
+                        <tr>
+                            <td>7</td>
+                            <td class="coin-symbol">HYPE</td>
+                            <td class="coin-name">Hyperliquid</td>
+                            <td class="coin-id">hype</td>
+                            <td class="market-cap">$34.47B</td>
+                        </tr>
+                        <tr>
+                            <td>8</td>
+                            <td class="coin-symbol">TRX</td>
+                            <td class="coin-name">TRON</td>
+                            <td class="coin-id">trx</td>
+                            <td class="market-cap">$26.48B</td>
+                        </tr>
+                        <tr>
+                            <td>9</td>
+                            <td class="coin-symbol">DOGE</td>
+                            <td class="coin-name">Dogecoin</td>
+                            <td class="coin-id">doge</td>
+                            <td class="market-cap">$24.28B</td>
+                        </tr>
+                        <tr>
+                            <td>10</td>
+                            <td class="coin-symbol">WBT</td>
+                            <td class="coin-name">WhiteBIT Token</td>
+                            <td class="coin-id">wbt</td>
+                            <td class="market-cap">$20.23B</td>
+                        </tr>
+                        <tr>
+                            <td>11</td>
+                            <td class="coin-symbol">ADA</td>
+                            <td class="coin-name">Cardano</td>
+                            <td class="coin-id">ada</td>
+                            <td class="market-cap">$20.02B</td>
+                        </tr>
+                        <tr>
+                            <td>12</td>
+                            <td class="coin-symbol">SUI</td>
+                            <td class="coin-name">Sui</td>
+                            <td class="coin-id">sui</td>
+                            <td class="market-cap">$16.77B</td>
+                        </tr>
+                        <tr>
+                            <td>13</td>
+                            <td class="coin-symbol">WLFI</td>
+                            <td class="coin-name">World Liberty Financial</td>
+                            <td class="coin-id">wlfi</td>
+                            <td class="market-cap">$15.88B</td>
+                        </tr>
+                        <tr>
+                            <td>14</td>
+                            <td class="coin-symbol">LINK</td>
+                            <td class="coin-name">Chainlink</td>
+                            <td class="coin-id">link</td>
+                            <td class="market-cap">$14.39B</td>
+                        </tr>
+                        <tr>
+                            <td>15</td>
+                            <td class="coin-symbol">XLM</td>
+                            <td class="coin-name">Stellar</td>
+                            <td class="coin-id">xlm</td>
+                            <td class="market-cap">$12.85B</td>
+                        </tr>
+                        <tr>
+                            <td>16</td>
+                            <td class="coin-symbol">BCH</td>
+                            <td class="coin-name">Bitcoin Cash</td>
+                            <td class="coin-id">bch</td>
+                            <td class="market-cap">$11.98B</td>
+                        </tr>
+                        <tr>
+                            <td>17</td>
+                            <td class="coin-symbol">CRO</td>
+                            <td class="coin-name">Cronos</td>
+                            <td class="coin-id">cro</td>
+                            <td class="market-cap">$10.77B</td>
+                        </tr>
+                        <tr>
+                            <td>18</td>
+                            <td class="coin-symbol">AETHWETH</td>
+                            <td class="coin-name">Aave Ethereum WETH</td>
+                            <td class="coin-id">aethweth</td>
+                            <td class="market-cap">$9.88B</td>
+                        </tr>
+                        <tr>
+                            <td>19</td>
+                            <td class="coin-symbol">LEO</td>
+                            <td class="coin-name">LEO Token</td>
+                            <td class="coin-id">leo</td>
+                            <td class="market-cap">$8.67B</td>
+                        </tr>
+                        <tr>
+                            <td>20</td>
+                            <td class="coin-symbol">TON</td>
+                            <td class="coin-name">Toncoin</td>
+                            <td class="coin-id">ton</td>
+                            <td class="market-cap">$8.50B</td>
+                        </tr>
+                        <tr>
+                            <td>21</td>
+                            <td class="coin-symbol">ASTER</td>
+                            <td class="coin-name">Aster</td>
+                            <td class="coin-id">aster</td>
+                            <td class="market-cap">$8.44B</td>
+                        </tr>
+                        <tr>
+                            <td>22</td>
+                            <td class="coin-symbol">XMR</td>
+                            <td class="coin-name">Monero</td>
+                            <td class="coin-id">xmr</td>
+                            <td class="market-cap">$7.69B</td>
+                        </tr>
+                        <tr>
+                            <td>23</td>
+                            <td class="coin-symbol">HBAR</td>
+                            <td class="coin-name">Hedera Hashgraph</td>
+                            <td class="coin-id">hbar</td>
+                            <td class="market-cap">$7.31B</td>
+                        </tr>
+                        <tr>
+                            <td>24</td>
+                            <td class="coin-symbol">M</td>
+                            <td class="coin-name">MemeCore</td>
+                            <td class="coin-id">m</td>
+                            <td class="market-cap">$7.04B</td>
+                        </tr>
+                        <tr>
+                            <td>25</td>
+                            <td class="coin-symbol">USDE</td>
+                            <td class="coin-name">Ethena USDe</td>
+                            <td class="coin-id">usde</td>
+                            <td class="market-cap">$6.89B</td>
+                        </tr>
+                        <tr>
+                            <td>26</td>
+                            <td class="coin-symbol">MANTLE</td>
+                            <td class="coin-name">Mantle</td>
+                            <td class="coin-id">mantle</td>
+                            <td class="market-cap">$6.73B</td>
+                        </tr>
+                        <tr>
+                            <td>27</td>
+                            <td class="coin-symbol">AVAX</td>
+                            <td class="coin-name">Avalanche</td>
+                            <td class="coin-id">avax</td>
+                            <td class="market-cap">$6.65B</td>
+                        </tr>
+                        <tr>
+                            <td>28</td>
+                            <td class="coin-symbol">LTC</td>
+                            <td class="coin-name">Litecoin</td>
+                            <td class="coin-id">ltc</td>
+                            <td class="market-cap">$6.57B</td>
+                        </tr>
+                        <tr>
+                            <td>29</td>
+                            <td class="coin-symbol">WLD</td>
+                            <td class="coin-name">Worldcoin</td>
+                            <td class="coin-id">wld</td>
+                            <td class="market-cap">$6.30B</td>
+                        </tr>
+                        <tr>
+                            <td>30</td>
+                            <td class="coin-symbol">USDS</td>
+                            <td class="coin-name">Sky Dollar</td>
+                            <td class="coin-id">usds</td>
+                            <td class="market-cap">$6.08B</td>
+                        </tr>
+                        <tr>
+                            <td>31</td>
+                            <td class="coin-symbol">UNI</td>
+                            <td class="coin-name">Uniswap Protocol Token</td>
+                            <td class="coin-id">uni</td>
+                            <td class="market-cap">$6.03B</td>
+                        </tr>
+                        <tr>
+                            <td>32</td>
+                            <td class="coin-symbol">TRUMP</td>
+                            <td class="coin-name">OFFICIAL TRUMP</td>
+                            <td class="coin-id">trump</td>
+                            <td class="market-cap">$6.03B</td>
+                        </tr>
+                        <tr>
+                            <td>33</td>
+                            <td class="coin-symbol">ZEC</td>
+                            <td class="coin-name">ZCash</td>
+                            <td class="coin-id">zec</td>
+                            <td class="market-cap">$5.73B</td>
+                        </tr>
+                        <tr>
+                            <td>34</td>
+                            <td class="coin-symbol">XT</td>
+                            <td class="coin-name">XT.com Token</td>
+                            <td class="coin-id">xt</td>
+                            <td class="market-cap">$5.28B</td>
+                        </tr>
+                        <tr>
+                            <td>35</td>
+                            <td class="coin-symbol">SHIB</td>
+                            <td class="coin-name">Shiba Inu</td>
+                            <td class="coin-id">shib</td>
+                            <td class="market-cap">$5.26B</td>
+                        </tr>
+                        <tr>
+                            <td>36</td>
+                            <td class="coin-symbol">ONDO</td>
+                            <td class="coin-name">Ondo</td>
+                            <td class="coin-id">ondo</td>
+                            <td class="market-cap">$5.08B</td>
+                        </tr>
+                        <tr>
+                            <td>37</td>
+                            <td class="coin-symbol">ENA</td>
+                            <td class="coin-name">Ethena</td>
+                            <td class="coin-id">ena</td>
+                            <td class="market-cap">$4.38B</td>
+                        </tr>
+                        <tr>
+                            <td>38</td>
+                            <td class="coin-symbol">DAI</td>
+                            <td class="coin-name">Dai</td>
+                            <td class="coin-id">dai</td>
+                            <td class="market-cap">$4.35B</td>
+                        </tr>
+                        <tr>
+                            <td>39</td>
+                            <td class="coin-symbol">DOT</td>
+                            <td class="coin-name">Polkadot</td>
+                            <td class="coin-id">dot</td>
+                            <td class="market-cap">$3.82B</td>
+                        </tr>
+                        <tr>
+                            <td>40</td>
+                            <td class="coin-symbol">PYUSD</td>
+                            <td class="coin-name">PayPal USD</td>
+                            <td class="coin-id">pyusd</td>
+                            <td class="market-cap">$3.80B</td>
+                        </tr>
+                        <tr>
+                            <td>41</td>
+                            <td class="coin-symbol">VINCI</td>
+                            <td class="coin-name">VINCI</td>
+                            <td class="coin-id">vinci</td>
+                            <td class="market-cap">$3.47B</td>
+                        </tr>
+                        <tr>
+                            <td>42</td>
+                            <td class="coin-symbol">BGB</td>
+                            <td class="coin-name">Bitget token</td>
+                            <td class="coin-id">bgb</td>
+                            <td class="market-cap">$3.29B</td>
+                        </tr>
+                        <tr>
+                            <td>43</td>
+                            <td class="coin-symbol">MYX</td>
+                            <td class="coin-name">MYX Finance</td>
+                            <td class="coin-id">myx</td>
+                            <td class="market-cap">$3.24B</td>
+                        </tr>
+                        <tr>
+                            <td>44</td>
+                            <td class="coin-symbol">PUMP</td>
+                            <td class="coin-name">Pump.fun</td>
+                            <td class="coin-id">pump</td>
+                            <td class="market-cap">$3.19B</td>
+                        </tr>
+                        <tr>
+                            <td>45</td>
+                            <td class="coin-symbol">AAVE</td>
+                            <td class="coin-name">Aave</td>
+                            <td class="coin-id">aave</td>
+                            <td class="market-cap">$3.16B</td>
+                        </tr>
+                        <tr>
+                            <td>46</td>
+                            <td class="coin-symbol">GT</td>
+                            <td class="coin-name">Gatechain Token</td>
+                            <td class="coin-id">gt</td>
+                            <td class="market-cap">$3.13B</td>
+                        </tr>
+                        <tr>
+                            <td>47</td>
+                            <td class="coin-symbol">MONAD</td>
+                            <td class="coin-name">Monad</td>
+                            <td class="coin-id">monad</td>
+                            <td class="market-cap">$2.98B</td>
+                        </tr>
+                        <tr>
+                            <td>48</td>
+                            <td class="coin-symbol">TAO</td>
+                            <td class="coin-name">Bittensor</td>
+                            <td class="coin-id">tao</td>
+                            <td class="market-cap">$3.00B</td>
+                        </tr>
+                        <tr>
+                            <td>49</td>
+                            <td class="coin-symbol">PI</td>
+                            <td class="coin-name">Pi Network</td>
+                            <td class="coin-id">pi</td>
+                            <td class="market-cap">$2.95B</td>
+                        </tr>
+                        <tr>
+                            <td>50</td>
+                            <td class="coin-symbol">CC</td>
+                            <td class="coin-name">Canton Coin</td>
+                            <td class="coin-id">cc</td>
+                            <td class="market-cap">$2.78B</td>
+                        </tr>
+                        <tr>
+                            <td>51</td>
+                            <td class="coin-symbol">USD1</td>
+                            <td class="coin-name">World Liberty Financial USD</td>
+                            <td class="coin-id">usd1</td>
+                            <td class="market-cap">$2.75B</td>
+                        </tr>
+                        <tr>
+                            <td>52</td>
+                            <td class="coin-symbol">IP</td>
+                            <td class="coin-name">Story</td>
+                            <td class="coin-id">ip</td>
+                            <td class="market-cap">$2.38B</td>
+                        </tr>
+                        <tr>
+                            <td>53</td>
+                            <td class="coin-symbol">APT</td>
+                            <td class="coin-name">Aptos</td>
+                            <td class="coin-id">apt</td>
+                            <td class="market-cap">$2.38B</td>
+                        </tr>
+                        <tr>
+                            <td>54</td>
+                            <td class="coin-symbol">NEAR</td>
+                            <td class="coin-name">Near</td>
+                            <td class="coin-id">near</td>
+                            <td class="market-cap">$2.33B</td>
+                        </tr>
+                        <tr>
+                            <td>55</td>
+                            <td class="coin-symbol">OKB</td>
+                            <td class="coin-name">OKB</td>
+                            <td class="coin-id">okb</td>
+                            <td class="market-cap">$2.23B</td>
+                        </tr>
+                        <tr>
+                            <td>56</td>
+                            <td class="coin-symbol">XAUT</td>
+                            <td class="coin-name">Tether Gold</td>
+                            <td class="coin-id">xaut</td>
+                            <td class="market-cap">$2.19B</td>
+                        </tr>
+                        <tr>
+                            <td>57</td>
+                            <td class="coin-symbol">ARB</td>
+                            <td class="coin-name">Arbitrum</td>
+                            <td class="coin-id">arb</td>
+                            <td class="market-cap">$2.19B</td>
+                        </tr>
+                        <tr>
+                            <td>58</td>
+                            <td class="coin-symbol">ETC</td>
+                            <td class="coin-name">Ethereum Classic</td>
+                            <td class="coin-id">etc</td>
+                            <td class="market-cap">$2.18B</td>
+                        </tr>
+                        <tr>
+                            <td>59</td>
+                            <td class="coin-symbol">ICP</td>
+                            <td class="coin-name">Internet Computer</td>
+                            <td class="coin-id">icp</td>
+                            <td class="market-cap">$2.03B</td>
+                        </tr>
+                        <tr>
+                            <td>60</td>
+                            <td class="coin-symbol">PEPE</td>
+                            <td class="coin-name">Pepe</td>
+                            <td class="coin-id">pepe</td>
+                            <td class="market-cap">$1.97B</td>
+                        </tr>
+                        <tr>
+                            <td>61</td>
+                            <td class="coin-symbol">XDC</td>
+                            <td class="coin-name">XDC Network</td>
+                            <td class="coin-id">xdc</td>
+                            <td class="market-cap">$1.95B</td>
+                        </tr>
+                        <tr>
+                            <td>62</td>
+                            <td class="coin-symbol">XPL</td>
+                            <td class="coin-name">Plasma</td>
+                            <td class="coin-id">xpl</td>
+                            <td class="market-cap">$1.81B</td>
+                        </tr>
+                        <tr>
+                            <td>63</td>
+                            <td class="coin-symbol">JUP</td>
+                            <td class="coin-name">Jupiter</td>
+                            <td class="coin-id">jup</td>
+                            <td class="market-cap">$1.73B</td>
+                        </tr>
+                        <tr>
+                            <td>64</td>
+                            <td class="coin-symbol">KAS</td>
+                            <td class="coin-name">Kaspa</td>
+                            <td class="coin-id">kas</td>
+                            <td class="market-cap">$1.53B</td>
+                        </tr>
+                        <tr>
+                            <td>65</td>
+                            <td class="coin-symbol">KCS</td>
+                            <td class="coin-name">KuCoin Token</td>
+                            <td class="coin-id">kcs</td>
+                            <td class="market-cap">$1.49B</td>
+                        </tr>
+                        <tr>
+                            <td>66</td>
+                            <td class="coin-symbol">MORPHO</td>
+                            <td class="coin-name">Morpho</td>
+                            <td class="coin-id">morpho</td>
+                            <td class="market-cap">$1.46B</td>
+                        </tr>
+                        <tr>
+                            <td>67</td>
+                            <td class="coin-symbol">FLR</td>
+                            <td class="coin-name">Flare</td>
+                            <td class="coin-id">flr</td>
+                            <td class="market-cap">$1.44B</td>
+                        </tr>
+                        <tr>
+                            <td>68</td>
+                            <td class="coin-symbol">PAXG</td>
+                            <td class="coin-name">PAX Gold</td>
+                            <td class="coin-id">paxg</td>
+                            <td class="market-cap">$1.43B</td>
+                        </tr>
+                        <tr>
+                            <td>69</td>
+                            <td class="coin-symbol">QNT</td>
+                            <td class="coin-name">Quant</td>
+                            <td class="coin-id">qnt</td>
+                            <td class="market-cap">$1.42B</td>
+                        </tr>
+                        <tr>
+                            <td>70</td>
+                            <td class="coin-symbol">ALGO</td>
+                            <td class="coin-name">Algorand</td>
+                            <td class="coin-id">algo</td>
+                            <td class="market-cap">$1.42B</td>
+                        </tr>
+                        <tr>
+                            <td>71</td>
+                            <td class="coin-symbol">ZRO</td>
+                            <td class="coin-name">LayerZero</td>
+                            <td class="coin-id">zro</td>
+                            <td class="market-cap">$1.40B</td>
+                        </tr>
+                        <tr>
+                            <td>72</td>
+                            <td class="coin-symbol">OP</td>
+                            <td class="coin-name">Optimism</td>
+                            <td class="coin-id">op</td>
+                            <td class="market-cap">$1.39B</td>
+                        </tr>
+                        <tr>
+                            <td>73</td>
+                            <td class="coin-symbol">POL</td>
+                            <td class="coin-name">Polygon Ecosystem Token</td>
+                            <td class="coin-id">pol</td>
+                            <td class="market-cap">$1.35B</td>
+                        </tr>
+                        <tr>
+                            <td>74</td>
+                            <td class="coin-symbol">2Z</td>
+                            <td class="coin-name">DoubleZero</td>
+                            <td class="coin-id">2z</td>
+                            <td class="market-cap">$1.31B</td>
+                        </tr>
+                        <tr>
+                            <td>75</td>
+                            <td class="coin-symbol">DUCK</td>
+                            <td class="coin-name">DuckChain Token</td>
+                            <td class="coin-id">duck</td>
+                            <td class="market-cap">$1.24B</td>
+                        </tr>
+                        <tr>
+                            <td>76</td>
+                            <td class="coin-symbol">SKY</td>
+                            <td class="coin-name">Sky</td>
+                            <td class="coin-id">sky</td>
+                            <td class="market-cap">$1.29B</td>
+                        </tr>
+                        <tr>
+                            <td>77</td>
+                            <td class="coin-symbol">STRK</td>
+                            <td class="coin-name">Starknet</td>
+                            <td class="coin-id">strk</td>
+                            <td class="market-cap">$1.28B</td>
+                        </tr>
+                        <tr>
+                            <td>78</td>
+                            <td class="coin-symbol">FF</td>
+                            <td class="coin-name">Falcon Finance</td>
+                            <td class="coin-id">ff</td>
+                            <td class="market-cap">$1.24B</td>
+                        </tr>
+                        <tr>
+                            <td>79</td>
+                            <td class="coin-symbol">RLUSD</td>
+                            <td class="coin-name">Ripple USD</td>
+                            <td class="coin-id">rlusd</td>
+                            <td class="market-cap">$1.26B</td>
+                        </tr>
+                        <tr>
+                            <td>80</td>
+                            <td class="coin-symbol">SEI</td>
+                            <td class="coin-name">Sei</td>
+                            <td class="coin-id">sei</td>
+                            <td class="market-cap">$1.26B</td>
+                        </tr>
+                        <tr>
+                            <td>81</td>
+                            <td class="coin-symbol">AERO</td>
+                            <td class="coin-name">Aerodrome Finance</td>
+                            <td class="coin-id">aero</td>
+                            <td class="market-cap">$1.20B</td>
+                        </tr>
+                        <tr>
+                            <td>82</td>
+                            <td class="coin-symbol">ENS</td>
+                            <td class="coin-name">Ethereum Name Service</td>
+                            <td class="coin-id">ens</td>
+                            <td class="market-cap">$1.19B</td>
+                        </tr>
+                        <tr>
+                            <td>83</td>
+                            <td class="coin-symbol">VET</td>
+                            <td class="coin-name">VeChain</td>
+                            <td class="coin-id">vet</td>
+                            <td class="market-cap">$1.16B</td>
+                        </tr>
+                        <tr>
+                            <td>84</td>
+                            <td class="coin-symbol">SHX</td>
+                            <td class="coin-name">Stronghold Token</td>
+                            <td class="coin-id">shx</td>
+                            <td class="market-cap">$1.16B</td>
+                        </tr>
+                        <tr>
+                            <td>85</td>
+                            <td class="coin-symbol">FIL</td>
+                            <td class="coin-name">FileCoin</td>
+                            <td class="coin-id">fil</td>
+                            <td class="market-cap">$1.15B</td>
+                        </tr>
+                        <tr>
+                            <td>86</td>
+                            <td class="coin-symbol">ATOM</td>
+                            <td class="coin-name">Cosmos</td>
+                            <td class="coin-id">atom</td>
+                            <td class="market-cap">$1.14B</td>
+                        </tr>
+                        <tr>
+                            <td>87</td>
+                            <td class="coin-symbol">TWT</td>
+                            <td class="coin-name">Trust Wallet Token</td>
+                            <td class="coin-id">twt</td>
+                            <td class="market-cap">$1.07B</td>
+                        </tr>
+                        <tr>
+                            <td>88</td>
+                            <td class="coin-symbol">USDG</td>
+                            <td class="coin-name">Global Dollar</td>
+                            <td class="coin-id">usdg</td>
+                            <td class="market-cap">$1.07B</td>
+                        </tr>
+                        <tr>
+                            <td>89</td>
+                            <td class="coin-symbol">EIGEN</td>
+                            <td class="coin-name">EigenLayer</td>
+                            <td class="coin-id">eigen</td>
+                            <td class="market-cap">$1.03B</td>
+                        </tr>
+                        <tr>
+                            <td>90</td>
+                            <td class="coin-symbol">NEXO</td>
+                            <td class="coin-name">NEXO</td>
+                            <td class="coin-id">nexo</td>
+                            <td class="market-cap">$1.00B</td>
+                        </tr>
+                        <tr>
+                            <td>91</td>
+                            <td class="coin-symbol">VIRTUAL</td>
+                            <td class="coin-name">Virtual Protocol</td>
+                            <td class="coin-id">virtual</td>
+                            <td class="market-cap">$973.70M</td>
+                        </tr>
+                        <tr>
+                            <td>92</td>
+                            <td class="coin-symbol">CRV</td>
+                            <td class="coin-name">Curve DAO Token</td>
+                            <td class="coin-id">crv</td>
+                            <td class="market-cap">$933.83M</td>
+                        </tr>
+                        <tr>
+                            <td>93</td>
+                            <td class="coin-symbol">PENGU</td>
+                            <td class="coin-name">Pudgy Penguins</td>
+                            <td class="coin-id">pengu</td>
+                            <td class="market-cap">$906.54M</td>
+                        </tr>
+                        <tr>
+                            <td>94</td>
+                            <td class="coin-symbol">MX</td>
+                            <td class="coin-name">MX Token</td>
+                            <td class="coin-id">mx</td>
+                            <td class="market-cap">$903.75M</td>
+                        </tr>
+                        <tr>
+                            <td>95</td>
+                            <td class="coin-symbol">BONK</td>
+                            <td class="coin-name">Bonk</td>
+                            <td class="coin-id">bonk</td>
+                            <td class="market-cap">$865.83M</td>
+                        </tr>
+                        <tr>
+                            <td>96</td>
+                            <td class="coin-symbol">FDUSD</td>
+                            <td class="coin-name">First Digital USD</td>
+                            <td class="coin-id">fdusd</td>
+                            <td class="market-cap">$859.29M</td>
+                        </tr>
+                        <tr>
+                            <td>97</td>
+                            <td class="coin-symbol">CAKE</td>
+                            <td class="coin-name">PancakeSwap</td>
+                            <td class="coin-id">cake</td>
+                            <td class="market-cap">$829.68M</td>
+                        </tr>
+                        <tr>
+                            <td>98</td>
+                            <td class="coin-symbol">WAL</td>
+                            <td class="coin-name">WAL Token</td>
+                            <td class="coin-id">wal</td>
+                            <td class="market-cap">$820.40M</td>
+                        </tr>
+                        <tr>
+                            <td>99</td>
+                            <td class="coin-symbol">RENDER</td>
+                            <td class="coin-name">Render Network</td>
+                            <td class="coin-id">render</td>
+                            <td class="market-cap">$814.63M</td>
+                        </tr>
+                        <tr>
+                            <td>100</td>
+                            <td class="coin-symbol">H</td>
+                            <td class="coin-name">Humanity</td>
+                            <td class="coin-id">h</td>
+                            <td class="market-cap">$821.89M</td>
+                        </tr>
+                        <tr>
+                            <td>101</td>
+                            <td class="coin-symbol">BDX</td>
+                            <td class="coin-name">Beldex</td>
+                            <td class="coin-id">bdx</td>
+                            <td class="market-cap">$796.16M</td>
+                        </tr>
+                        <tr>
+                            <td>102</td>
+                            <td class="coin-symbol">LION</td>
+                            <td class="coin-name">Loaded Lions</td>
+                            <td class="coin-id">lion</td>
+                            <td class="market-cap">$748.09M</td>
+                        </tr>
+                        <tr>
+                            <td>103</td>
+                            <td class="coin-symbol">PENDLE</td>
+                            <td class="coin-name">Pendle</td>
+                            <td class="coin-id">pendle</td>
+                            <td class="market-cap">$754.77M</td>
+                        </tr>
+                        <tr>
+                            <td>104</td>
+                            <td class="coin-symbol">TIA</td>
+                            <td class="coin-name">Celestia</td>
+                            <td class="coin-id">tia</td>
+                            <td class="market-cap">$745.70M</td>
+                        </tr>
+                        <tr>
+                            <td>105</td>
+                            <td class="coin-symbol">PYTH</td>
+                            <td class="coin-name">Pyth Network</td>
+                            <td class="coin-id">pyth</td>
+                            <td class="market-cap">$739.63M</td>
+                        </tr>
+                        <tr>
+                            <td>106</td>
+                            <td class="coin-symbol">FET</td>
+                            <td class="coin-name">Artificial Superintelligence Alliance</td>
+                            <td class="coin-id">fet</td>
+                            <td class="market-cap">$705.74M</td>
+                        </tr>
+                        <tr>
+                            <td>107</td>
+                            <td class="coin-symbol">MERL</td>
+                            <td class="coin-name">Merlin Chain</td>
+                            <td class="coin-id">merl</td>
+                            <td class="market-cap">$720.26M</td>
+                        </tr>
+                        <tr>
+                            <td>108</td>
+                            <td class="coin-symbol">KAITO</td>
+                            <td class="coin-name">KAITO</td>
+                            <td class="coin-id">kaito</td>
+                            <td class="market-cap">$676.40M</td>
+                        </tr>
+                        <tr>
+                            <td>109</td>
+                            <td class="coin-symbol">SPX</td>
+                            <td class="coin-name">SPX6900</td>
+                            <td class="coin-id">spx</td>
+                            <td class="market-cap">$650.02M</td>
+                        </tr>
+                        <tr>
+                            <td>110</td>
+                            <td class="coin-symbol">DASH</td>
+                            <td class="coin-name">Dash</td>
+                            <td class="coin-id">dash</td>
+                            <td class="market-cap">$635.15M</td>
+                        </tr>
+                        <tr>
+                            <td>111</td>
+                            <td class="coin-symbol">RAY</td>
+                            <td class="coin-name">Raydium</td>
+                            <td class="coin-id">ray</td>
+                            <td class="market-cap">$630.25M</td>
+                        </tr>
+                        <tr>
+                            <td>112</td>
+                            <td class="coin-symbol">KMNO</td>
+                            <td class="coin-name">Kamino</td>
+                            <td class="coin-id">kmno</td>
+                            <td class="market-cap">$625.98M</td>
+                        </tr>
+                        <tr>
+                            <td>113</td>
+                            <td class="coin-symbol">IMX</td>
+                            <td class="coin-name">Immutable X</td>
+                            <td class="coin-id">imx</td>
+                            <td class="market-cap">$626.05M</td>
+                        </tr>
+                        <tr>
+                            <td>114</td>
+                            <td class="coin-symbol">ATH</td>
+                            <td class="coin-name">Aethir</td>
+                            <td class="coin-id">ath</td>
+                            <td class="market-cap">$612.34M</td>
+                        </tr>
+                        <tr>
+                            <td>115</td>
+                            <td class="coin-symbol">TEL</td>
+                            <td class="coin-name">Telcoin</td>
+                            <td class="coin-id">tel</td>
+                            <td class="market-cap">$605.96M</td>
+                        </tr>
+                        <tr>
+                            <td>116</td>
+                            <td class="coin-symbol">SOSO</td>
+                            <td class="coin-name">SoSoValue</td>
+                            <td class="coin-id">soso</td>
+                            <td class="market-cap">$601.30M</td>
+                        </tr>
+                        <tr>
+                            <td>117</td>
+                            <td class="coin-symbol">INJ</td>
+                            <td class="coin-name">Injective</td>
+                            <td class="coin-id">inj</td>
+                            <td class="market-cap">$594.95M</td>
+                        </tr>
+                        <tr>
+                            <td>118</td>
+                            <td class="coin-symbol">STX</td>
+                            <td class="coin-name">Stacks</td>
+                            <td class="coin-id">stx</td>
+                            <td class="market-cap">$573.10M</td>
+                        </tr>
+                        <tr>
+                            <td>119</td>
+                            <td class="coin-symbol">XTZ</td>
+                            <td class="coin-name">Tezos</td>
+                            <td class="coin-id">xtz</td>
+                            <td class="market-cap">$541.58M</td>
+                        </tr>
+                        <tr>
+                            <td>120</td>
+                            <td class="coin-symbol">GRT</td>
+                            <td class="coin-name">The Graph</td>
+                            <td class="coin-id">grt</td>
+                            <td class="market-cap">$537.80M</td>
+                        </tr>
+                        <tr>
+                            <td>121</td>
+                            <td class="coin-symbol">ZK</td>
+                            <td class="coin-name">zkSync</td>
+                            <td class="coin-id">zk</td>
+                            <td class="market-cap">$516.54M</td>
+                        </tr>
+                        <tr>
+                            <td>122</td>
+                            <td class="coin-symbol">AB</td>
+                            <td class="coin-name">Newton</td>
+                            <td class="coin-id">ab</td>
+                            <td class="market-cap">$516.35M</td>
+                        </tr>
+                        <tr>
+                            <td>123</td>
+                            <td class="coin-symbol">ZORA</td>
+                            <td class="coin-name">Zora</td>
+                            <td class="coin-id">zora</td>
+                            <td class="market-cap">$503.40M</td>
+                        </tr>
+                        <tr>
+                            <td>124</td>
+                            <td class="coin-symbol">USDD</td>
+                            <td class="coin-name">USDD</td>
+                            <td class="coin-id">usdd</td>
+                            <td class="market-cap">$504.67M</td>
+                        </tr>
+                        <tr>
+                            <td>125</td>
+                            <td class="coin-symbol">BERA</td>
+                            <td class="coin-name">Berachain</td>
+                            <td class="coin-id">bera</td>
+                            <td class="market-cap">$501.80M</td>
+                        </tr>
+                        <tr>
+                            <td>126</td>
+                            <td class="coin-symbol">KAIA</td>
+                            <td class="coin-name">Kaia</td>
+                            <td class="coin-id">kaia</td>
+                            <td class="market-cap">$497.80M</td>
+                        </tr>
+                        <tr>
+                            <td>127</td>
+                            <td class="coin-symbol">TUSD</td>
+                            <td class="coin-name">True USD</td>
+                            <td class="coin-id">tusd</td>
+                            <td class="market-cap">$494.93M</td>
+                        </tr>
+                        <tr>
+                            <td>128</td>
+                            <td class="coin-symbol">MOVE</td>
+                            <td class="coin-name">Movement</td>
+                            <td class="coin-id">move</td>
+                            <td class="market-cap">$491.00M</td>
+                        </tr>
+                        <tr>
+                            <td>129</td>
+                            <td class="coin-symbol">S</td>
+                            <td class="coin-name">Sonic Labs</td>
+                            <td class="coin-id">s</td>
+                            <td class="market-cap">$482.68M</td>
+                        </tr>
+                        <tr>
+                            <td>130</td>
+                            <td class="coin-symbol">PROVE</td>
+                            <td class="coin-name">Succinct</td>
+                            <td class="coin-id">prove</td>
+                            <td class="market-cap">$481.38M</td>
+                        </tr>
+                        <tr>
+                            <td>131</td>
+                            <td class="coin-symbol">FLOKI</td>
+                            <td class="coin-name">Floki Inu</td>
+                            <td class="coin-id">floki</td>
+                            <td class="market-cap">$471.12M</td>
+                        </tr>
+                        <tr>
+                            <td>132</td>
+                            <td class="coin-symbol">JTO</td>
+                            <td class="coin-name">Jito</td>
+                            <td class="coin-id">jto</td>
+                            <td class="market-cap">$468.01M</td>
+                        </tr>
+                        <tr>
+                            <td>133</td>
+                            <td class="coin-symbol">SAND</td>
+                            <td class="coin-name">The Sandbox</td>
+                            <td class="coin-id">sand</td>
+                            <td class="market-cap">$460.46M</td>
+                        </tr>
+                        <tr>
+                            <td>134</td>
+                            <td class="coin-symbol">CFX</td>
+                            <td class="coin-name">Conflux Network</td>
+                            <td class="coin-id">cfx</td>
+                            <td class="market-cap">$439.46M</td>
+                        </tr>
+                        <tr>
+                            <td>135</td>
+                            <td class="coin-symbol">NEO</td>
+                            <td class="coin-name">NEO</td>
+                            <td class="coin-id">neo</td>
+                            <td class="market-cap">$433.46M</td>
+                        </tr>
+                        <tr>
+                            <td>136</td>
+                            <td class="coin-symbol">DEEP</td>
+                            <td class="coin-name">DeepBook Protocol</td>
+                            <td class="coin-id">deep</td>
+                            <td class="market-cap">$427.98M</td>
+                        </tr>
+                        <tr>
+                            <td>137</td>
+                            <td class="coin-symbol">W</td>
+                            <td class="coin-name">Wormhole</td>
+                            <td class="coin-id">w</td>
+                            <td class="market-cap">$430.33M</td>
+                        </tr>
+                        <tr>
+                            <td>138</td>
+                            <td class="coin-symbol">BSV</td>
+                            <td class="coin-name">Bitcoin SV</td>
+                            <td class="coin-id">bsv</td>
+                            <td class="market-cap">$426.13M</td>
+                        </tr>
+                        <tr>
+                            <td>139</td>
+                            <td class="coin-symbol">BAT</td>
+                            <td class="coin-name">Basic Attention Token</td>
+                            <td class="coin-id">bat</td>
+                            <td class="market-cap">$414.54M</td>
+                        </tr>
+                        <tr>
+                            <td>140</td>
+                            <td class="coin-symbol">BTT</td>
+                            <td class="coin-name">BitTorrent</td>
+                            <td class="coin-id">btt</td>
+                            <td class="market-cap">$406.23M</td>
+                        </tr>
+                        <tr>
+                            <td>141</td>
+                            <td class="coin-symbol">A</td>
+                            <td class="coin-name">Vaulta</td>
+                            <td class="coin-id">a</td>
+                            <td class="market-cap">$406.14M</td>
+                        </tr>
+                        <tr>
+                            <td>142</td>
+                            <td class="coin-symbol">EOS</td>
+                            <td class="coin-name">EOS</td>
+                            <td class="coin-id">eos</td>
+                            <td class="market-cap">$404.88M</td>
+                        </tr>
+                        <tr>
+                            <td>143</td>
+                            <td class="coin-symbol">VENOM</td>
+                            <td class="coin-name">Venom</td>
+                            <td class="coin-id">venom</td>
+                            <td class="market-cap">$1.13B</td>
+                        </tr>
+                        <tr>
+                            <td>144</td>
+                            <td class="coin-symbol">LA</td>
+                            <td class="coin-name">Lagrange</td>
+                            <td class="coin-id">la</td>
+                            <td class="market-cap">$400.06M</td>
+                        </tr>
+                        <tr>
+                            <td>145</td>
+                            <td class="coin-symbol">DEXE</td>
+                            <td class="coin-name">DeXe</td>
+                            <td class="coin-id">dexe</td>
+                            <td class="market-cap">$394.44M</td>
+                        </tr>
+                        <tr>
+                            <td>146</td>
+                            <td class="coin-symbol">VSN</td>
+                            <td class="coin-name">Vision</td>
+                            <td class="coin-id">vsn</td>
+                            <td class="market-cap">$394.08M</td>
+                        </tr>
+                        <tr>
+                            <td>147</td>
+                            <td class="coin-symbol">GNO</td>
+                            <td class="coin-name">Gnosis</td>
+                            <td class="coin-id">gno</td>
+                            <td class="market-cap">$392.03M</td>
+                        </tr>
+                        <tr>
+                            <td>148</td>
+                            <td class="coin-symbol">WIF</td>
+                            <td class="coin-name">dogwifhat</td>
+                            <td class="coin-id">wif</td>
+                            <td class="market-cap">$392.58M</td>
+                        </tr>
+                        <tr>
+                            <td>149</td>
+                            <td class="coin-symbol">XMN</td>
+                            <td class="coin-name">xMoney</td>
+                            <td class="coin-id">xmn</td>
+                            <td class="market-cap">$392.50M</td>
+                        </tr>
+                        <tr>
+                            <td>150</td>
+                            <td class="coin-symbol">HNT</td>
+                            <td class="coin-name">Helium</td>
+                            <td class="coin-id">hnt</td>
+                            <td class="market-cap">$391.28M</td>
+                        </tr>
+                        <tr>
+                            <td>151</td>
+                            <td class="coin-symbol">SAHARA</td>
+                            <td class="coin-name">Sahara AI</td>
+                            <td class="coin-id">sahara</td>
+                            <td class="market-cap">$387.60M</td>
+                        </tr>
+                        <tr>
+                            <td>152</td>
+                            <td class="coin-symbol">JST</td>
+                            <td class="coin-name">JUST</td>
+                            <td class="coin-id">jst</td>
+                            <td class="market-cap">$385.01M</td>
+                        </tr>
+                        <tr>
+                            <td>153</td>
+                            <td class="coin-symbol">FLOW</td>
+                            <td class="coin-name">Flow</td>
+                            <td class="coin-id">flow</td>
+                            <td class="market-cap">$382.89M</td>
+                        </tr>
+                        <tr>
+                            <td>154</td>
+                            <td class="coin-symbol">NFT</td>
+                            <td class="coin-name">APENFT</td>
+                            <td class="coin-id">nft</td>
+                            <td class="market-cap">$369.30M</td>
+                        </tr>
+                        <tr>
+                            <td>155</td>
+                            <td class="coin-symbol">JASMY</td>
+                            <td class="coin-name">JasmyCoin</td>
+                            <td class="coin-id">jasmy</td>
+                            <td class="market-cap">$364.43M</td>
+                        </tr>
+                        <tr>
+                            <td>156</td>
+                            <td class="coin-symbol">FLUID</td>
+                            <td class="coin-name">Fluid</td>
+                            <td class="coin-id">fluid</td>
+                            <td class="market-cap">$361.80M</td>
+                        </tr>
+                        <tr>
+                            <td>157</td>
+                            <td class="coin-symbol">AVNT</td>
+                            <td class="coin-name">Avantis</td>
+                            <td class="coin-id">avnt</td>
+                            <td class="market-cap">$361.20M</td>
+                        </tr>
+                        <tr>
+                            <td>158</td>
+                            <td class="coin-symbol">VANA</td>
+                            <td class="coin-name">Vana</td>
+                            <td class="coin-id">vana</td>
+                            <td class="market-cap">$403.94M</td>
+                        </tr>
+                        <tr>
+                            <td>159</td>
+                            <td class="coin-symbol">GALA</td>
+                            <td class="coin-name">Gala</td>
+                            <td class="coin-id">gala</td>
+                            <td class="market-cap">$357.30M</td>
+                        </tr>
+                        <tr>
+                            <td>160</td>
+                            <td class="coin-symbol">RSR</td>
+                            <td class="coin-name">Reserve Rights</td>
+                            <td class="coin-id">rsr</td>
+                            <td class="market-cap">$356.62M</td>
+                        </tr>
+                        <tr>
+                            <td>161</td>
+                            <td class="coin-symbol">COMP</td>
+                            <td class="coin-name">Compound</td>
+                            <td class="coin-id">comp</td>
+                            <td class="market-cap">$351.70M</td>
+                        </tr>
+                        <tr>
+                            <td>162</td>
+                            <td class="coin-symbol">MANA</td>
+                            <td class="coin-name">Decentraland</td>
+                            <td class="coin-id">mana</td>
+                            <td class="market-cap">$350.50M</td>
+                        </tr>
+                        <tr>
+                            <td>163</td>
+                            <td class="coin-symbol">THETA</td>
+                            <td class="coin-name">Theta Network</td>
+                            <td class="coin-id">theta</td>
+                            <td class="market-cap">$348.52M</td>
+                        </tr>
+                        <tr>
+                            <td>164</td>
+                            <td class="coin-symbol">ME</td>
+                            <td class="coin-name">Magic Eden</td>
+                            <td class="coin-id">me</td>
+                            <td class="market-cap">$339.16M</td>
+                        </tr>
+                        <tr>
+                            <td>165</td>
+                            <td class="coin-symbol">YB</td>
+                            <td class="coin-name">Yield Basis</td>
+                            <td class="coin-id">yb</td>
+                            <td class="market-cap">$335.98M</td>
+                        </tr>
+                        <tr>
+                            <td>166</td>
+                            <td class="coin-symbol">DCR</td>
+                            <td class="coin-name">Decred</td>
+                            <td class="coin-id">dcr</td>
+                            <td class="market-cap">$334.22M</td>
+                        </tr>
+                        <tr>
+                            <td>167</td>
+                            <td class="coin-symbol">EURC</td>
+                            <td class="coin-name">Euro Coin</td>
+                            <td class="coin-id">eurc</td>
+                            <td class="market-cap">$330.68M</td>
+                        </tr>
+                        <tr>
+                            <td>168</td>
+                            <td class="coin-symbol">FARTCOIN</td>
+                            <td class="coin-name">Fartcoin</td>
+                            <td class="coin-id">fartcoin</td>
+                            <td class="market-cap">$331.09M</td>
+                        </tr>
+                        <tr>
+                            <td>169</td>
+                            <td class="coin-symbol">MET</td>
+                            <td class="coin-name">Meteora</td>
+                            <td class="coin-id">met</td>
+                            <td class="market-cap">$321.96M</td>
+                        </tr>
+                        <tr>
+                            <td>170</td>
+                            <td class="coin-symbol">CHZ</td>
+                            <td class="coin-name">Chiliz</td>
+                            <td class="coin-id">chz</td>
+                            <td class="market-cap">$313.10M</td>
+                        </tr>
+                        <tr>
+                            <td>171</td>
+                            <td class="coin-symbol">GRASS</td>
+                            <td class="coin-name">Grass</td>
+                            <td class="coin-id">grass</td>
+                            <td class="market-cap">$312.39M</td>
+                        </tr>
+                        <tr>
+                            <td>172</td>
+                            <td class="coin-symbol">AXS</td>
+                            <td class="coin-name">Axie Infinity Shards</td>
+                            <td class="coin-id">axs</td>
+                            <td class="market-cap">$308.31M</td>
+                        </tr>
+                        <tr>
+                            <td>173</td>
+                            <td class="coin-symbol">TRAC</td>
+                            <td class="coin-name">OriginTrail</td>
+                            <td class="coin-id">trac</td>
+                            <td class="market-cap">$301.11M</td>
+                        </tr>
+                        <tr>
+                            <td>174</td>
+                            <td class="coin-symbol">ZBCN</td>
+                            <td class="coin-name">Zebec Network</td>
+                            <td class="coin-id">zbcn</td>
+                            <td class="market-cap">$304.57M</td>
+                        </tr>
+                        <tr>
+                            <td>175</td>
+                            <td class="coin-symbol">SYRUP</td>
+                            <td class="coin-name">Syrup</td>
+                            <td class="coin-id">syrup</td>
+                            <td class="market-cap">$297.22M</td>
+                        </tr>
+                        <tr>
+                            <td>176</td>
+                            <td class="coin-symbol">1INCH</td>
+                            <td class="coin-name">1inch</td>
+                            <td class="coin-id">1inch</td>
+                            <td class="market-cap">$295.66M</td>
+                        </tr>
+                        <tr>
+                            <td>177</td>
+                            <td class="coin-symbol">BMX</td>
+                            <td class="coin-name">BitMart Token</td>
+                            <td class="coin-id">bmx</td>
+                            <td class="market-cap">$293.08M</td>
+                        </tr>
+                        <tr>
+                            <td>178</td>
+                            <td class="coin-symbol">RUNE</td>
+                            <td class="coin-name">Thorchain</td>
+                            <td class="coin-id">rune</td>
+                            <td class="market-cap">$290.03M</td>
+                        </tr>
+                        <tr>
+                            <td>179</td>
+                            <td class="coin-symbol">MIOTA</td>
+                            <td class="coin-name">IOTA</td>
+                            <td class="coin-id">miota</td>
+                            <td class="market-cap">$285.18M</td>
+                        </tr>
+                        <tr>
+                            <td>180</td>
+                            <td class="coin-symbol">SPK</td>
+                            <td class="coin-name">Spark</td>
+                            <td class="coin-id">spk</td>
+                            <td class="market-cap">$283.30M</td>
+                        </tr>
+                        <tr>
+                            <td>181</td>
+                            <td class="coin-symbol">KTA</td>
+                            <td class="coin-name">Keeta</td>
+                            <td class="coin-id">kta</td>
+                            <td class="market-cap">$279.44M</td>
+                        </tr>
+                        <tr>
+                            <td>182</td>
+                            <td class="coin-symbol">HUMA</td>
+                            <td class="coin-name">Huma Finance</td>
+                            <td class="coin-id">huma</td>
+                            <td class="market-cap">$277.90M</td>
+                        </tr>
+                        <tr>
+                            <td>183</td>
+                            <td class="coin-symbol">AR</td>
+                            <td class="coin-name">Arweave</td>
+                            <td class="coin-id">ar</td>
+                            <td class="market-cap">$277.77M</td>
+                        </tr>
+                        <tr>
+                            <td>184</td>
+                            <td class="coin-symbol">CHEEMS</td>
+                            <td class="coin-name">Cheems (cheems.pet)</td>
+                            <td class="coin-id">cheems</td>
+                            <td class="market-cap">$273.68M</td>
+                        </tr>
+                        <tr>
+                            <td>185</td>
+                            <td class="coin-symbol">SUPER</td>
+                            <td class="coin-name">SuperVerse</td>
+                            <td class="coin-id">super</td>
+                            <td class="market-cap">$265.38M</td>
+                        </tr>
+                        <tr>
+                            <td>186</td>
+                            <td class="coin-symbol">SOMI</td>
+                            <td class="coin-name">Somnia</td>
+                            <td class="coin-id">somi</td>
+                            <td class="market-cap">$254.30M</td>
+                        </tr>
+                        <tr>
+                            <td>187</td>
+                            <td class="coin-symbol">XEC</td>
+                            <td class="coin-name">eCash</td>
+                            <td class="coin-id">xec</td>
+                            <td class="market-cap">$252.86M</td>
+                        </tr>
+                        <tr>
+                            <td>188</td>
+                            <td class="coin-symbol">BOBL2</td>
+                            <td class="coin-name">BOB</td>
+                            <td class="coin-id">bobl2</td>
+                            <td class="market-cap">$251.32M</td>
+                        </tr>
+                        <tr>
+                            <td>189</td>
+                            <td class="coin-symbol">XCN</td>
+                            <td class="coin-name">Onyxcoin</td>
+                            <td class="coin-id">xcn</td>
+                            <td class="market-cap">$248.79M</td>
+                        </tr>
+                        <tr>
+                            <td>190</td>
+                            <td class="coin-symbol">WEMIX</td>
+                            <td class="coin-name">WEMIX</td>
+                            <td class="coin-id">wemix</td>
+                            <td class="market-cap">$201.67M</td>
+                        </tr>
+                        <tr>
+                            <td>191</td>
+                            <td class="coin-symbol">APE</td>
+                            <td class="coin-name">ApeCoin</td>
+                            <td class="coin-id">ape</td>
+                            <td class="market-cap">$244.00M</td>
+                        </tr>
+                        <tr>
+                            <td>192</td>
+                            <td class="coin-symbol">CORE</td>
+                            <td class="coin-name">Core</td>
+                            <td class="coin-id">core</td>
+                            <td class="market-cap">$242.34M</td>
+                        </tr>
+                        <tr>
+                            <td>193</td>
+                            <td class="coin-symbol">ERA</td>
+                            <td class="coin-name">Caldera</td>
+                            <td class="coin-id">era</td>
+                            <td class="market-cap">$240.20M</td>
+                        </tr>
+                        <tr>
+                            <td>194</td>
+                            <td class="coin-symbol">ARKM</td>
+                            <td class="coin-name">Arkham</td>
+                            <td class="coin-id">arkm</td>
+                            <td class="market-cap">$236.65M</td>
+                        </tr>
+                        <tr>
+                            <td>195</td>
+                            <td class="coin-symbol">DYDX</td>
+                            <td class="coin-name">dYdX</td>
+                            <td class="coin-id">dydx</td>
+                            <td class="market-cap">$236.01M</td>
+                        </tr>
+                        <tr>
+                            <td>196</td>
+                            <td class="coin-symbol">OPEN</td>
+                            <td class="coin-name">OpenLedger</td>
+                            <td class="coin-id">open</td>
+                            <td class="market-cap">$236.70M</td>
+                        </tr>
+                        <tr>
+                            <td>197</td>
+                            <td class="coin-symbol">XAN</td>
+                            <td class="coin-name">Anoma</td>
+                            <td class="coin-id">xan</td>
+                            <td class="market-cap">$232.52M</td>
+                        </tr>
+                        <tr>
+                            <td>198</td>
+                            <td class="coin-symbol">LAYER</td>
+                            <td class="coin-name">Solayer</td>
+                            <td class="coin-id">layer</td>
+                            <td class="market-cap">$231.54M</td>
+                        </tr>
+                        <tr>
+                            <td>199</td>
+                            <td class="coin-symbol">DRIFT</td>
+                            <td class="coin-name">Drift protocol</td>
+                            <td class="coin-id">drift</td>
+                            <td class="market-cap">$231.00M</td>
+                        </tr>
+                        <tr>
+                            <td>200</td>
+                            <td class="coin-symbol">ICNT</td>
+                            <td class="coin-name">Impossible Cloud Network Token</td>
+                            <td class="coin-id">icnt</td>
+                            <td class="market-cap">$239.68M</td>
+                        </tr>
+                        <tr>
+                            <td>201</td>
+                            <td class="coin-symbol">RSC</td>
+                            <td class="coin-name">ResearchCoin</td>
+                            <td class="coin-id">rsc</td>
+                            <td class="market-cap">$228.10M</td>
+                        </tr>
+                        <tr>
+                            <td>202</td>
+                            <td class="coin-symbol">ALEO</td>
+                            <td class="coin-name">ALEO</td>
+                            <td class="coin-id">aleo</td>
+                            <td class="market-cap">$226.50M</td>
+                        </tr>
+                        <tr>
+                            <td>203</td>
+                            <td class="coin-symbol">EGLD</td>
+                            <td class="coin-name">eGold</td>
+                            <td class="coin-id">egld</td>
+                            <td class="market-cap">$216.96M</td>
+                        </tr>
+                        <tr>
+                            <td>204</td>
+                            <td class="coin-symbol">AMP</td>
+                            <td class="coin-name">Amp</td>
+                            <td class="coin-id">amp</td>
+                            <td class="market-cap">$215.40M</td>
+                        </tr>
+                        <tr>
+                            <td>205</td>
+                            <td class="coin-symbol">CTC</td>
+                            <td class="coin-name">Creditcoin</td>
+                            <td class="coin-id">ctc</td>
+                            <td class="market-cap">$214.12M</td>
+                        </tr>
+                        <tr>
+                            <td>206</td>
+                            <td class="coin-symbol">CCD</td>
+                            <td class="coin-name">Concordium</td>
+                            <td class="coin-id">ccd</td>
+                            <td class="market-cap">$212.23M</td>
+                        </tr>
+                        <tr>
+                            <td>207</td>
+                            <td class="coin-symbol">BABY</td>
+                            <td class="coin-name">Babylon</td>
+                            <td class="coin-id">baby</td>
+                            <td class="market-cap">$211.44M</td>
+                        </tr>
+                        <tr>
+                            <td>208</td>
+                            <td class="coin-symbol">PLUME</td>
+                            <td class="coin-name">Plume</td>
+                            <td class="coin-id">plume</td>
+                            <td class="market-cap">$210.19M</td>
+                        </tr>
+                        <tr>
+                            <td>209</td>
+                            <td class="coin-symbol">VVS</td>
+                            <td class="coin-name">VVS Finance</td>
+                            <td class="coin-id">vvs</td>
+                            <td class="market-cap">$209.31M</td>
+                        </tr>
+                        <tr>
+                            <td>210</td>
+                            <td class="coin-symbol">PEAQ</td>
+                            <td class="coin-name">peaq</td>
+                            <td class="coin-id">peaq</td>
+                            <td class="market-cap">$209.49M</td>
+                        </tr>
+                        <tr>
+                            <td>211</td>
+                            <td class="coin-symbol">MOCA</td>
+                            <td class="coin-name">Moca Coin</td>
+                            <td class="coin-id">moca</td>
+                            <td class="market-cap">$234.40M</td>
+                        </tr>
+                        <tr>
+                            <td>212</td>
+                            <td class="coin-symbol">SONIC</td>
+                            <td class="coin-name">Sonic SVM</td>
+                            <td class="coin-id">sonic</td>
+                            <td class="market-cap">$204.19M</td>
+                        </tr>
+                        <tr>
+                            <td>213</td>
+                            <td class="coin-symbol">ALCH</td>
+                            <td class="coin-name">Alchemist AI</td>
+                            <td class="coin-id">alch</td>
+                            <td class="market-cap">$201.04M</td>
+                        </tr>
+                        <tr>
+                            <td>214</td>
+                            <td class="coin-symbol">BEAM</td>
+                            <td class="coin-name">Beam</td>
+                            <td class="coin-id">beam</td>
+                            <td class="market-cap">$201.24M</td>
+                        </tr>
+                        <tr>
+                            <td>215</td>
+                            <td class="coin-symbol">COW</td>
+                            <td class="coin-name">CoW Protocol</td>
+                            <td class="coin-id">cow</td>
+                            <td class="market-cap">$199.90M</td>
+                        </tr>
+                        <tr>
+                            <td>216</td>
+                            <td class="coin-symbol">TAIKO</td>
+                            <td class="coin-name">Taiko</td>
+                            <td class="coin-id">taiko</td>
+                            <td class="market-cap">$189.60M</td>
+                        </tr>
+                        <tr>
+                            <td>217</td>
+                            <td class="coin-symbol">WMTX</td>
+                            <td class="coin-name">World Mobile Token</td>
+                            <td class="coin-id">wmtx</td>
+                            <td class="market-cap">$195.54M</td>
+                        </tr>
+                        <tr>
+                            <td>218</td>
+                            <td class="coin-symbol">SNX</td>
+                            <td class="coin-name">Synthetix</td>
+                            <td class="coin-id">snx</td>
+                            <td class="market-cap">$193.60M</td>
+                        </tr>
+                        <tr>
+                            <td>219</td>
+                            <td class="coin-symbol">GAS</td>
+                            <td class="coin-name">Gas</td>
+                            <td class="coin-id">gas</td>
+                            <td class="market-cap">$193.51M</td>
+                        </tr>
+                        <tr>
+                            <td>220</td>
+                            <td class="coin-symbol">XCH</td>
+                            <td class="coin-name">Chia</td>
+                            <td class="coin-id">xch</td>
+                            <td class="market-cap">$192.49M</td>
+                        </tr>
+                        <tr>
+                            <td>221</td>
+                            <td class="coin-symbol">MKR</td>
+                            <td class="coin-name">Maker</td>
+                            <td class="coin-id">mkr</td>
+                            <td class="market-cap">$191.08M</td>
+                        </tr>
+                        <tr>
+                            <td>222</td>
+                            <td class="coin-symbol">LPT</td>
+                            <td class="coin-name">Livepeer</td>
+                            <td class="coin-id">lpt</td>
+                            <td class="market-cap">$189.42M</td>
+                        </tr>
+                        <tr>
+                            <td>223</td>
+                            <td class="coin-symbol">GLM</td>
+                            <td class="coin-name">Golem Network Token</td>
+                            <td class="coin-id">glm</td>
+                            <td class="market-cap">$184.60M</td>
+                        </tr>
+                        <tr>
+                            <td>224</td>
+                            <td class="coin-symbol">FTT</td>
+                            <td class="coin-name">FTX Token</td>
+                            <td class="coin-id">ftt</td>
+                            <td class="market-cap">$182.54M</td>
+                        </tr>
+                        <tr>
+                            <td>225</td>
+                            <td class="coin-symbol">IOST</td>
+                            <td class="coin-name">IOS token</td>
+                            <td class="coin-id">iost</td>
+                            <td class="market-cap">$179.90M</td>
+                        </tr>
+                        <tr>
+                            <td>226</td>
+                            <td class="coin-symbol">BB</td>
+                            <td class="coin-name">BounceBit</td>
+                            <td class="coin-id">bb</td>
+                            <td class="market-cap">$181.21M</td>
+                        </tr>
+                        <tr>
+                            <td>227</td>
+                            <td class="coin-symbol">VELVET</td>
+                            <td class="coin-name">Velvet</td>
+                            <td class="coin-id">velvet</td>
+                            <td class="market-cap">$178.50M</td>
+                        </tr>
+                        <tr>
+                            <td>228</td>
+                            <td class="coin-symbol">LUNC</td>
+                            <td class="coin-name">Terra Classic</td>
+                            <td class="coin-id">lunc</td>
+                            <td class="market-cap">$178.76M</td>
+                        </tr>
+                        <tr>
+                            <td>229</td>
+                            <td class="coin-symbol">KGEN</td>
+                            <td class="coin-name">KGeN</td>
+                            <td class="coin-id">kgen</td>
+                            <td class="market-cap">$178.20M</td>
+                        </tr>
+                        <tr>
+                            <td>230</td>
+                            <td class="coin-symbol">CVX</td>
+                            <td class="coin-name">Convex Finance</td>
+                            <td class="coin-id">cvx</td>
+                            <td class="market-cap">$180.27M</td>
+                        </tr>
+                        <tr>
+                            <td>231</td>
+                            <td class="coin-symbol">CELO</td>
+                            <td class="coin-name">Celo</td>
+                            <td class="coin-id">celo</td>
+                            <td class="market-cap">$177.00M</td>
+                        </tr>
+                        <tr>
+                            <td>232</td>
+                            <td class="coin-symbol">ZANO</td>
+                            <td class="coin-name">Zano</td>
+                            <td class="coin-id">zano</td>
+                            <td class="market-cap">$177.58M</td>
+                        </tr>
+                        <tr>
+                            <td>233</td>
+                            <td class="coin-symbol">PROM</td>
+                            <td class="coin-name">Prometeus</td>
+                            <td class="coin-id">prom</td>
+                            <td class="market-cap">$169.46M</td>
+                        </tr>
+                        <tr>
+                            <td>234</td>
+                            <td class="coin-symbol">TOSHI</td>
+                            <td class="coin-name">Toshi</td>
+                            <td class="coin-id">toshi</td>
+                            <td class="market-cap">$175.03M</td>
+                        </tr>
+                        <tr>
+                            <td>235</td>
+                            <td class="coin-symbol">CORN</td>
+                            <td class="coin-name">Corn</td>
+                            <td class="coin-id">corn</td>
+                            <td class="market-cap">$174.53M</td>
+                        </tr>
+                        <tr>
+                            <td>236</td>
+                            <td class="coin-symbol">RONIN</td>
+                            <td class="coin-name">Ronin</td>
+                            <td class="coin-id">ronin</td>
+                            <td class="market-cap">$173.00M</td>
+                        </tr>
+                        <tr>
+                            <td>237</td>
+                            <td class="coin-symbol">HOLO</td>
+                            <td class="coin-name">Holoworld</td>
+                            <td class="coin-id">holo</td>
+                            <td class="market-cap">$169.82M</td>
+                        </tr>
+                        <tr>
+                            <td>238</td>
+                            <td class="coin-symbol">SAPIEN</td>
+                            <td class="coin-name">Sapien</td>
+                            <td class="coin-id">sapien</td>
+                            <td class="market-cap">$176.48M</td>
+                        </tr>
+                        <tr>
+                            <td>239</td>
+                            <td class="coin-symbol">IO</td>
+                            <td class="coin-name">io.net</td>
+                            <td class="coin-id">io</td>
+                            <td class="market-cap">$168.80M</td>
+                        </tr>
+                        <tr>
+                            <td>240</td>
+                            <td class="coin-symbol">TURBO</td>
+                            <td class="coin-name">Turbo</td>
+                            <td class="coin-id">turbo</td>
+                            <td class="market-cap">$167.13M</td>
+                        </tr>
+                        <tr>
+                            <td>241</td>
+                            <td class="coin-symbol">QTUM</td>
+                            <td class="coin-name">QTUM</td>
+                            <td class="coin-id">qtum</td>
+                            <td class="market-cap">$164.32M</td>
+                        </tr>
+                        <tr>
+                            <td>242</td>
+                            <td class="coin-symbol">BIO</td>
+                            <td class="coin-name">Bio Protocol</td>
+                            <td class="coin-id">bio</td>
+                            <td class="market-cap">$163.75M</td>
+                        </tr>
+                        <tr>
+                            <td>243</td>
+                            <td class="coin-symbol">RED</td>
+                            <td class="coin-name">RedStone</td>
+                            <td class="coin-id">red</td>
+                            <td class="market-cap">$163.93M</td>
+                        </tr>
+                        <tr>
+                            <td>244</td>
+                            <td class="coin-symbol">SXT</td>
+                            <td class="coin-name">Space and Time</td>
+                            <td class="coin-id">sxt</td>
+                            <td class="market-cap">$161.00M</td>
+                        </tr>
+                        <tr>
+                            <td>245</td>
+                            <td class="coin-symbol">MIRA</td>
+                            <td class="coin-name">Mira</td>
+                            <td class="coin-id">mira</td>
+                            <td class="market-cap">$158.70M</td>
+                        </tr>
+                        <tr>
+                            <td>246</td>
+                            <td class="coin-symbol">B2</td>
+                            <td class="coin-name">B² Network</td>
+                            <td class="coin-id">b2</td>
+                            <td class="market-cap">$156.50M</td>
+                        </tr>
+                        <tr>
+                            <td>247</td>
+                            <td class="coin-symbol">SAFE</td>
+                            <td class="coin-name">Safe</td>
+                            <td class="coin-id">safe</td>
+                            <td class="market-cap">$156.20M</td>
+                        </tr>
+                        <tr>
+                            <td>248</td>
+                            <td class="coin-symbol">ZRX</td>
+                            <td class="coin-name">0x</td>
+                            <td class="coin-id">zrx</td>
+                            <td class="market-cap">$154.10M</td>
+                        </tr>
+                        <tr>
+                            <td>249</td>
+                            <td class="coin-symbol">VELO</td>
+                            <td class="coin-name">Velo</td>
+                            <td class="coin-id">velo</td>
+                            <td class="market-cap">$153.79M</td>
+                        </tr>
+                        <tr>
+                            <td>250</td>
+                            <td class="coin-symbol">ZEN</td>
+                            <td class="coin-name">Horizen</td>
+                            <td class="coin-id">zen</td>
+                            <td class="market-cap">$153.32M</td>
+                        </tr>
+                        <tr>
+                            <td>251</td>
+                            <td class="coin-symbol">ZETA</td>
+                            <td class="coin-name">ZetaChain</td>
+                            <td class="coin-id">zeta</td>
+                            <td class="market-cap">$152.82M</td>
+                        </tr>
+                        <tr>
+                            <td>252</td>
+                            <td class="coin-symbol">TFUEL</td>
+                            <td class="coin-name">Theta Fuel</td>
+                            <td class="coin-id">tfuel</td>
+                            <td class="market-cap">$152.79M</td>
+                        </tr>
+                        <tr>
+                            <td>253</td>
+                            <td class="coin-symbol">EDGE</td>
+                            <td class="coin-name">Definitive</td>
+                            <td class="coin-id">edge</td>
+                            <td class="market-cap">$151.70M</td>
+                        </tr>
+                        <tr>
+                            <td>254</td>
+                            <td class="coin-symbol">HOME</td>
+                            <td class="coin-name">Home</td>
+                            <td class="coin-id">home</td>
+                            <td class="market-cap">$151.52M</td>
+                        </tr>
+                        <tr>
+                            <td>255</td>
+                            <td class="coin-symbol">AIOZ</td>
+                            <td class="coin-name">AIOZ Network</td>
+                            <td class="coin-id">aioz</td>
+                            <td class="market-cap">$150.32M</td>
+                        </tr>
+                        <tr>
+                            <td>256</td>
+                            <td class="coin-symbol">BABYDOGE</td>
+                            <td class="coin-name">BabyDoge</td>
+                            <td class="coin-id">babydoge</td>
+                            <td class="market-cap">$148.52M</td>
+                        </tr>
+                        <tr>
+                            <td>257</td>
+                            <td class="coin-symbol">XVS</td>
+                            <td class="coin-name">Venus</td>
+                            <td class="coin-id">xvs</td>
+                            <td class="market-cap">$148.56M</td>
+                        </tr>
+                        <tr>
+                            <td>258</td>
+                            <td class="coin-symbol">AXL</td>
+                            <td class="coin-name">Axelar</td>
+                            <td class="coin-id">axl</td>
+                            <td class="market-cap">$147.40M</td>
+                        </tr>
+                        <tr>
+                            <td>259</td>
+                            <td class="coin-symbol">PLAY</td>
+                            <td class="coin-name">Play</td>
+                            <td class="coin-id">play</td>
+                            <td class="market-cap">$153.85M</td>
+                        </tr>
+                        <tr>
+                            <td>260</td>
+                            <td class="coin-symbol">ZKC</td>
+                            <td class="coin-name">ZK Coin</td>
+                            <td class="coin-id">zkc</td>
+                            <td class="market-cap">$146.82M</td>
+                        </tr>
+                        <tr>
+                            <td>261</td>
+                            <td class="coin-symbol">HEMI</td>
+                            <td class="coin-name">Hemi</td>
+                            <td class="coin-id">hemi</td>
+                            <td class="market-cap">$147.14M</td>
+                        </tr>
+                        <tr>
+                            <td>262</td>
+                            <td class="coin-symbol">BLESS</td>
+                            <td class="coin-name">Bless Token</td>
+                            <td class="coin-id">bless</td>
+                            <td class="market-cap">$145.82M</td>
+                        </tr>
+                        <tr>
+                            <td>263</td>
+                            <td class="coin-symbol">YFI</td>
+                            <td class="coin-name">yearn.finance</td>
+                            <td class="coin-id">yfi</td>
+                            <td class="market-cap">$144.83M</td>
+                        </tr>
+                        <tr>
+                            <td>264</td>
+                            <td class="coin-symbol">KUB</td>
+                            <td class="coin-name">KUB Coin</td>
+                            <td class="coin-id">kub</td>
+                            <td class="market-cap">$143.53M</td>
+                        </tr>
+                        <tr>
+                            <td>265</td>
+                            <td class="coin-symbol">ID</td>
+                            <td class="coin-name">SPACE</td>
+                            <td class="coin-id">id</td>
+                            <td class="market-cap">$142.20M</td>
+                        </tr>
+                        <tr>
+                            <td>266</td>
+                            <td class="coin-symbol">ROSE</td>
+                            <td class="coin-name">Oasis Labs</td>
+                            <td class="coin-id">rose</td>
+                            <td class="market-cap">$140.40M</td>
+                        </tr>
+                        <tr>
+                            <td>267</td>
+                            <td class="coin-symbol">ALT</td>
+                            <td class="coin-name">Altlayer</td>
+                            <td class="coin-id">alt</td>
+                            <td class="market-cap">$136.00M</td>
+                        </tr>
+                        <tr>
+                            <td>268</td>
+                            <td class="coin-symbol">REKT</td>
+                            <td class="coin-name">Rekt</td>
+                            <td class="coin-id">rekt</td>
+                            <td class="market-cap">$136.93M</td>
+                        </tr>
+                        <tr>
+                            <td>269</td>
+                            <td class="coin-symbol">CARV</td>
+                            <td class="coin-name">CARV</td>
+                            <td class="coin-id">carv</td>
+                            <td class="market-cap">$135.43M</td>
+                        </tr>
+                        <tr>
+                            <td>270</td>
+                            <td class="coin-symbol">AKT</td>
+                            <td class="coin-name">Akash Network</td>
+                            <td class="coin-id">akt</td>
+                            <td class="market-cap">$134.88M</td>
+                        </tr>
+                        <tr>
+                            <td>271</td>
+                            <td class="coin-symbol">OM</td>
+                            <td class="coin-name">MANTRA</td>
+                            <td class="coin-id">om</td>
+                            <td class="market-cap">$134.30M</td>
+                        </tr>
+                        <tr>
+                            <td>272</td>
+                            <td class="coin-symbol">VADERPROTOCOL</td>
+                            <td class="coin-name">Vader Protocol</td>
+                            <td class="coin-id">vaderprotocol</td>
+                            <td class="market-cap">$159,416</td>
+                        </tr>
+                        <tr>
+                            <td>273</td>
+                            <td class="coin-symbol">MINA</td>
+                            <td class="coin-name">Mina Protocol</td>
+                            <td class="coin-id">mina</td>
+                            <td class="market-cap">$129.98M</td>
+                        </tr>
+                        <tr>
+                            <td>274</td>
+                            <td class="coin-symbol">KAVA</td>
+                            <td class="coin-name">Kava</td>
+                            <td class="coin-id">kava</td>
+                            <td class="market-cap">$129.72M</td>
+                        </tr>
+                        <tr>
+                            <td>275</td>
+                            <td class="coin-symbol">TREE</td>
+                            <td class="coin-name">Treehouse</td>
+                            <td class="coin-id">tree</td>
+                            <td class="market-cap">$129.40M</td>
+                        </tr>
+                        <tr>
+                            <td>276</td>
+                            <td class="coin-symbol">RVN</td>
+                            <td class="coin-name">Ravencoin</td>
+                            <td class="coin-id">rvn</td>
+                            <td class="market-cap">$129.55M</td>
+                        </tr>
+                        <tr>
+                            <td>277</td>
+                            <td class="coin-symbol">TORN</td>
+                            <td class="coin-name">Tornado Cash</td>
+                            <td class="coin-id">torn</td>
+                            <td class="market-cap">$55.72M</td>
+                        </tr>
+                        <tr>
+                            <td>278</td>
+                            <td class="coin-symbol">CKB</td>
+                            <td class="coin-name">Nervos Network</td>
+                            <td class="coin-id">ckb</td>
+                            <td class="market-cap">$125.99M</td>
+                        </tr>
+                        <tr>
+                            <td>279</td>
+                            <td class="coin-symbol">USELESS</td>
+                            <td class="coin-name">USELESS COIN</td>
+                            <td class="coin-id">useless</td>
+                            <td class="market-cap">$124.68M</td>
+                        </tr>
+                        <tr>
+                            <td>280</td>
+                            <td class="coin-symbol">STG</td>
+                            <td class="coin-name">Stargate Finance</td>
+                            <td class="coin-id">stg</td>
+                            <td class="market-cap">$124.30M</td>
+                        </tr>
+                        <tr>
+                            <td>281</td>
+                            <td class="coin-symbol">GUN</td>
+                            <td class="coin-name">GUNZ</td>
+                            <td class="coin-id">gun</td>
+                            <td class="market-cap">$124.10M</td>
+                        </tr>
+                        <tr>
+                            <td>282</td>
+                            <td class="coin-symbol">AWE</td>
+                            <td class="coin-name">AWE Network</td>
+                            <td class="coin-id">awe</td>
+                            <td class="market-cap">$123.87M</td>
+                        </tr>
+                        <tr>
+                            <td>283</td>
+                            <td class="coin-symbol">T</td>
+                            <td class="coin-name">Threshold Network Token</td>
+                            <td class="coin-id">t</td>
+                            <td class="market-cap">$124.04M</td>
+                        </tr>
+                        <tr>
+                            <td>284</td>
+                            <td class="coin-symbol">ALLO</td>
+                            <td class="coin-name">Allora</td>
+                            <td class="coin-id">allo</td>
+                            <td class="market-cap">$121.78M</td>
+                        </tr>
+                        <tr>
+                            <td>285</td>
+                            <td class="coin-symbol">BIGTIME</td>
+                            <td class="coin-name">Big Time</td>
+                            <td class="coin-id">bigtime</td>
+                            <td class="market-cap">$120.85M</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="rejected">
+            <h2>❌ Filtered Out Coins (15)</h2>
+            <p class="section-description">
+                These coins were excluded from analysis. Click the coin name to view on CryptoCompare.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Name</th>
+                            <th>ID</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="coin-symbol">BARD</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/BARD/overview" target="_blank">Lombard</a></td>
+                            <td class="coin-id">bard</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">BTC</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/BTC/overview" target="_blank">Bitcoin</a></td>
+                            <td class="coin-id">btc</td>
+                            <td><span class="reason-badge reason-btc">Bitcoin (base currency)</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">CBETH</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/CBETH/overview" target="_blank">Coinbase Wrapped Staked ETH</a></td>
+                            <td class="coin-id">cbeth</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">CMETH</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/CMETH/overview" target="_blank">Mantle Restaked Ether</a></td>
+                            <td class="coin-id">cmeth</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">DBR</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/DBR/overview" target="_blank">deBridge</a></td>
+                            <td class="coin-id">dbr</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">ETHFI</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/ETHFI/overview" target="_blank">Ether.fi</a></td>
+                            <td class="coin-id">ethfi</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">JITOSOL</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/JITOSOL/overview" target="_blank">Jito Staked SOL</a></td>
+                            <td class="coin-id">jitosol</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">LDO</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/LDO/overview" target="_blank">Lido DAO</a></td>
+                            <td class="coin-id">ldo</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">METH</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/METH/overview" target="_blank">Mantle Staked Ether</a></td>
+                            <td class="coin-id">meth</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">MSOL</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/MSOL/overview" target="_blank">Marinade Staked SOL</a></td>
+                            <td class="coin-id">msol</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">STETH</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/STETH/overview" target="_blank">Staked Ether</a></td>
+                            <td class="coin-id">steth</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">TBTC</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/TBTC/overview" target="_blank">tBTC</a></td>
+                            <td class="coin-id">tbtc</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">WBETH</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/WBETH/overview" target="_blank">Wrapped Beacon ETH</a></td>
+                            <td class="coin-id">wbeth</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">WBTC</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/WBTC/overview" target="_blank">Wrapped Bitcoin</a></td>
+                            <td class="coin-id">wbtc</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">WEETH</td>
+                            <td class="coin-name"><a href="https://www.cryptocompare.com/coins/WEETH/overview" target="_blank">Wrapped eETH</a></td>
+                            <td class="coin-id">weeth</td>
+                            <td><span class="reason-badge reason-wrapped">Wrapped/Staked/Bridged token</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="price-data">
+            <h2>📊 Price Data Summary (5 coins)</h2>
+            <p class="section-description">
+                Historical daily price data stored in Parquet format.
+                Data spans from before the first Bitcoin halving to the present.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Coin ID</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Days</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="coin-symbol">BNB</td>
+                            <td class="date-range">2011-05-28</td>
+                            <td class="date-range">2025-10-21</td>
+                            <td class="days-count">5,261</td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">ETH</td>
+                            <td class="date-range">2011-05-28</td>
+                            <td class="date-range">2025-10-21</td>
+                            <td class="days-count">5,261</td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">SOL</td>
+                            <td class="date-range">2011-05-28</td>
+                            <td class="date-range">2025-10-21</td>
+                            <td class="days-count">5,261</td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">USDT</td>
+                            <td class="date-range">2011-05-28</td>
+                            <td class="date-range">2025-10-21</td>
+                            <td class="days-count">5,261</td>
+                        </tr>
+                        <tr>
+                            <td class="coin-symbol">XRP</td>
+                            <td class="date-range">2011-05-28</td>
+                            <td class="date-range">2025-10-21</td>
+                            <td class="days-count">5,261</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <footer>
+            <p>
+                <a href="https://github.com/yohplala/halvix" class="github-link">Halvix</a> -
+                Cryptocurrency price analysis relative to Bitcoin halving cycles.
+            </p>
+            <p style="margin-top: 0.5rem;">
+                Data source: <a href="https://www.cryptocompare.com/" target="_blank">CryptoCompare</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>

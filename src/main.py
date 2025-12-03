@@ -37,12 +37,16 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 from api.cryptocompare import CryptoCompareClient
 from config import (
     ACCEPTED_COINS_JSON,
     OUTPUT_DIR,
+    PRICES_DIR,
+    PROJECT_ROOT,
     REJECTED_COINS_CSV,
     TOP_N_COINS,
     TOP_N_FOR_TOTAL2,
@@ -56,6 +60,504 @@ from data.processor import Total2Processor
 
 # Module logger
 logger = get_logger(__name__)
+
+# Documentation output directory (separate from docs/ which contains markdown)
+DOCS_SITE_DIR = PROJECT_ROOT / "site"
+
+
+# =============================================================================
+# Documentation Generator
+# =============================================================================
+
+
+def _load_accepted_coins() -> list[dict]:
+    """Load accepted coins from JSON file."""
+    if not ACCEPTED_COINS_JSON.exists():
+        return []
+    with open(ACCEPTED_COINS_JSON, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_rejected_coins() -> list[dict]:
+    """Load rejected coins from CSV file."""
+    if not REJECTED_COINS_CSV.exists():
+        return []
+
+    rejected = []
+    with open(REJECTED_COINS_CSV, encoding="utf-8") as f:
+        lines = f.readlines()
+        if len(lines) > 1:
+            for line in lines[1:]:  # Skip header
+                parts = line.strip().split(";")
+                if len(parts) >= 5:
+                    rejected.append(
+                        {
+                            "id": parts[0],
+                            "name": parts[1],
+                            "symbol": parts[2],
+                            "reason": parts[3],
+                            "url": parts[4],
+                        }
+                    )
+    return rejected
+
+
+def _get_price_data_summary() -> list[dict]:
+    """Get summary of price data for each coin."""
+    summaries = []
+
+    if not PRICES_DIR.exists():
+        return summaries
+
+    for parquet_file in sorted(PRICES_DIR.glob("*.parquet")):
+        coin_id = parquet_file.stem
+        try:
+            df = pd.read_parquet(parquet_file)
+            if not df.empty:
+                start_date = df.index.min()
+                end_date = df.index.max()
+                summaries.append(
+                    {
+                        "coin_id": coin_id,
+                        "start_date": start_date.strftime("%Y-%m-%d"),
+                        "end_date": end_date.strftime("%Y-%m-%d"),
+                        "days": len(df),
+                    }
+                )
+        except Exception:
+            pass
+
+    return summaries
+
+
+def _generate_html(
+    accepted_coins: list[dict],
+    rejected_coins: list[dict],
+    price_summaries: list[dict],
+) -> str:
+    """Generate the complete HTML documentation page."""
+    update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Halvix - Cryptocurrency Data Status</title>
+    <style>
+        :root {{
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent-orange: #f0883e;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-blue: #58a6ff;
+            --border-color: #30363d;
+        }}
+
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }}
+
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }}
+
+        header {{
+            text-align: center;
+            padding: 3rem 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }}
+
+        h1 {{
+            font-size: 2.5rem;
+            color: var(--accent-orange);
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }}
+
+        .subtitle {{
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }}
+
+        .update-time {{
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }}
+
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }}
+
+        .stat-card {{
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+        }}
+
+        .stat-value {{
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }}
+
+        .stat-value.green {{ color: var(--accent-green); }}
+        .stat-value.red {{ color: var(--accent-red); }}
+        .stat-value.orange {{ color: var(--accent-orange); }}
+
+        .stat-label {{
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }}
+
+        section {{
+            margin-bottom: 3rem;
+        }}
+
+        h2 {{
+            color: var(--text-primary);
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--accent-orange);
+            display: inline-block;
+        }}
+
+        .section-description {{
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+        }}
+
+        th, td {{
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }}
+
+        th {{
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+        }}
+
+        tr:hover {{
+            background: var(--bg-tertiary);
+        }}
+
+        .coin-symbol {{
+            font-weight: 600;
+            color: var(--accent-orange);
+        }}
+
+        .coin-name {{
+            color: var(--text-primary);
+        }}
+
+        .coin-id {{
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }}
+
+        .market-cap {{
+            color: var(--accent-green);
+            font-family: 'Monaco', 'Menlo', monospace;
+        }}
+
+        .reason-badge {{
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }}
+
+        .reason-wrapped {{ background: #3f2d1e; color: #f0883e; }}
+        .reason-btc {{ background: #2d1e3f; color: #a371f7; }}
+        .reason-stablecoin {{ background: #1e2d3f; color: #58a6ff; }}
+
+        .date-range {{
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }}
+
+        .days-count {{
+            color: var(--accent-green);
+            font-weight: 600;
+        }}
+
+        a {{
+            color: var(--accent-blue);
+            text-decoration: none;
+        }}
+
+        a:hover {{
+            text-decoration: underline;
+        }}
+
+        .table-container {{
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }}
+
+        footer {{
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-color);
+            margin-top: 3rem;
+        }}
+
+        .github-link {{
+            color: var(--accent-orange);
+        }}
+
+        @media (max-width: 768px) {{
+            .container {{
+                padding: 1rem;
+            }}
+
+            h1 {{
+                font-size: 1.8rem;
+            }}
+
+            .stat-value {{
+                font-size: 2rem;
+            }}
+
+            th, td {{
+                padding: 0.5rem;
+                font-size: 0.85rem;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔶 Halvix Data Status</h1>
+            <p class="subtitle">Cryptocurrency Price Analysis Relative to Bitcoin Halving Cycles</p>
+            <p class="update-time">Last updated: {update_time}</p>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{len(accepted_coins) + len(rejected_coins)}</div>
+                <div class="stat-label">Total Coins Fetched</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value green">{len(accepted_coins)}</div>
+                <div class="stat-label">Accepted Coins</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value red">{len(rejected_coins)}</div>
+                <div class="stat-label">Filtered Out</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value orange">{len(price_summaries)}</div>
+                <div class="stat-label">Coins with Price Data</div>
+            </div>
+        </div>
+
+        <section id="accepted">
+            <h2>✅ Accepted Coins ({len(accepted_coins)})</h2>
+            <p class="section-description">
+                These coins passed the filter and are included in the analysis.
+                Wrapped, staked, bridged tokens and Bitcoin are excluded.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Symbol</th>
+                            <th>Name</th>
+                            <th>ID</th>
+                            <th>Market Cap</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+"""
+
+    for i, coin in enumerate(accepted_coins, 1):
+        market_cap = coin.get("market_cap", 0)
+        if market_cap >= 1_000_000_000:
+            market_cap_str = f"${market_cap / 1_000_000_000:.2f}B"
+        elif market_cap >= 1_000_000:
+            market_cap_str = f"${market_cap / 1_000_000:.2f}M"
+        else:
+            market_cap_str = f"${market_cap:,.0f}"
+
+        html += f"""                        <tr>
+                            <td>{i}</td>
+                            <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
+                            <td class="coin-name">{coin.get('name', 'N/A')}</td>
+                            <td class="coin-id">{coin.get('id', 'N/A')}</td>
+                            <td class="market-cap">{market_cap_str}</td>
+                        </tr>
+"""
+
+    html += (
+        """                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="rejected">
+            <h2>❌ Filtered Out Coins ("""
+        + str(len(rejected_coins))
+        + """)</h2>
+            <p class="section-description">
+                These coins were excluded from analysis. Click the coin name to view on CryptoCompare.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Name</th>
+                            <th>ID</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+"""
+    )
+
+    for coin in rejected_coins:
+        reason = coin.get("reason", "Unknown")
+        reason_class = "reason-wrapped"
+        if "BTC" in reason or "Bitcoin" in reason:
+            reason_class = "reason-btc"
+        elif "Stablecoin" in reason:
+            reason_class = "reason-stablecoin"
+
+        html += f"""                        <tr>
+                            <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
+                            <td class="coin-name"><a href="{coin.get('url', '#')}" target="_blank">{coin.get('name', 'N/A')}</a></td>
+                            <td class="coin-id">{coin.get('id', 'N/A')}</td>
+                            <td><span class="reason-badge {reason_class}">{reason}</span></td>
+                        </tr>
+"""
+
+    html += """                    </tbody>
+                </table>
+            </div>
+        </section>
+"""
+
+    if price_summaries:
+        html += (
+            """
+        <section id="price-data">
+            <h2>📊 Price Data Summary ("""
+            + str(len(price_summaries))
+            + """ coins)</h2>
+            <p class="section-description">
+                Historical daily price data stored in Parquet format.
+                Data spans from before the first Bitcoin halving to the present.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Coin ID</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Days</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+"""
+        )
+
+        for summary in price_summaries:
+            html += f"""                        <tr>
+                            <td class="coin-symbol">{summary['coin_id'].upper()}</td>
+                            <td class="date-range">{summary['start_date']}</td>
+                            <td class="date-range">{summary['end_date']}</td>
+                            <td class="days-count">{summary['days']:,}</td>
+                        </tr>
+"""
+
+        html += """                    </tbody>
+                </table>
+            </div>
+        </section>
+"""
+
+    html += """
+        <footer>
+            <p>
+                <a href="https://github.com/yohplala/halvix" class="github-link">Halvix</a> -
+                Cryptocurrency price analysis relative to Bitcoin halving cycles.
+            </p>
+            <p style="margin-top: 0.5rem;">
+                Data source: <a href="https://www.cryptocompare.com/" target="_blank">CryptoCompare</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+
+    return html
+
+
+def generate_docs() -> Path:
+    """Generate the documentation HTML file."""
+    # Create directory using Pathlib with proper mode
+    DOCS_SITE_DIR.mkdir(parents=True, exist_ok=True, mode=0o755)
+
+    accepted_coins = _load_accepted_coins()
+    rejected_coins = _load_rejected_coins()
+    price_summaries = _get_price_data_summary()
+
+    html_content = _generate_html(accepted_coins, rejected_coins, price_summaries)
+    output_file = DOCS_SITE_DIR / "index.html"
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    logger.info("Documentation generated: %s", output_file)
+    return output_file
 
 
 def cmd_list_coins(args: argparse.Namespace) -> int:
@@ -114,6 +616,12 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info("  - Rejected coins: %s", REJECTED_COINS_CSV)
 
     logger.info("Successfully processed %d coins", result.coins_accepted)
+
+    # Generate documentation automatically
+    logger.info("-" * 60)
+    logger.info("Generating documentation...")
+    generate_docs()
+
     logger.info("Run 'python -m main fetch-prices' to fetch price data")
 
     return 0
@@ -173,6 +681,11 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     logger.info("  Total cached:   %d coins", len(cached_coins))
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
+
+    # Generate documentation automatically
+    logger.info("-" * 60)
+    logger.info("Generating documentation...")
+    generate_docs()
 
     return 0
 

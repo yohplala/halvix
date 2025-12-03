@@ -137,6 +137,57 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
 ---
 
+## Caching and Incremental Updates
+
+### Price Data Caching
+
+Price data is stored in parquet format, one file per coin:
+
+```
+data/raw/prices/
+├── eth.parquet
+├── xrp.parquet
+├── bnb.parquet
+└── ... (one file per accepted coin)
+```
+
+### Incremental Update Behavior
+
+When running `fetch-prices` in incremental mode (default):
+
+1. **Load existing cache**: Read the existing parquet file for the coin
+2. **Determine new data range**: Find the last cached date, fetch from `last_date + 1` to yesterday
+3. **Merge with pandas**: `pd.concat([cached_data, new_data])`
+4. **Deduplicate**: Remove any duplicate dates, keeping the newest values
+5. **Overwrite file**: Write the combined DataFrame back to the same parquet file
+
+```python
+# Simplified logic from src/data/fetcher.py
+if not new_data.empty:
+    combined = pd.concat([cached, new_data])
+    combined = combined[~combined.index.duplicated(keep="last")]
+    combined = combined.sort_index()
+    price_cache.set_prices(coin_id, combined)  # Overwrites the file
+```
+
+**Why overwrite instead of append?**
+- Dataset is small (~5000 rows per coin, a few tens of KB)
+- Daily updates add only a few rows
+- Simpler than managing append-only storage
+- Parquet compression is efficient on full rewrite
+- Ensures data consistency (no orphaned append files)
+
+### Cache Expiry
+
+| Cache Type | Expiry | Purpose |
+|------------|--------|---------|
+| **API response cache** | 24 hours | Coin list from `/data/top/mktcapfull` |
+| **Price data cache** | Never expires | Parquet files in `data/raw/prices/` |
+
+Price data never expires because historical data doesn't change. Incremental mode only fetches new data since the last cached date.
+
+---
+
 ## Data Retrieved
 
 ### From /data/top/mktcapfull

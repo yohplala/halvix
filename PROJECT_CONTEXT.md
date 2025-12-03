@@ -106,6 +106,23 @@ halvix/
   - Volume data for TOTAL2 weighting
 - **Advantage**: **No time limit** on free tier - can fetch full history
 
+### 3.4 Price Data Caching
+
+Price data is stored in parquet format (one file per coin) in `data/raw/prices/`.
+
+**Incremental update behavior:**
+1. Load existing parquet file for the coin
+2. Fetch only new data from `last_cached_date + 1` to yesterday
+3. Merge using `pd.concat([cached, new_data])`
+4. Deduplicate (keep newest if overlap)
+5. **Overwrite the same parquet file** with combined data
+
+This approach is preferred because:
+- Dataset is small (~5000 rows per coin)
+- Daily updates add only a few rows
+- Simpler than append-only storage
+- Ensures data consistency
+
 ---
 
 ## 4. Token Filtering
