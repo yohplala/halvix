@@ -62,21 +62,21 @@ class SymbolMapping:
 class SymbolMappingCache:
     """
     Manages and validates mappings between CoinGecko IDs and CryptoCompare symbols.
-    
+
     Validation process:
     1. Get yesterday's price from CoinGecko
     2. Get yesterday's close price from CryptoCompare
     3. Compare prices (must be within 4% tolerance)
     4. Cache valid mappings for future use
     """
-    
+
     TOLERANCE_PERCENT = 4.0  # 4% price difference allowed
-    
+
     def __init__(self, cache_file: Path):
         self.cache_file = cache_file
         self._mappings: dict[str, SymbolMapping] = {}
         self._load_cache()
-    
+
     def validate_mapping(
         self,
         coingecko_id: str,
@@ -86,16 +86,16 @@ class SymbolMappingCache:
     ) -> SymbolMapping:
         """
         Validate that a CoinGecko ID maps to the correct CryptoCompare symbol.
-        
+
         Returns:
             SymbolMapping with validation results
         """
         ...
-    
+
     def has_mapping(self, coingecko_id: str) -> bool:
         """Check if a coin has already been validated (whether valid or invalid)."""
         return coingecko_id in self._mappings
-    
+
     def get_cryptocompare_symbol(self, coingecko_id: str) -> str | None:
         """Get the validated CryptoCompare symbol for a CoinGecko ID."""
         mapping = self._mappings.get(coingecko_id)
@@ -118,13 +118,13 @@ def validate_mapping(self, coingecko_id: str, coingecko_symbol: str, ...) -> Sym
     # Already validated?
     if self.is_validated(coingecko_id):
         return self._mappings[coingecko_id]
-    
+
     cryptocompare_symbol = coingecko_symbol.upper()
     yesterday = date.today() - timedelta(days=1)
-    
+
     # Get CoinGecko price (current price, close to yesterday's close)
     cg_price = coingecko_client.get_current_price(coingecko_id, vs_currency="btc")
-    
+
     # Get CryptoCompare yesterday's close
     cc_data = cryptocompare_client.get_daily_history(
         symbol=cryptocompare_symbol,
@@ -132,11 +132,11 @@ def validate_mapping(self, coingecko_id: str, coingecko_symbol: str, ...) -> Sym
         limit=1,
     )
     cc_price = cc_data[-1]["close"] if cc_data else 0
-    
+
     # Calculate difference
     diff_percent = self._calculate_price_diff(cg_price, cc_price)
     is_valid = diff_percent <= self.TOLERANCE_PERCENT
-    
+
     mapping = SymbolMapping(
         coingecko_id=coingecko_id,
         coingecko_symbol=coingecko_symbol,
@@ -147,10 +147,10 @@ def validate_mapping(self, coingecko_id: str, coingecko_symbol: str, ...) -> Sym
         price_diff_percent=diff_percent,
         is_valid=is_valid,
     )
-    
+
     self._mappings[coingecko_id] = mapping
     self._save_cache()
-    
+
     return mapping
 ```
 
@@ -207,21 +207,21 @@ def fetch_coin_prices(
 ) -> pd.DataFrame:
     """
     Fetch historical price data, with incremental updates.
-    
+
     If incremental=True and cached data exists:
     - Only fetch from (last_cached_date + 1) to yesterday
     - Merge new data with existing cache
     """
     cached = self.price_cache.get_prices(coin_id)
     yesterday = date.today() - timedelta(days=1)
-    
+
     if cached is not None and not cached.empty and incremental:
         last_cached = cached.index.max().date()
-        
+
         if last_cached >= yesterday:
             # Cache is up-to-date
             return cached
-        
+
         # Fetch only new data
         new_data = self.cryptocompare.get_full_daily_history(
             symbol=symbol,
@@ -229,7 +229,7 @@ def fetch_coin_prices(
             start_date=last_cached + timedelta(days=1),
             end_date=yesterday,
         )
-        
+
         if not new_data.empty:
             # Merge with existing cache
             combined = pd.concat([cached, new_data])
@@ -237,9 +237,9 @@ def fetch_coin_prices(
             combined = combined.sort_index()
             self.price_cache.set_prices(coin_id, combined)
             return combined
-        
+
         return cached
-    
+
     # No cache or full refresh requested
     return self._fetch_full_history(coin_id, symbol, vs_currency, yesterday)
 ```
@@ -373,13 +373,13 @@ python -m main status --show-mappings
 class TestSymbolMappingValidation:
     def test_valid_mapping_within_tolerance(self):
         """ETH prices from both APIs should match within 5%."""
-        
+
     def test_invalid_mapping_outside_tolerance(self):
         """Mismatched coins should fail validation."""
-        
+
     def test_cached_mapping_skips_validation(self):
         """Already-validated coins shouldn't re-validate."""
-        
+
     def test_nonexistent_cryptocompare_symbol(self):
         """Coins not on CryptoCompare should fail gracefully."""
 ```
@@ -390,10 +390,10 @@ class TestSymbolMappingValidation:
 class TestIncrementalFetching:
     def test_incremental_fetch_merges_correctly(self):
         """New data should merge with existing cache."""
-        
+
     def test_no_fetch_when_cache_current(self):
         """Should skip fetch if cache is up to yesterday."""
-        
+
     def test_full_fetch_when_no_cache(self):
         """Should fetch full history when no cache exists."""
 ```
@@ -401,4 +401,3 @@ class TestIncrementalFetching:
 ---
 
 *Document created: 2025-12-03*
-

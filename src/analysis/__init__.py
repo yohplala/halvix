@@ -2,6 +2,6 @@
 Analysis modules for filtering and regression.
 """
 
-from .filters import TokenFilter, FilteredToken
+from .filters import FilteredToken, TokenFilter
 
 __all__ = ["TokenFilter", "FilteredToken"]

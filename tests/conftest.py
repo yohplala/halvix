@@ -36,7 +36,7 @@ def pytest_collection_modifyitems(config, items):
         # Enable integration tests
         os.environ["RUN_INTEGRATION_TESTS"] = "1"
         return
-    
+
     # Skip integration tests by default
     skip_integration = pytest.mark.skip(reason="Use --run-integration to run API tests")
     for item in items:

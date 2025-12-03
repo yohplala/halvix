@@ -33,6 +33,7 @@ ruff = "^0.1"
 ipython = "^8.0"
 
 # Entry point for CLI
+pre-commit = "^4.5.0"
 [tool.poetry.scripts]
 halvix = "main:main"
 
@@ -71,4 +72,3 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 pythonpath = ["src"]
 addopts = "-v --tb=short"
-

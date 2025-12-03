@@ -28,9 +28,9 @@ REPORTS_DIR = OUTPUT_DIR / "reports"
 
 HALVING_DATES: list[date] = [
     date(2012, 11, 28),  # 1st halving
-    date(2016, 7, 9),    # 2nd halving
-    date(2020, 5, 11),   # 3rd halving
-    date(2024, 4, 19),   # 4th halving
+    date(2016, 7, 9),  # 2nd halving
+    date(2020, 5, 11),  # 3rd halving
+    date(2024, 4, 19),  # 4th halving
 ]
 
 # Projected 5th halving (approximately 4 years after 4th)
@@ -48,10 +48,10 @@ TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1100 days
 def get_cycle_window(halving_date: date) -> tuple[date, date]:
     """
     Calculate the time window for a halving cycle.
-    
+
     Args:
         halving_date: The date of the Bitcoin halving
-        
+
     Returns:
         Tuple of (start_date, end_date) for the cycle window
     """
@@ -63,7 +63,7 @@ def get_cycle_window(halving_date: date) -> tuple[date, date]:
 def get_all_cycle_windows() -> list[tuple[int, date, date, date]]:
     """
     Get all halving cycle windows with their metadata.
-    
+
     Returns:
         List of tuples: (cycle_number, start_date, halving_date, end_date)
     """
@@ -90,14 +90,15 @@ MIN_REGRESSION_POINTS = 30
 def get_regression_end_date() -> date:
     """
     Get the regression end date.
-    
+
     Returns today's date at call time to handle applications
     running across midnight.
-    
+
     Returns:
         Current date
     """
     return date.today()
+
 
 # =============================================================================
 # Data Filtering Configuration
@@ -124,53 +125,82 @@ TOP_N_SUMMARY = 10
 # Stablecoins pegged to USD or other fiat currencies
 EXCLUDED_STABLECOINS = {
     # Major USD stablecoins
-    "tether", "usdt",
-    "usd-coin", "usdc",
-    "dai", "multi-collateral-dai",
-    "usds", "sky-dollar",
-    "ethena-usde", "usde",
-    "susds", "staked-usds",
-    "paypal-usd", "pyusd",
+    "tether",
+    "usdt",
+    "usd-coin",
+    "usdc",
+    "dai",
+    "multi-collateral-dai",
+    "usds",
+    "sky-dollar",
+    "ethena-usde",
+    "usde",
+    "susds",
+    "staked-usds",
+    "paypal-usd",
+    "pyusd",
     "usdt0",
-    "ethena-staked-usde", "susde",
+    "ethena-staked-usde",
+    "susde",
     "usd1",
     "usdf",
     "usdtb",
-    "bfusd", "binance-fiat-usd",
-    "rlusd", "ripple-usd",
+    "bfusd",
+    "binance-fiat-usd",
+    "rlusd",
+    "ripple-usd",
     "usdg",
     "usyc",
-    "first-digital-usd", "fdusd",
-    "ondo-us-dollar-yield", "usdy",
-    "bridged-usdc-polygon-pos-bridge", "usdc-e",
+    "first-digital-usd",
+    "fdusd",
+    "ondo-us-dollar-yield",
+    "usdy",
+    "bridged-usdc-polygon-pos-bridge",
+    "usdc-e",
     "polygon-bridged-dai",
     "usdai",
-    "usual-usd", "usd0",
-    "usdd", "decentralized-usd",
-    "true-usd", "tusd",
+    "usual-usd",
+    "usd0",
+    "usdd",
+    "decentralized-usd",
+    "true-usd",
+    "tusd",
     "mantle-bridged-usdt",
-    "gho", "aave-gho",
+    "gho",
+    "aave-gho",
     "steakhouse-usdc",
     "usdb",
-    "frax", "frax-finance",
-    "lusd", "liquity-usd",
-    "crvusd", "curve-usd",
-    "gusd", "gemini-dollar",
-    "busd", "binance-usd",
-    "usdp", "pax-dollar",
-    "susd", "nusd", "synthetix-usd",
-    "eurs", "stasis-euro",
-    "eurt", "tether-eurt",
-    "ageur", "angle-euro",
-    "mim", "magic-internet-money",
-    "dola", "dola-usd",
-    "aleph-zero-usd", "azero-usd",
-    
+    "frax",
+    "frax-finance",
+    "lusd",
+    "liquity-usd",
+    "crvusd",
+    "curve-usd",
+    "gusd",
+    "gemini-dollar",
+    "busd",
+    "binance-usd",
+    "usdp",
+    "pax-dollar",
+    "susd",
+    "nusd",
+    "synthetix-usd",
+    "eurs",
+    "stasis-euro",
+    "eurt",
+    "tether-eurt",
+    "ageur",
+    "angle-euro",
+    "mim",
+    "magic-internet-money",
+    "dola",
+    "dola-usd",
+    "aleph-zero-usd",
+    "azero-usd",
     # Binance bridged stablecoins
     "binance-bridged-usdt-bnb-smart-chain",
     "binance-bridged-usdc-bnb-smart-chain",
     "binance-peg-busd",
-    
     # Other bridged stablecoins
     "bridged-usdt",
     "bridged-usdc",
@@ -184,56 +214,84 @@ EXCLUDED_STABLECOINS = {
 # Exact coin IDs to exclude (wrapped, staked, bridged, liquid staking tokens)
 EXCLUDED_WRAPPED_STAKED_IDS = {
     # Wrapped BTC variants
-    "wrapped-bitcoin", "wbtc",
-    "tbtc", "threshold-btc",
-    "hbtc", "huobi-btc",
-    "renbtc", "ren-btc",
-    "sbtc", "synth-sbtc",
-    "fbtc", "ignition-fbtc",
-    "lbtc", "lombard-btc", "lombard-staked-btc",
-    "solvbtc", "solv-btc",
+    "wrapped-bitcoin",
+    "wbtc",
+    "tbtc",
+    "threshold-btc",
+    "hbtc",
+    "huobi-btc",
+    "renbtc",
+    "ren-btc",
+    "sbtc",
+    "synth-sbtc",
+    "fbtc",
+    "ignition-fbtc",
+    "lbtc",
+    "lombard-btc",
+    "lombard-staked-btc",
+    "solvbtc",
+    "solv-btc",
     "clbtc",
-    "enzobtc", "enzo-btc",
+    "enzobtc",
+    "enzo-btc",
     "arbitrum-bridged-btc",
-    "cbbtc", "coinbase-wrapped-btc",
-    
+    "cbbtc",
+    "coinbase-wrapped-btc",
     # Wrapped/Staked ETH variants
-    "staked-ether", "lido-staked-ether", "steth",
-    "wrapped-steth", "wsteth",
-    "wrapped-ether", "weth",
-    "wrapped-beacon-eth", "wbeth",
-    "wrapped-eeth", "weeth", "ether-fi-staked-eth",
-    "rocket-pool-eth", "reth",
-    "coinbase-wrapped-staked-eth", "cbeth",
-    "frax-staked-ether", "sfrxeth",
-    "mantle-staked-ether", "meth",
+    "staked-ether",
+    "lido-staked-ether",
+    "steth",
+    "wrapped-steth",
+    "wsteth",
+    "wrapped-ether",
+    "weth",
+    "wrapped-beacon-eth",
+    "wbeth",
+    "wrapped-eeth",
+    "weeth",
+    "ether-fi-staked-eth",
+    "rocket-pool-eth",
+    "reth",
+    "coinbase-wrapped-staked-eth",
+    "cbeth",
+    "frax-staked-ether",
+    "sfrxeth",
+    "mantle-staked-ether",
+    "meth",
     "binance-staked-eth",
-    "lseth", "liquid-staked-eth",
-    "kelp-dao-restaked-eth", "rseth",
-    "renzo-restaked-eth", "ezeth",
-    "oseth", "stakewise-staked-eth",
+    "lseth",
+    "liquid-staked-eth",
+    "kelp-dao-restaked-eth",
+    "rseth",
+    "renzo-restaked-eth",
+    "ezeth",
+    "oseth",
+    "stakewise-staked-eth",
     "l2-standard-bridged-weth-base",
     "arbitrum-bridged-weth",
-    "stader-ethx", "ethx",
-    "ether-fi-staked-eth", "eeth",
-    "swell-staked-eth", "sweth",
-    
+    "stader-ethx",
+    "ethx",
+    "eeth",
+    "swell-staked-eth",
+    "sweth",
     # Wrapped/Staked SOL variants
-    "wrapped-solana", "wrapped-sol",
-    "jito-staked-sol", "jitosol",
-    "marinade-staked-sol", "msol",
-    "bnsol", "binance-staked-sol",
-    
+    "wrapped-solana",
+    "wrapped-sol",
+    "jito-staked-sol",
+    "jitosol",
+    "marinade-staked-sol",
+    "msol",
+    "bnsol",
+    "binance-staked-sol",
     # Wrapped BNB
-    "wrapped-bnb", "wbnb",
-    
+    "wrapped-bnb",
+    "wbnb",
     # Other wrapped/bridged tokens
-    "syrup-usdc", "syrupusdc",
+    "syrup-usdc",
+    "syrupusdc",
     "khype",
-    
     # L2/Bridge wrapped tokens
     "l2-standard-bridged-weth",
-    "arbitrum-bridged-weth",
     "polygon-bridged-weth",
     "optimism-bridged-weth",
 }
@@ -242,27 +300,23 @@ EXCLUDED_WRAPPED_STAKED_IDS = {
 EXCLUDED_PATTERNS = [
     # Wrapped tokens
     r"^wrapped-",
-    r"^w[a-z]{2,6}$",      # wBTC, wETH, wSOL, wBNB, etc.
+    r"^w[a-z]{2,6}$",  # wBTC, wETH, wSOL, wBNB, etc.
     r"-wrapped$",
     r"-wrapped-",
-    
     # Staked tokens
     r"^staked-",
-    r"^st[a-z]{2,6}$",     # stETH, stSOL, etc.
+    r"^st[a-z]{2,6}$",  # stETH, stSOL, etc.
     r"-staked$",
     r"-staked-",
     r"liquid.?staking",
-    
     # Bridged tokens
     r"^bridged-",
     r"-bridged$",
     r"-bridged-",
     r"bridge[d]?$",
-    
     # Restaked tokens
     r"restaked",
-    r"^rs[a-z]{2,6}$",     # rsETH, etc.
-    
+    r"^rs[a-z]{2,6}$",  # rsETH, etc.
     # Specific protocols for liquid staking
     r"lido",
     r"rocket.?pool",
@@ -286,24 +340,24 @@ EXCLUDED_PATTERNS = [
 # =============================================================================
 
 ALLOWED_TOKENS = {
-    "sui",          # SUI blockchain native token
-    "sei-network",  # SEI blockchain native token  
+    "sui",  # SUI blockchain native token
+    "sei-network",  # SEI blockchain native token
     "sei",
-    "stk",          # STK token
+    "stk",  # STK token
     "the-sandbox",  # SAND token
     "sand",
-    "dogwifhat",    # WIF meme token
+    "dogwifhat",  # WIF meme token
     "wif",
-    "stellar",      # XLM (has 'st' prefix but is not staked)
-    "stacks",       # STX (has 'st' prefix but is not staked)
-    "storm",        # STORM token
-    "status",       # SNT token
-    "storj",        # STORJ token
-    "stratis",      # STRAX token
+    "stellar",  # XLM (has 'st' prefix but is not staked)
+    "stacks",  # STX (has 'st' prefix but is not staked)
+    "storm",  # STORM token
+    "status",  # SNT token
+    "storj",  # STORJ token
+    "stratis",  # STRAX token
     "stp-network",  # STPT token
-    "starknet",     # STRK token
-    "wilder-world", # WILD token
-    "wifi",         # WIFI token
+    "starknet",  # STRK token
+    "wilder-world",  # WILD token
+    "wifi",  # WIFI token
 }
 
 # =============================================================================
@@ -344,11 +398,11 @@ CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
 # =============================================================================
 
 COLORS = {
-    "coin_candle_up": "#E67E22",      # Dark orange (bullish)
-    "coin_candle_down": "#D35400",    # Darker orange (bearish)
-    "coin_line": "#E67E22",           # Dark orange for line plots
-    "total2_line": "#CCCCCC",         # Light grey
-    "regression_line": "#1B4F72",     # Dark blue
+    "coin_candle_up": "#E67E22",  # Dark orange (bullish)
+    "coin_candle_down": "#D35400",  # Darker orange (bearish)
+    "coin_line": "#E67E22",  # Dark orange for line plots
+    "total2_line": "#CCCCCC",  # Light grey
+    "regression_line": "#1B4F72",  # Dark blue
     "background": "#FFFFFF",
     "grid": "#F0F0F0",
     "text": "#333333",

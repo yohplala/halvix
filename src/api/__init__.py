@@ -8,15 +8,23 @@ Data source strategy:
 
 from .coingecko import (
     APIError as CoinGeckoAPIError,
+)
+from .coingecko import (
     Coin,
     CoinGeckoClient,
     CoinGeckoError,
+)
+from .coingecko import (
     RateLimitError as CoinGeckoRateLimitError,
 )
 from .cryptocompare import (
     APIError as CryptoCompareAPIError,
+)
+from .cryptocompare import (
     CryptoCompareClient,
     CryptoCompareError,
+)
+from .cryptocompare import (
     RateLimitError as CryptoCompareRateLimitError,
 )
 

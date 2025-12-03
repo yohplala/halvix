@@ -42,4 +42,3 @@ Files in this release:
 **Initial release - Review of BTC halving cycles**
 
 - **Categories:** Features, Testing, Documentation, Data, API
-

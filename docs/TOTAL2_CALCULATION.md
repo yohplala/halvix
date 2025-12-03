@@ -39,7 +39,7 @@ Where:
 For each day in the analysis window:
 
     1. COLLECT market_cap for all coins on that day
-    
+
     2. FILTER OUT:
        - Bitcoin (BTC) - base currency
        - Wrapped tokens (wBTC, wETH, etc.)
@@ -47,15 +47,15 @@ For each day in the analysis window:
        - Bridged tokens (Arbitrum bridged, L2 bridged, etc.)
        - Liquid staking derivatives
        - Stablecoins (USDT, USDC, DAI, etc.)
-    
+
     3. SORT remaining coins by market_cap descending
-    
+
     4. SELECT top N coins (default: 50)
-    
+
     5. CALCULATE weighted average:
        total_mcap = sum(market_cap[i] for i in top_N)
        total2 = sum(price_btc[i] * market_cap[i] for i in top_N) / total_mcap
-    
+
     6. RECORD:
        - TOTAL2 value for that day
        - List of coins that made the top N that day (composition)
@@ -178,4 +178,3 @@ TOTAL2_COMPOSITION_FILE = PROCESSED_DIR / "total2_daily_composition.parquet"
 ---
 
 *See also: [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md) for full project specification*
-

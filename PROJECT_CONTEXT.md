@@ -180,7 +180,7 @@ def compute_total2_daily(coins_data: dict, date: date) -> float:
     # 4. Calculate weighted average price
     total_market_cap = sum(c['market_cap'] for c in top_50)
     weighted_price = sum(
-        c['price_btc'] * (c['market_cap'] / total_market_cap) 
+        c['price_btc'] * (c['market_cap'] / total_market_cap)
         for c in top_50
     )
     return weighted_price
