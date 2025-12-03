@@ -1,0 +1,74 @@
+[tool.poetry]
+name = "halvix"
+version = "2025.12.1"
+description = "Cryptocurrency price analysis relative to Bitcoin halving cycles"
+authors = ["yohplala <pierrot.code@pm.me>"]
+readme = "README.md"
+packages = [
+    {include = "config.py", from = "src"},
+    {include = "analysis", from = "src"},
+    {include = "api", from = "src"},
+    {include = "data", from = "src"},
+    {include = "visualization", from = "src"},
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pandas = "^2.1"
+numpy = "^2.0"
+plotly = "^5.18"
+kaleido = "0.2.1"
+scipy = "^1.14"
+requests = "^2.31"
+python-dateutil = "^2.8"
+tqdm = "^4.65"
+pyarrow = "^18.0"
+tenacity = "^8.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4"
+pytest-cov = "^4.1"
+black = "^23.0"
+ruff = "^0.1"
+ipython = "^8.0"
+
+# Entry point for CLI
+[tool.poetry.scripts]
+halvix = "main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.isort]
+known-first-party = ["halvix"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
+
