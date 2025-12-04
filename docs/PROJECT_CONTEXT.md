@@ -175,7 +175,7 @@ Coins must have price data available before `MIN_DATA_DATE` (2024-01-10) to be i
 
 This filter is applied **after** fetching price data (in `fetch-prices` command), since the actual data start date is only known after fetching.
 
-**Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 to accurately reflect current market composition. The TOTAL2 index uses all cached price data (after filtering stablecoins/wrapped/staked tokens).
+**Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 because the index must be **immutable** - the value for any given day should not change when recalculated in the future. If we excluded recent coins today but included them next year (when they're no longer "recent"), historical TOTAL2 values would change retroactively. Instead, TOTAL2 captures the actual market composition (top 50 by volume) on each day, ensuring stable and reproducible values.
 
 ### 4.3 CSV Export
 Rejected coins exported to `data/processed/rejected_coins.csv`:

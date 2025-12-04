@@ -58,8 +58,9 @@ class Total2Processor:
 
     Important: TOTAL2 uses ALL cached price data, including recent coins.
     The MIN_DATA_DATE filter only applies to individual coin halving cycle
-    analysis, not to TOTAL2 calculation. This ensures the market index
-    accurately reflects current market composition.
+    analysis, not to TOTAL2 calculation. This ensures the index is immutable:
+    the value for any day D should not change when recalculated in the future.
+    Including recent coins ensures stable, reproducible historical values.
 
     Usage:
         processor = Total2Processor()
@@ -194,7 +195,8 @@ class Total2Processor:
         # Load all price data from cache
         # Note: This includes ALL cached coins (including recent ones).
         # The MIN_DATA_DATE filter does not apply to TOTAL2 calculation.
-        # This ensures the market index reflects current market composition.
+        # This ensures index immutability: the value for any day D won't change
+        # when recalculated in the future (no retroactive changes).
         all_cached = self.price_cache.list_cached_coins()
 
         if not all_cached:
