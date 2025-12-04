@@ -208,7 +208,7 @@ Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 50), exc
 - All stablecoins
 
 ### 5.2 Volume Smoothing
-Volume is smoothed using a 14-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
+Volume is smoothed using a 28-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
 This ensures stable rankings that don't fluctuate wildly from one day to the next.
 
 ### 5.3 Algorithm (Vectorized)
@@ -326,7 +326,7 @@ The `generate-charts` command creates interactive HTML files in `output/charts/`
 
 | File | Description |
 |------|-------------|
-| `total2_halving_cycles.html` | TOTAL2 across 4 halving cycles (lighter→darker blue) |
+| `total2_halving_cycles.html` | TOTAL2 across 3 halving cycles (2016, 2020, 2024 - cycle 1 excluded due to sparse data) |
 | `btc_halving_cycles.html` | BTC/USD across 4 halving cycles (lighter→darker orange) |
 | `total2_composition.html` | Interactive viewer: select date, see which coins are in TOTAL2 |
 
@@ -404,7 +404,7 @@ MIN_DATA_DATE = date(2024, 1, 10)
 TOP_N_COINS = 1000  # Increased to include historical coins (e.g., XEM)
 TOP_N_FOR_TOTAL2 = 50
 TOP_N_SUMMARY = 10
-VOLUME_SMA_WINDOW = 14  # Days for volume smoothing
+VOLUME_SMA_WINDOW = 28  # Days for volume smoothing
 
 # Quote currencies for price data
 QUOTE_CURRENCIES = ["BTC", "USD"]

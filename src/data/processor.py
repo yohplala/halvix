@@ -3,7 +3,7 @@ Data processor for TOTAL2 index calculation.
 
 Calculates the volume-weighted TOTAL2 index:
 - For each day, identifies top N coins by smoothed 24h trading volume
-- Uses 14-day SMA for volume smoothing (configurable via VOLUME_SMA_WINDOW)
+- Uses 28-day SMA for volume smoothing (configurable via VOLUME_SMA_WINDOW)
 - Excludes BTC, derivatives, and stablecoins
 - Computes volume-weighted average price in BTC
 - Tracks daily composition (which coins were in the index)
@@ -59,7 +59,7 @@ class Total2Processor:
 
     Algorithm (vectorized):
     1. Load all price data into DataFrames (coins as columns, dates as rows)
-    2. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 14)
+    2. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 28)
     3. Rank coins by smoothed volume for each day
     4. Create mask for top N coins
     5. Calculate: TOTAL2 = Σ(price × smoothed_volume) / Σ(smoothed_volume)

@@ -9,7 +9,7 @@ Halvix analyzes cryptocurrency performance across BTC halving cycles, comparing 
 - 📊 Retrieve and analyze top 1000 cryptocurrencies by market cap
 - 🔍 Filter out from download wrapped, staked, bridged tokens and stablecoins
 - 📉 Volume-weighted TOTAL2 index with 28-day SMA smoothing
-- 📈 Compare price performance across 2nd to 4th BTC halving cycles
+- 📈 Compare altcoins price performance across 2nd to 4th BTC halving cycles
 - 🎨 Interactive Plotly charts with normalized values
 - 🧩 Composition viewer to explore TOTAL2 makeup on any date
 

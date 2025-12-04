@@ -392,6 +392,9 @@ def create_total2_dual_chart(
     Create TOTAL2 chart with 2 subplots: USD (left) and BTC (right).
     Both normalized to 1.0 at halving day.
 
+    Note: Cycle 1 (2012) is excluded because the data is too sparse/small
+    for meaningful visualization.
+
     Args:
         output_path: Path to save HTML file
 
@@ -425,9 +428,13 @@ def create_total2_dual_chart(
         horizontal_spacing=0.08,
     )
 
-    # Add traces for each halving cycle
+    # Add traces for each halving cycle (skip cycle 1 - insufficient data)
     for i, halving_date in enumerate(HALVING_DATES):
         cycle_num = i + 1
+
+        # Skip cycle 1 (2012) - data too sparse for meaningful visualization
+        if cycle_num == 1:
+            continue
 
         # USD chart (left)
         cycle_usd = get_cycle_data(
@@ -542,7 +549,10 @@ def create_total2_halving_chart(
     show_composition: bool = True,
 ) -> go.Figure:
     """
-    Create TOTAL2 chart with 4 halving cycles (absolute values).
+    Create TOTAL2 chart with halving cycles (absolute values).
+
+    Note: Cycle 1 (2012) is excluded because the data is too sparse/small
+    for meaningful visualization.
 
     Args:
         output_path: Path to save HTML file
@@ -565,9 +575,14 @@ def create_total2_halving_chart(
     # Create figure
     fig = go.Figure()
 
-    # Add trace for each halving cycle
+    # Add trace for each halving cycle (skip cycle 1 - insufficient data)
     for i, halving_date in enumerate(HALVING_DATES):
         cycle_num = i + 1
+
+        # Skip cycle 1 (2012) - data too sparse for meaningful visualization
+        if cycle_num == 1:
+            continue
+
         cycle_df = get_cycle_data(total2_df, halving_date, price_col="total2_price")
 
         if cycle_df.empty:
