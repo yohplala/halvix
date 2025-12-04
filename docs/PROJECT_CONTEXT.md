@@ -27,8 +27,8 @@ halvix/
 ├── poetry.lock
 ├── README.md
 ├── CHANGELOG.md                # Version history
-├── PROJECT_CONTEXT.md          # This file (AI agent context)
 ├── docs/
+│   ├── PROJECT_CONTEXT.md      # This file (AI agent context)
 │   ├── DATA_SOURCES.md         # CryptoCompare API documentation
 │   ├── EDGE_CASES.md           # Edge cases and solutions
 │   └── TOTAL2_CALCULATION.md   # TOTAL2 index methodology
@@ -134,7 +134,7 @@ All categories below are excluded from **all analysis** (halving cycles and TOTA
 #### Bitcoin (base currency):
 - Bitcoin is excluded as it's the base currency for price analysis
 
-#### Stablecoins (no price movement vs BTC):
+#### Stablecoins (stable vs fiat, not representative of crypto market trends):
 
 Defined in `config.py` as `EXCLUDED_STABLECOINS`:
 - **USD**: USDT, USDC, DAI, USDS, USDE, FDUSD, TUSD, FRAX, GHO, USD1, RLUSD, etc.
@@ -166,10 +166,20 @@ ALLOWED_TOKENS = {
 }
 ```
 
+#### Insufficient Historical Data:
+
+Coins must have price data available before `MIN_DATA_DATE` (2024-01-10) to be included in analysis. This ensures:
+- Sufficient data for meaningful halving cycle comparisons
+- Coins have enough history to calculate trends and patterns
+- New/recent coins don't skew analysis with incomplete data
+
+This filter is applied **after** fetching price data (in `fetch-prices` command), since the actual data start date is only known after fetching.
+
 ### 4.3 CSV Export
 Rejected coins exported to `data/processed/rejected_coins.csv`:
 - Semicolon delimiter (Excel compatible)
 - Columns: Coin ID, Name, Symbol, Reason, URL
+- Includes all rejection reasons: stablecoins, wrapped/staked/bridged tokens, BTC derivatives, and insufficient historical data
 
 ---
 

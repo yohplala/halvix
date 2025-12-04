@@ -34,16 +34,19 @@ Examples:
 """
 
 import argparse
+import csv
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
 from api.cryptocompare import CryptoCompareClient
 from config import (
     ACCEPTED_COINS_JSON,
+    CRYPTOCOMPARE_COIN_URL,
+    MIN_DATA_DATE,
     OUTPUT_DIR,
     PRICES_DIR,
     PROJECT_ROOT,
@@ -100,6 +103,66 @@ def _load_rejected_coins() -> list[dict]:
                         }
                     )
     return rejected
+
+
+def _append_insufficient_history_to_rejected(
+    removed_coins: list[dict],
+    price_cache: PriceDataCache,
+    min_data_date: date,
+) -> None:
+    """
+    Append coins with insufficient historical data to rejected_coins.csv.
+
+    Args:
+        removed_coins: List of coin dicts that were removed due to insufficient history
+        price_cache: Price data cache to get actual start dates
+        min_data_date: The minimum data date requirement
+    """
+    if not removed_coins:
+        return
+
+    # Load existing rejected coins to avoid duplicates
+    existing_ids = set()
+    if REJECTED_COINS_CSV.exists():
+        with open(REJECTED_COINS_CSV, encoding="utf-8") as f:
+            lines = f.readlines()
+            for line in lines[1:]:  # Skip header
+                parts = line.strip().split(";")
+                if parts:
+                    existing_ids.add(parts[0].lower())
+
+    # Prepare new entries
+    new_entries = []
+    for coin in removed_coins:
+        coin_id = coin.get("id", "")
+        if coin_id.lower() in existing_ids:
+            continue  # Skip if already in rejected list
+
+        symbol = coin.get("symbol", coin_id.upper())
+        name = coin.get("name", symbol)
+        url = f"{CRYPTOCOMPARE_COIN_URL}/{symbol.upper()}/overview"
+
+        # Get actual start date for the reason message
+        df = price_cache.get_prices(coin_id)
+        if df is not None and not df.empty:
+            start_date = df.index.min().date()
+            reason = f"Insufficient historical data (starts {start_date})"
+        else:
+            reason = "No price data available"
+
+        new_entries.append([coin_id, name, symbol, reason, url])
+
+    if not new_entries:
+        return
+
+    # Append to CSV file
+    file_exists = REJECTED_COINS_CSV.exists()
+    with open(REJECTED_COINS_CSV, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, delimiter=";")
+        if not file_exists:
+            writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
+        for entry in new_entries:
+            writer.writerow(entry)
 
 
 def _get_price_data_summary() -> list[dict]:
@@ -310,6 +373,7 @@ def _generate_html(
         .reason-wrapped {{ background: #3f2d1e; color: #f0883e; }}
         .reason-btc {{ background: #2d1e3f; color: #a371f7; }}
         .reason-stablecoin {{ background: #1e2d3f; color: #58a6ff; }}
+        .reason-history {{ background: #2d3f1e; color: #7ee68f; }}
 
         .date-range {{
             font-family: 'Monaco', 'Menlo', monospace;
@@ -448,7 +512,9 @@ def _generate_html(
         + str(len(rejected_coins))
         + """)</h2>
             <p class="section-description">
-                These coins were excluded from analysis. Click the coin name to view on CryptoCompare.
+                These coins were excluded from analysis: stablecoins, wrapped/staked/bridged tokens, BTC derivatives,
+                and coins without sufficient historical data (before 2024-01-10).
+                Click the coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
                 <table>
@@ -470,6 +536,8 @@ def _generate_html(
             reason_class = "reason-btc"
         elif "Stablecoin" in reason:
             reason_class = "reason-stablecoin"
+        elif "historical" in reason.lower() or "Insufficient" in reason:
+            reason_class = "reason-history"
 
         html += f"""                        <tr>
                             <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
@@ -681,6 +749,38 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     logger.info("  Total cached:   %d coins", len(cached_coins))
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
+
+    # Filter out coins without data before MIN_DATA_DATE
+    # This is required for halving cycle analysis - coins must have history
+    logger.info("-" * 60)
+    logger.info("Filtering coins by data availability (MIN_DATA_DATE: %s)...", MIN_DATA_DATE)
+
+    original_count = len(coins)
+    valid_coins = fetcher.get_coins_with_data_before(MIN_DATA_DATE, coins)
+    removed_coins = [c for c in coins if c not in valid_coins]
+
+    if removed_coins:
+        logger.info("Removed %d coins without data before %s:", len(removed_coins), MIN_DATA_DATE)
+
+        # Append removed coins to rejected_coins.csv with reason
+        _append_insufficient_history_to_rejected(removed_coins, fetcher.price_cache, MIN_DATA_DATE)
+
+        for coin in removed_coins[:20]:
+            # Get the actual start date for logging
+            df = fetcher.price_cache.get_prices(coin["id"])
+            if df is not None and not df.empty:
+                start_date = df.index.min().date()
+                logger.info("  - %s (%s): data starts %s", coin["symbol"], coin["id"], start_date)
+            else:
+                logger.info("  - %s (%s): no price data", coin["symbol"], coin["id"])
+        if len(removed_coins) > 20:
+            logger.info("  ... and %d more", len(removed_coins) - 20)
+
+        # Update the accepted coins list
+        fetcher._save_accepted_coins(valid_coins)
+        logger.info("Updated accepted_coins.json: %d → %d coins", original_count, len(valid_coins))
+    else:
+        logger.info("All %d coins have data before %s", len(coins), MIN_DATA_DATE)
 
     # Generate documentation automatically
     logger.info("-" * 60)

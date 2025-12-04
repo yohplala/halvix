@@ -12,6 +12,20 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.5] - 2025-12-04
+
+**Bug fixes and documentation improvements**
+
+- **Fixed:** End date for price fetching now dynamically set to yesterday instead of being capped at analysis end date (2025-10-21)
+- **Fixed:** Coins without price data before MIN_DATA_DATE (2024-01-10) are now automatically removed from accepted_coins.json after price fetching
+- **Added:** Coins removed due to insufficient historical data are now added to rejected_coins.csv with detailed reason (includes actual start date)
+- **Added:** New badge style for "Insufficient historical data" in HTML documentation
+- **Fixed:** Project structure in PROJECT_CONTEXT.md now correctly shows docs/ directory location
+- **Fixed:** Stablecoin exclusion reason updated from "no price movement vs BTC" to "stable vs fiat, not representative of crypto market trends"
+- **Updated:** Documentation to list insufficient historical data as a filtering criterion
+
+**Categories:** Bug Fixes, Documentation, Features
+
 ### [2025.12.4] - 2025-12-03
 
 **Codebase cleanup and consistency fixes**

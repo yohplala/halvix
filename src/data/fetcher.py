@@ -100,14 +100,14 @@ class DataFetcher:
         # First halving minus DAYS_BEFORE to last halving plus DAYS_AFTER
         self.history_start_date = HALVING_DATES[0] - timedelta(days=DAYS_BEFORE_HALVING)
 
-        # End date: yesterday (today's data is incomplete) or the analysis end date
-        analysis_end = HALVING_DATES[-1] + timedelta(days=DAYS_AFTER_HALVING)
-        yesterday = date.today() - timedelta(days=1)
-
+        # End date: always yesterday (today's data is incomplete)
+        # We fetch all available data; the analysis window limits apply later
+        # during visualization, not during data fetching
         if USE_YESTERDAY_AS_END_DATE:
-            self.history_end_date = min(analysis_end, yesterday)
+            self.history_end_date = date.today() - timedelta(days=1)
         else:
-            self.history_end_date = analysis_end
+            # For testing: use analysis end date
+            self.history_end_date = HALVING_DATES[-1] + timedelta(days=DAYS_AFTER_HALVING)
 
     def fetch_top_coins(
         self,
