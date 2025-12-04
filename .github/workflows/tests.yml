@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
 
       - name: Install dependencies
         if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
@@ -143,15 +143,15 @@ jobs:
       - name: Update data branch with new data
         run: |
           cd data-branch
-          
+
           # Remove old data files (but keep README and .git)
           find . -maxdepth 1 -type d ! -name '.' ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
-          
+
           # Copy new data from main workspace
           cp -r ../main/data/raw . 2>/dev/null || true
           cp -r ../main/data/processed . 2>/dev/null || true
           cp -r ../main/data/cache . 2>/dev/null || true
-          
+
           # Update README with timestamp
           echo "# Halvix Data Cache" > README.md
           echo "" >> README.md
@@ -170,14 +170,14 @@ jobs:
           if [ -d "processed" ]; then
             echo "- \`processed/\`: Processed data files (accepted coins, rejected coins, TOTAL2 index)" >> README.md
           fi
-          
+
           # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           # Stage all changes
           git add -A
-          
+
           # Check if there are changes to commit
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -189,7 +189,7 @@ jobs:
             else
               git commit -m "Update data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             fi
-            
+
             # Force push to keep orphan branch with single commit
             git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git 2>/dev/null || true
             git push --force origin data
