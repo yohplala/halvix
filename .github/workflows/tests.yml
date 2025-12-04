@@ -54,14 +54,59 @@ jobs:
         run: poetry run pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=50
 
   # Separate job for data fetching (only on push to main, not PRs)
+  # Stores data in an orphan 'data' branch for browsing via GitHub UI
   fetch-data:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test  # Only run after tests pass
+    permissions:
+      contents: write  # Required to push to data branch
 
     steps:
-      - name: Checkout
+      - name: Checkout main branch
         uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Checkout data branch
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data-branch
+        continue-on-error: true  # Branch may not exist yet
+
+      - name: Initialize data branch if missing
+        run: |
+          if [ ! -d "data-branch/.git" ]; then
+            mkdir -p data-branch
+            cd data-branch
+            git init
+            git checkout --orphan data
+            echo "# Halvix Data Cache" > README.md
+            echo "" >> README.md
+            echo "This branch contains cached price data (parquet files)." >> README.md
+            echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
+            echo "" >> README.md
+            echo "**Do not manually edit files in this branch.**" >> README.md
+            git add README.md
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "Initialize data branch"
+          fi
+
+      - name: Restore cached data to main workspace
+        run: |
+          # Copy existing data from data branch to main workspace
+          if [ -d "data-branch/raw" ]; then
+            mkdir -p main/data
+            cp -r data-branch/raw main/data/ 2>/dev/null || true
+            cp -r data-branch/processed main/data/ 2>/dev/null || true
+            cp -r data-branch/cache main/data/ 2>/dev/null || true
+            echo "Restored cached data from data branch"
+            ls -la main/data/raw/prices/ 2>/dev/null | head -20 || echo "No price files yet"
+          else
+            echo "No existing data in data branch"
+          fi
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -76,37 +121,83 @@ jobs:
           virtualenvs-in-project: true
 
       - name: Install dependencies
+        working-directory: main
         run: poetry install --no-interaction
 
-      # Cache for price data (parquet files)
-      # Uses a rolling cache key based on date to refresh periodically
-      - name: Cache price data
-        id: cache-prices
-        uses: actions/cache@v4
-        with:
-          path: |
-            data/raw/prices
-            data/processed
-            data/cache
-          key: price-data-${{ hashFiles('data/processed/accepted_coins.json') }}-${{ github.run_id }}
-          restore-keys: |
-            price-data-${{ hashFiles('data/processed/accepted_coins.json') }}-
-            price-data-
-
       - name: Fetch coin list
+        working-directory: main
         run: poetry run python -m main list-coins --skip-ping
         env:
           CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
       - name: Fetch price data (incremental)
+        working-directory: main
         run: poetry run python -m main fetch-prices
         env:
           CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
       - name: Calculate TOTAL2 index
+        working-directory: main
         run: poetry run python -m main calculate-total2
         env:
           CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
       - name: Show data status
+        working-directory: main
         run: poetry run python -m main status
+
+      - name: Update data branch with new data
+        run: |
+          cd data-branch
+          
+          # Remove old data files (but keep README and .git)
+          find . -maxdepth 1 -type d ! -name '.' ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
+          
+          # Copy new data from main workspace
+          cp -r ../main/data/raw . 2>/dev/null || true
+          cp -r ../main/data/processed . 2>/dev/null || true
+          cp -r ../main/data/cache . 2>/dev/null || true
+          
+          # Update README with timestamp
+          echo "# Halvix Data Cache" > README.md
+          echo "" >> README.md
+          echo "This branch contains cached price data (parquet files)." >> README.md
+          echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
+          echo "" >> README.md
+          echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
+          echo "" >> README.md
+          echo "**Do not manually edit files in this branch.**" >> README.md
+          echo "" >> README.md
+          echo "## Contents" >> README.md
+          echo "" >> README.md
+          if [ -d "raw/prices" ]; then
+            echo "- \`raw/prices/\`: $(ls raw/prices/*.parquet 2>/dev/null | wc -l) coin price files" >> README.md
+          fi
+          if [ -d "processed" ]; then
+            echo "- \`processed/\`: Processed data files (accepted coins, rejected coins, TOTAL2 index)" >> README.md
+          fi
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Stage all changes
+          git add -A
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            # Create a single commit (squash history by amending or resetting)
+            # Using --amend to keep only one commit in the orphan branch
+            if git rev-parse HEAD >/dev/null 2>&1; then
+              git commit --amend -m "Update data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            else
+              git commit -m "Update data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            fi
+            
+            # Force push to keep orphan branch with single commit
+            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git 2>/dev/null || true
+            git push --force origin data
+            echo "Data branch updated successfully"
+          fi
