@@ -52,3 +52,61 @@ jobs:
 
       - name: Run tests with coverage
         run: poetry run pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=50
+
+  # Separate job for data fetching (only on push to main, not PRs)
+  fetch-data:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test  # Only run after tests pass
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      # Cache for price data (parquet files)
+      # Uses a rolling cache key based on date to refresh periodically
+      - name: Cache price data
+        id: cache-prices
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw/prices
+            data/processed
+            data/cache
+          key: price-data-${{ hashFiles('data/processed/accepted_coins.json') }}-${{ github.run_id }}
+          restore-keys: |
+            price-data-${{ hashFiles('data/processed/accepted_coins.json') }}-
+            price-data-
+
+      - name: Fetch coin list
+        run: poetry run python -m main list-coins --skip-ping
+        env:
+          CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
+
+      - name: Fetch price data (incremental)
+        run: poetry run python -m main fetch-prices
+        env:
+          CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
+
+      - name: Calculate TOTAL2 index
+        run: poetry run python -m main calculate-total2
+        env:
+          CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
+
+      - name: Show data status
+        run: poetry run python -m main status
