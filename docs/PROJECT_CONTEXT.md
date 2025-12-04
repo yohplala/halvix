@@ -105,17 +105,29 @@ halvix/
 
 ### 3.4 Price Data Caching
 
-Price data is stored in parquet format (one file per coin) in `data/raw/prices/`.
+Price data is stored in parquet format (one file per coin-pair) in `data/raw/prices/`.
+
+**File naming convention:**
+```
+{coin_id}-{quote_currency}.parquet
+```
+
+Examples: `eth-btc.parquet`, `eth-usd.parquet`, `sol-btc.parquet`
+
+**Quote currencies configured in `config.py`:**
+```python
+QUOTE_CURRENCIES = ["BTC", "USD"]
+```
 
 **Incremental update behavior:**
-1. Load existing parquet file for the coin
+1. Load existing parquet file for the coin-pair
 2. Fetch only new data from `last_cached_date + 1` to yesterday
 3. Merge using `pd.concat([cached, new_data])`
 4. Deduplicate (keep newest if overlap)
 5. **Overwrite the same parquet file** with combined data
 
 This approach is preferred because:
-- Dataset is small (~5000 rows per coin)
+- Dataset is small (~5000 rows per coin-pair)
 - Daily updates add only a few rows
 - Simpler than append-only storage
 - Ensures data consistency
@@ -195,19 +207,27 @@ Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 50), exc
 - All wrapped/staked/bridged tokens
 - All stablecoins
 
-### 5.2 Algorithm
+### 5.2 Volume Smoothing
+Volume is smoothed using a 14-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
+This ensures stable rankings that don't fluctuate wildly from one day to the next.
+
+### 5.3 Algorithm (Vectorized)
 ```python
-def compute_total2_daily(coins_data: dict, date: date) -> float:
-    # 1. Filter out BTC, derivatives, stablecoins
-    # 2. Get 24h volume for date
-    # 3. Sort by volume, take top 50
-    # 4. Calculate volume-weighted average price
-    total_volume = sum(c['volume'] for c in top_50)
-    weighted_price = sum(
-        c['price_btc'] * (c['volume'] / total_volume)
-        for c in top_50
-    )
-    return weighted_price
+# Vectorized calculation for efficiency
+close_df = load_all_prices()  # (dates × coins)
+volume_df = load_all_volumes()
+
+# Apply SMA smoothing
+smoothed_volume = volume_df.rolling(window=VOLUME_SMA_WINDOW).mean()
+
+# Rank by smoothed volume per day
+rank_df = smoothed_volume.rank(axis=1, ascending=False)
+mask = rank_df <= TOP_N_FOR_TOTAL2
+
+# Calculate weighted average
+numerator = (close_df.where(mask) * smoothed_volume.where(mask)).sum(axis=1)
+denominator = smoothed_volume.where(mask).sum(axis=1)
+total2 = numerator / denominator
 ```
 
 ---
@@ -248,11 +268,75 @@ Keep only coins with `a > 0` (positive trend)
 
 ---
 
-## 8. Visualization
+## 8. CLI Commands
 
-### 8.1 Library: Plotly
+### 8.1 Available Commands
 
-### 8.2 Chart Specifications
+```bash
+# Fetch and filter top coins by market cap
+python -m main list-coins [--top-n N] [--skip-ping]
+
+# Fetch price data for filtered coins
+python -m main fetch-prices [--limit N] [--no-incremental]
+
+# Calculate TOTAL2 index
+python -m main calculate-total2 [--top-n N] [--volume-sma N] [--quote-currency BTC|USD]
+
+# Generate interactive charts
+python -m main generate-charts [--output-dir PATH]
+
+# Show current data status
+python -m main status
+
+# Clear cached data
+python -m main clear-cache [--prices] [--api]
+```
+
+### 8.2 TOTAL2 Recalculation
+
+The `calculate-total2` command **recomputes TOTAL2 from scratch** each time:
+
+1. Loads all cached price data from `data/raw/prices/`
+2. Applies token filters (excludes BTC, stablecoins, wrapped/staked)
+3. Calculates volume-weighted average for each day
+4. Overwrites `data/processed/total2_index.parquet`
+
+This approach ensures:
+- **Consistency**: All historical values are calculated with the same parameters
+- **New coins included**: Recent coins appear in TOTAL2 for dates they have data
+- **Reproducibility**: Same input data always produces same output
+
+When adding new coins (e.g., expanding TOP_N_COINS), run:
+```bash
+python -m main list-coins      # Update coin list
+python -m main fetch-prices    # Download new coin data
+python -m main calculate-total2  # Recompute TOTAL2 with all coins
+python -m main generate-charts   # Update visualizations
+```
+
+---
+
+## 9. Visualization
+
+### 9.1 Library: Plotly
+
+### 9.2 Generated Charts
+
+The `generate-charts` command creates interactive HTML files in `output/charts/`:
+
+| File | Description |
+|------|-------------|
+| `total2_halving_cycles.html` | TOTAL2 across 4 halving cycles (lighter→darker blue) |
+| `btc_halving_cycles.html` | BTC/USD across 4 halving cycles (lighter→darker orange) |
+| `total2_composition.html` | Interactive viewer: select date, see which coins are in TOTAL2 |
+
+### 9.3 Chart Specifications
+
+#### Halving Cycle Charts:
+- **X-axis**: Days from halving (0 = halving day)
+- **Y-axis**: Log scale for price
+- **Vertical line**: Marks halving event
+- **Hover**: Shows date, price, coin count, top 10 coins (for TOTAL2)
 
 #### Individual Coin Charts:
 - **Candlesticks**: Dark orange (#E67E22 up, #D35400 down)
@@ -272,7 +356,7 @@ Keep only coins with `a > 0` (positive trend)
 
 ---
 
-## 9. Development Commands
+## 10. Development Commands
 
 ```bash
 # Install dependencies
@@ -299,7 +383,7 @@ poetry run ruff src/ tests/
 
 ---
 
-## 10. Key Configuration Values
+## 11. Key Configuration Values
 
 ```python
 # From src/config.py
@@ -317,9 +401,14 @@ DAYS_AFTER_HALVING = 880
 REGRESSION_START_DATE = date(2023, 11, 1)
 MIN_DATA_DATE = date(2024, 1, 10)
 
-TOP_N_COINS = 300
+TOP_N_COINS = 1000  # Increased to include historical coins (e.g., XEM)
 TOP_N_FOR_TOTAL2 = 50
 TOP_N_SUMMARY = 10
+VOLUME_SMA_WINDOW = 14  # Days for volume smoothing
+
+# Quote currencies for price data
+QUOTE_CURRENCIES = ["BTC", "USD"]
+DEFAULT_QUOTE_CURRENCY = "BTC"
 
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
@@ -328,7 +417,7 @@ HALF_MONTHLY_FREQ = "SMS"
 
 ---
 
-## 11. Notes for AI Agents
+## 12. Notes for AI Agents
 
 ### 11.1 Import Pattern
 Modules are directly in `src/`, not in a package subfolder:
@@ -357,6 +446,6 @@ from analysis.filters import TokenFilter
 
 ---
 
-*Last updated: 2025-12-03*
-*Document version: 4.0*
+*Last updated: 2025-12-04*
+*Document version: 5.0*
 *Project name: Halvix*

@@ -6,16 +6,31 @@
 
 TOTAL2 provides a benchmark to compare individual coin performance against the overall altcoin market. Unlike a simple average, TOTAL2 is **volume-weighted**, meaning coins with higher trading volume have proportionally more influence on the index.
 
+**Key features:**
+- Volume smoothing using Simple Moving Average (SMA) to reduce daily volatility
+- Vectorized calculation for efficient processing
+- Support for both BTC and USD denominated prices
+
 ## Configuration
 
-The TOTAL2 calculation uses this key variable from `src/config.py`:
+The TOTAL2 calculation uses these key variables from `src/config.py`:
 
 ```python
 # Number of top coins to use for TOTAL2 calculation
 TOP_N_FOR_TOTAL2 = 50
+
+# Volume smoothing window for TOTAL2 calculation (days)
+# Uses Simple Moving Average to smooth out daily volume spikes
+VOLUME_SMA_WINDOW = 14
+
+# Quote currencies for price data
+QUOTE_CURRENCIES = ["BTC", "USD"]
+
+# Default quote currency for analysis
+DEFAULT_QUOTE_CURRENCY = "BTC"
 ```
 
-This value can be modified to include more or fewer coins in the index.
+These values can be modified to adjust the index calculation.
 
 ## Calculation Algorithm
 
@@ -24,41 +39,76 @@ This value can be modified to include more or fewer coins in the index.
 For **each day** in the analysis window, TOTAL2 is calculated as follows:
 
 ```
-TOTAL2(day) = Σ(price_btc[i] × volume[i]) / Σ(volume[i])
-              for i in top N coins by volume on that day
+TOTAL2(day) = Σ(price[i] × smoothed_volume[i]) / Σ(smoothed_volume[i])
+              for i in top N coins by smoothed volume on that day
 ```
 
 Where:
-- `price_btc[i]` = Price of coin i in BTC on that day
-- `volume[i]` = 24h trading volume of coin i in BTC on that day
+- `price[i]` = Close price of coin i on that day
+- `smoothed_volume[i]` = 14-day SMA of 24h trading volume
 - `N` = `TOP_N_FOR_TOTAL2` (default: 50)
+
+### Volume Smoothing
+
+Volume can change dramatically from one day to the next. To provide a more stable ranking, we apply a **14-day Simple Moving Average (SMA)** to the volume data:
+
+```
+smoothed_volume[day] = average(volume[day-13], volume[day-12], ..., volume[day])
+```
+
+**Important:** The first 13 days of each coin's data will have NaN values (warmup period) and are excluded from the calculation.
+
+### Vectorized Implementation
+
+The calculation uses a highly efficient vectorized approach:
+
+```python
+# 1. Build aligned DataFrames (coins as columns, dates as rows)
+close_df = DataFrame(...)      # Shape: (num_days, num_coins)
+volume_df = DataFrame(...)     # Shape: (num_days, num_coins)
+
+# 2. Apply SMA to volume
+smoothed_volume_df = volume_df.rolling(window=VOLUME_SMA_WINDOW).mean()
+
+# 3. Rank by smoothed volume (highest = rank 1)
+rank_df = smoothed_volume_df.rank(axis=1, ascending=False)
+
+# 4. Create mask for top N coins
+mask_df = rank_df <= TOP_N_FOR_TOTAL2
+
+# 5. Calculate weighted average
+masked_close = close_df.where(mask_df)
+masked_volume = smoothed_volume_df.where(mask_df)
+numerator = (masked_close * masked_volume).sum(axis=1)
+denominator = masked_volume.sum(axis=1)
+total2 = numerator / denominator
+```
 
 ### Step-by-Step Process
 
 ```
-For each day in the analysis window:
+1. LOAD all price data into aligned DataFrames
+   - Rows: all dates from earliest to latest
+   - Columns: coin IDs
 
-    1. COLLECT 24h volume for all coins on that day
+2. APPLY SMA smoothing to volume data
+   - Window: VOLUME_SMA_WINDOW (default: 14 days)
+   - First 13 days per coin become NaN (warmup)
 
-    2. FILTER OUT:
-       - Bitcoin (BTC) - base currency
-       - Wrapped tokens (wBTC, wETH, etc.)
-       - Staked tokens (stETH, JitoSOL, etc.)
-       - Bridged tokens (Arbitrum bridged, L2 bridged, etc.)
-       - Liquid staking derivatives
-       - Stablecoins (USDT, USDC, DAI, etc.)
+3. FILTER OUT (before ranking):
+   - Bitcoin (BTC) - base currency
+   - Wrapped tokens (wBTC, wETH, etc.)
+   - Staked tokens (stETH, JitoSOL, etc.)
+   - Bridged tokens
+   - Stablecoins (USDT, USDC, DAI, etc.)
 
-    3. SORT remaining coins by 24h volume descending
+4. RANK coins by smoothed volume (per day, vectorized)
 
-    4. SELECT top N coins (default: 50)
+5. SELECT top N coins per day using rank mask
 
-    5. CALCULATE volume-weighted average:
-       total_volume = sum(volume[i] for i in top_N)
-       total2 = sum(price_btc[i] * volume[i] for i in top_N) / total_volume
+6. CALCULATE volume-weighted average price (vectorized)
 
-    6. RECORD:
-       - TOTAL2 value for that day
-       - List of coins that made the top N that day (composition)
+7. BUILD composition records (which coins made top N each day)
 ```
 
 ### Example Calculation
@@ -197,6 +247,41 @@ Volume-weighted TOTAL2 has advantages over market-cap-weighted:
 3. **Filters out dormant coins** - Low volume coins don't distort the index
 4. **Single data source** - No need for separate market cap data
 
+## Price Data Storage
+
+Price data is stored in pair-based parquet files:
+
+```
+data/raw/prices/
+├── eth-btc.parquet    # ETH priced in BTC
+├── eth-usd.parquet    # ETH priced in USD
+├── sol-btc.parquet    # SOL priced in BTC
+├── sol-usd.parquet    # SOL priced in USD
+└── ...
+```
+
+Each file contains OHLCV data:
+- `open`, `high`, `low`, `close` - Price data
+- `volume_from` - Volume in base currency (e.g., ETH)
+- `volume_to` - Volume in quote currency (e.g., BTC or USD)
+
+## Command Line Usage
+
+```bash
+# Calculate TOTAL2 with defaults
+python -m main calculate-total2
+
+# Custom parameters
+python -m main calculate-total2 --top-n 100 --volume-sma 7 --quote-currency USD
+
+# Generate visualizations (after calculating TOTAL2)
+python -m main generate-charts
+```
+
+This generates:
+- `output/charts/total2_halving_cycles.html` - TOTAL2 across 4 halving cycles
+- `output/charts/total2_composition.html` - Interactive date picker to view TOTAL2 composition
+
 ## Related Configuration
 
 From `src/config.py`:
@@ -204,6 +289,11 @@ From `src/config.py`:
 ```python
 # TOTAL2 calculation
 TOP_N_FOR_TOTAL2 = 50              # Number of coins in index
+VOLUME_SMA_WINDOW = 14             # Days for volume SMA smoothing
+
+# Quote currencies
+QUOTE_CURRENCIES = ["BTC", "USD"]
+DEFAULT_QUOTE_CURRENCY = "BTC"
 
 # Output paths
 TOTAL2_INDEX_FILE = PROCESSED_DIR / "total2_index.parquet"

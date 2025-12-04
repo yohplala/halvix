@@ -116,28 +116,30 @@ class TestWrappedStakedTokenFiltering:
     # Full filtering workflow tests
     # =========================================================================
 
-    def test_filter_coins_excludes_wrapped_staked(self, token_filter):
-        """Test that filter_coins correctly excludes wrapped/staked tokens."""
+    def test_filter_coins_for_download_excludes_wrapped_staked(self, token_filter):
+        """Test that filter_coins_for_download correctly excludes wrapped/staked tokens."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
             {"id": "sol", "name": "Solana", "symbol": "SOL"},
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
             {"id": "sui", "name": "Sui", "symbol": "SUI"},
+            {"id": "btc", "name": "Bitcoin", "symbol": "BTC"},  # BTC should be included
         ]
 
-        filtered = token_filter.filter_coins(coins)
+        filtered = token_filter.filter_coins_for_download(coins)
 
-        # Should have 3 coins: ETH, SOL, SUI
-        assert len(filtered) == 3
+        # Should have 4 coins: ETH, SOL, SUI, BTC (BTC is included for download)
+        assert len(filtered) == 4
         filtered_ids = {c["id"] for c in filtered}
         assert "eth" in filtered_ids
         assert "sol" in filtered_ids
         assert "sui" in filtered_ids
+        assert "btc" in filtered_ids  # BTC included for download
         assert "wbtc" not in filtered_ids
         assert "steth" not in filtered_ids
 
-    def test_filter_coins_records_filtered_tokens(self, token_filter):
+    def test_filter_coins_for_download_records_filtered_tokens(self, token_filter):
         """Test that filtered tokens are recorded for export."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
@@ -145,7 +147,7 @@ class TestWrappedStakedTokenFiltering:
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        token_filter.filter_coins(coins, record_filtered=True)
+        token_filter.filter_coins_for_download(coins, record_filtered=True)
 
         assert len(token_filter.filtered_tokens) == 2
         filtered_ids = {t.coin_id for t in token_filter.filtered_tokens}
@@ -182,8 +184,8 @@ class TestStablecoinFiltering:
             coin_id, name, symbol
         ), f"Token {coin_id} ({symbol}) should be identified as stablecoin"
 
-    def test_filter_coins_excludes_stablecoins(self, token_filter):
-        """Test that stablecoins are always excluded."""
+    def test_filter_coins_for_download_excludes_stablecoins(self, token_filter):
+        """Test that stablecoins are always excluded from download."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
             {"id": "usdt", "name": "Tether", "symbol": "USDT"},
@@ -191,7 +193,7 @@ class TestStablecoinFiltering:
             {"id": "sol", "name": "Solana", "symbol": "SOL"},
         ]
 
-        filtered = token_filter.filter_coins(coins)
+        filtered = token_filter.filter_coins_for_download(coins)
 
         assert len(filtered) == 2
         filtered_ids = {c["id"] for c in filtered}
@@ -244,7 +246,7 @@ class TestCSVExport:
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        token_filter.filter_coins(coins, record_filtered=True)
+        token_filter.filter_coins_for_download(coins, record_filtered=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "rejected.csv"
@@ -266,7 +268,7 @@ class TestCSVExport:
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
         ]
 
-        token_filter.filter_coins(coins, record_filtered=True)
+        token_filter.filter_coins_for_download(coins, record_filtered=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "rejected.csv"
@@ -297,7 +299,7 @@ class TestFilteredSummary:
             {"id": "usdc", "name": "USD Coin", "symbol": "USDC"},
         ]
 
-        token_filter.filter_coins(coins, record_filtered=True)
+        token_filter.filter_coins_for_download(coins, record_filtered=True)
 
         summary = token_filter.get_filtered_summary()
 

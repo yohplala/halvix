@@ -43,7 +43,7 @@ The analysis is run in stages via the command line.
 Fetch the top N coins by market cap from CryptoCompare and apply filtering to exclude wrapped, staked, bridged tokens and stablecoins:
 
 ```bash
-# Fetch top 300 coins (default)
+# Fetch top 1000 coins (default)
 poetry run python -m main list-coins
 
 # Fetch a different number of coins

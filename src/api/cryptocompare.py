@@ -308,17 +308,13 @@ class CryptoCompareClient:
         # Rename columns to standard names
         df = df.rename(
             columns={
-                "open": "open",
-                "high": "high",
-                "low": "low",
-                "close": "price",
                 "volumefrom": "volume_from",
                 "volumeto": "volume_to",
             }
         )
 
         # Select and order columns
-        columns = ["price", "open", "high", "low", "volume_from", "volume_to"]
+        columns = ["open", "high", "low", "close", "volume_from", "volume_to"]
         available = [c for c in columns if c in df.columns]
         df = df[available]
 

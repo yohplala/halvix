@@ -12,6 +12,28 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.6] - 2025-12-04
+
+**Visualization, dual currency support, and expanded coin coverage**
+
+- **Added:** Interactive halving cycle charts with Plotly
+  - `btc_usd_normalized.html` - BTC/USD across 4 cycles (normalized to halving day)
+  - `total2_dual_normalized.html` - TOTAL2 side-by-side (USD left, BTC right)
+  - `total2_composition.html` - Interactive date picker to explore TOTAL2 makeup
+- **Added:** Charts dashboard page (`site/charts.html`) with navigation
+- **Added:** Dual currency support - fetch both BTC and USD prices
+- **Added:** `generate-charts` CLI command
+- **Added:** Navigation bar in HTML documentation pages
+- **Changed:** `TOP_N_COINS` increased from 300 to 1000 (includes historical coins like XEM)
+- **Changed:** Price files now use pair-based naming: `eth-btc.parquet`, `eth-usd.parquet`
+- **Changed:** 14-day SMA warmup period means coins appear 14 days after their data starts
+- **Fixed:** BTC is now downloaded (for charts) but excluded from TOTAL2 calculation
+- **Fixed:** Recent coins are included in TOTAL2 but marked as "not for individual analysis"
+- **Updated:** README with charts section and GitHub Pages setup instructions
+- **Updated:** All documentation to reflect new features and configuration
+
+**Categories:** Features, Visualization, Documentation, API
+
 ### [2025.12.5] - 2025-12-04
 
 **Bug fixes and documentation improvements**

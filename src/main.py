@@ -14,7 +14,7 @@ Commands:
     clear-cache       Clear cached API data
 
 Examples:
-    # Fetch top 300 coins and filter
+    # Fetch top N coins and filter
     python -m main list-coins
 
     # Fetch price data (incremental update)
@@ -165,28 +165,50 @@ def _append_insufficient_history_to_rejected(
             writer.writerow(entry)
 
 
-def _get_price_data_summary() -> list[dict]:
-    """Get summary of price data for each coin."""
-    summaries = []
+def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
+    """
+    Get summary of price data for each coin.
+
+    Args:
+        quote_currency: Quote currency to filter by (default: "BTC")
+
+    Returns:
+        Dictionary mapping coin_id to price data summary
+    """
+    summaries = {}
 
     if not PRICES_DIR.exists():
         return summaries
 
     for parquet_file in sorted(PRICES_DIR.glob("*.parquet")):
-        coin_id = parquet_file.stem
+        filename = parquet_file.stem
+
+        # Handle pair-based filenames (e.g., eth-btc.parquet)
+        if "-" in filename:
+            parts = filename.rsplit("-", 1)
+            if len(parts) == 2:
+                coin_id, quote = parts
+                if quote.upper() != quote_currency.upper():
+                    continue
+            else:
+                coin_id = filename
+        else:
+            # Legacy format - assume BTC quote
+            coin_id = filename
+            if quote_currency.upper() != "BTC":
+                continue
+
         try:
             df = pd.read_parquet(parquet_file)
             if not df.empty:
                 start_date = df.index.min()
                 end_date = df.index.max()
-                summaries.append(
-                    {
-                        "coin_id": coin_id,
-                        "start_date": start_date.strftime("%Y-%m-%d"),
-                        "end_date": end_date.strftime("%Y-%m-%d"),
-                        "days": len(df),
-                    }
-                )
+                summaries[coin_id] = {
+                    "coin_id": coin_id,
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": end_date.strftime("%Y-%m-%d"),
+                    "days": len(df),
+                }
         except Exception:
             pass
 
@@ -196,10 +218,23 @@ def _get_price_data_summary() -> list[dict]:
 def _generate_html(
     accepted_coins: list[dict],
     rejected_coins: list[dict],
-    price_summaries: list[dict],
+    price_summaries: dict[str, dict],
 ) -> str:
-    """Generate the complete HTML documentation page."""
+    """
+    Generate the complete HTML documentation page.
+
+    Args:
+        accepted_coins: List of accepted coin dictionaries
+        rejected_coins: List of rejected coin dictionaries
+        price_summaries: Dictionary mapping coin_id to price data summary
+
+    Returns:
+        Complete HTML string
+    """
     update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # Count coins with downloaded price data
+    coins_with_data = sum(1 for c in accepted_coins if c.get("id", "").lower() in price_summaries)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -458,30 +493,35 @@ def _generate_html(
             <p class="update-time">Last updated: {update_time}</p>
         </header>
 
+        <nav style="text-align: center; margin-bottom: 2rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+            <a href="index.html" style="color: var(--accent-orange); margin: 0 1rem; text-decoration: none; font-weight: 600;">📊 Data Status</a>
+            <a href="charts.html" style="color: var(--accent-blue); margin: 0 1rem; text-decoration: none; font-weight: 600;">📈 Charts</a>
+        </nav>
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-value">{len(accepted_coins) + len(rejected_coins)}</div>
                 <div class="stat-label">Total Coins Fetched</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value green">{len(accepted_coins)}</div>
-                <div class="stat-label">Accepted Coins</div>
+                <div class="stat-value green">{coins_with_data}</div>
+                <div class="stat-label">Downloaded Price Data</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value red">{len(rejected_coins)}</div>
-                <div class="stat-label">Filtered Out</div>
+                <div class="stat-label">Not Downloaded</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value orange">{len(price_summaries)}</div>
-                <div class="stat-label">Coins with Price Data</div>
+                <div class="stat-value orange">{len(accepted_coins)}</div>
+                <div class="stat-label">Accepted for Analysis</div>
             </div>
         </div>
 
-        <section id="accepted">
-            <h2>✅ Accepted Coins ({len(accepted_coins)})</h2>
+        <section id="downloaded">
+            <h2>📊 Downloaded Price Data ({coins_with_data} coins)</h2>
             <p class="section-description">
-                These coins passed the filter and are included in the analysis.
-                Wrapped, staked, bridged tokens, stablecoins and Bitcoin are excluded.
+                Price data downloaded from CryptoCompare. Excludes wrapped, staked, bridged tokens, stablecoins and Bitcoin.
+                Data spans from before the first Bitcoin halving to yesterday.
                 Click coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
@@ -492,12 +532,22 @@ def _generate_html(
                             <th>Symbol</th>
                             <th>Name</th>
                             <th>Market Cap</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Days</th>
                         </tr>
                     </thead>
                     <tbody>
 """
 
     for i, coin in enumerate(accepted_coins, 1):
+        coin_id = coin.get("id", "").lower()
+        price_info = price_summaries.get(coin_id, {})
+
+        # Skip coins without price data in downloaded section
+        if not price_info:
+            continue
+
         market_cap = coin.get("market_cap", 0)
         if market_cap >= 1_000_000_000:
             market_cap_str = f"${market_cap / 1_000_000_000:.2f}B"
@@ -509,12 +559,18 @@ def _generate_html(
         symbol = coin.get("symbol", "N/A")
         name = coin.get("name", "N/A")
         coin_url = f"https://www.cryptocompare.com/coins/{symbol.upper()}/overview"
+        start_date = price_info.get("start_date", "N/A")
+        end_date = price_info.get("end_date", "N/A")
+        days = price_info.get("days", 0)
 
         html += f"""                        <tr>
                             <td>{i}</td>
                             <td class="coin-symbol">{symbol}</td>
                             <td class="coin-name"><a href="{coin_url}" target="_blank">{name}</a></td>
                             <td class="market-cap">{market_cap_str}</td>
+                            <td class="date-range">{start_date}</td>
+                            <td class="date-range">{end_date}</td>
+                            <td class="days-count">{days:,}</td>
                         </tr>
 """
 
@@ -525,11 +581,11 @@ def _generate_html(
         </section>
 
         <section id="rejected">
-            <h2>❌ Filtered Out Coins ("""
+            <h2>❌ Not Downloaded ("""
         + str(len(rejected_coins))
         + """)</h2>
             <p class="section-description">
-                These coins were excluded from analysis: stablecoins, wrapped/staked/bridged tokens, BTC derivatives,
+                These coins were excluded from download: stablecoins, wrapped/staked/bridged tokens, BTC derivatives,
                 and coins without sufficient historical data (before 2024-01-10).
                 Click the coin name to view on CryptoCompare.
             </p>
@@ -566,46 +622,6 @@ def _generate_html(
 """
 
     html += """                    </tbody>
-                </table>
-            </div>
-        </section>
-"""
-
-    if price_summaries:
-        html += (
-            """
-        <section id="price-data">
-            <h2>📊 Price Data Summary ("""
-            + str(len(price_summaries))
-            + """ coins)</h2>
-            <p class="section-description">
-                Historical daily price data stored in Parquet format.
-                Data spans from before the first Bitcoin halving to the present.
-            </p>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Coin ID</th>
-                            <th>Start Date</th>
-                            <th>End Date</th>
-                            <th>Days</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-"""
-        )
-
-        for summary in price_summaries:
-            html += f"""                        <tr>
-                            <td class="coin-symbol">{summary['coin_id'].upper()}</td>
-                            <td class="date-range">{summary['start_date']}</td>
-                            <td class="date-range">{summary['end_date']}</td>
-                            <td class="days-count">{summary['days']:,}</td>
-                        </tr>
-"""
-
-        html += """                    </tbody>
                 </table>
             </div>
         </section>
@@ -716,6 +732,8 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
 
 def cmd_fetch_prices(args: argparse.Namespace) -> int:
     """Fetch price data for filtered coins using CryptoCompare."""
+    from config import QUOTE_CURRENCIES
+
     logger.info("=" * 60)
     logger.info("HALVIX - Fetching Price Data")
     logger.info("=" * 60)
@@ -731,6 +749,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         return 1
 
     logger.info("Found %d coins to fetch prices for", len(coins))
+    logger.info("Quote currencies: %s", ", ".join(QUOTE_CURRENCIES))
     logger.info("Date range: %s to %s", fetcher.history_start_date, fetcher.history_end_date)
     logger.info(
         "  (covers all 4 halving cycles with %s span)",
@@ -750,8 +769,10 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     logger.info("Fetching historical price data from CryptoCompare...")
 
+    # Fetch prices for all quote currencies
     results = fetcher.fetch_all_prices(
         coins=coins,
+        vs_currencies=QUOTE_CURRENCIES,
         use_cache=not args.no_cache,
         incremental=incremental,
         show_progress=not args.quiet,
@@ -760,46 +781,52 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     logger.info("-" * 60)
     logger.info("RESULTS")
     logger.info("-" * 60)
-    logger.info("  Prices fetched: %d coins", len(results))
+    logger.info("  Prices fetched: %d coins × %d currencies", len(results), len(QUOTE_CURRENCIES))
 
-    # Show cache stats
+    # Show cache stats per currency
     price_cache = PriceDataCache()
-    cached_coins = price_cache.list_cached_coins()
-    logger.info("  Total cached:   %d coins", len(cached_coins))
+    for currency in QUOTE_CURRENCIES:
+        cached_coins = price_cache.list_cached_coins(currency)
+        logger.info("  Cached (%s):    %d coins", currency, len(cached_coins))
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
 
-    # Filter out coins without data before MIN_DATA_DATE
-    # This is required for halving cycle analysis - coins must have history
+    # Report coins without sufficient history for individual analysis
+    # Note: These coins ARE downloaded and WILL be used for TOTAL2
+    # They just won't be analyzed individually (halving cycle comparison)
     logger.info("-" * 60)
-    logger.info("Filtering coins by data availability (MIN_DATA_DATE: %s)...", MIN_DATA_DATE)
+    logger.info(
+        "Checking data availability for individual analysis (MIN_DATA_DATE: %s)...", MIN_DATA_DATE
+    )
 
-    original_count = len(coins)
-    valid_coins = fetcher.get_coins_with_data_before(MIN_DATA_DATE, coins)
-    removed_coins = [c for c in coins if c not in valid_coins]
+    coins_with_history = fetcher.get_coins_with_data_before(
+        MIN_DATA_DATE, coins, quote_currency="BTC"
+    )
+    recent_coins = [c for c in coins if c not in coins_with_history]
 
-    if removed_coins:
-        logger.info("Removed %d coins without data before %s:", len(removed_coins), MIN_DATA_DATE)
+    if recent_coins:
+        logger.info(
+            "Found %d recent coins (data starts after %s):", len(recent_coins), MIN_DATA_DATE
+        )
+        logger.info("  → These ARE used for TOTAL2 calculation")
+        logger.info("  → These will NOT be analyzed individually (insufficient history)")
 
-        # Append removed coins to rejected_coins.csv with reason
-        _append_insufficient_history_to_rejected(removed_coins, fetcher.price_cache, MIN_DATA_DATE)
-
-        for coin in removed_coins[:20]:
-            # Get the actual start date for logging
-            df = fetcher.price_cache.get_prices(coin["id"])
+        for coin in recent_coins[:10]:
+            df = fetcher.price_cache.get_prices(coin["id"], "BTC")
             if df is not None and not df.empty:
                 start_date = df.index.min().date()
                 logger.info("  - %s (%s): data starts %s", coin["symbol"], coin["id"], start_date)
-            else:
-                logger.info("  - %s (%s): no price data", coin["symbol"], coin["id"])
-        if len(removed_coins) > 20:
-            logger.info("  ... and %d more", len(removed_coins) - 20)
-
-        # Update the accepted coins list
-        fetcher._save_accepted_coins(valid_coins)
-        logger.info("Updated accepted_coins.json: %d → %d coins", original_count, len(valid_coins))
+        if len(recent_coins) > 10:
+            logger.info("  ... and %d more", len(recent_coins) - 10)
     else:
         logger.info("All %d coins have data before %s", len(coins), MIN_DATA_DATE)
+
+    logger.info("Coins suitable for individual analysis: %d", len(coins_with_history))
+
+    # Migrate legacy files to pair format if needed
+    migrated = fetcher.price_cache.migrate_to_pair_format()
+    if migrated > 0:
+        logger.info("Migrated %d legacy files to pair format", migrated)
 
     # Generate documentation automatically
     logger.info("-" * 60)
@@ -811,21 +838,32 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
 def cmd_calculate_total2(args: argparse.Namespace) -> int:
     """Calculate volume-weighted TOTAL2 market index."""
+    from config import DEFAULT_QUOTE_CURRENCY, VOLUME_SMA_WINDOW
+
     logger.info("=" * 60)
     logger.info("HALVIX - Calculate TOTAL2 Index (Volume-Weighted)")
     logger.info("=" * 60)
 
-    processor = Total2Processor(top_n=args.top_n)
+    # Use config defaults if not provided via command line
+    quote_currency = args.quote_currency if args.quote_currency else DEFAULT_QUOTE_CURRENCY
+    volume_sma = args.volume_sma if args.volume_sma else VOLUME_SMA_WINDOW
+
+    processor = Total2Processor(
+        top_n=args.top_n,
+        volume_sma_window=volume_sma,
+        quote_currency=quote_currency,
+    )
 
     # Check for price data
-    cached_coins = processor.price_cache.list_cached_coins()
+    cached_coins = processor.price_cache.list_cached_coins(quote_currency)
     if not cached_coins:
-        logger.error("No cached price data found.")
+        logger.error("No cached price data found for %s.", quote_currency)
         logger.info("Run 'python -m main fetch-prices' first.")
         return 1
 
-    logger.info("Found %d coins with cached price data", len(cached_coins))
-    logger.info("Using top %d coins by volume for TOTAL2 calculation", args.top_n)
+    logger.info("Found %d coins with cached price data (%s)", len(cached_coins), quote_currency)
+    logger.info("Using top %d coins by smoothed volume for TOTAL2 calculation", args.top_n)
+    logger.info("Volume smoothing: %d-day SMA", volume_sma)
 
     try:
         result = processor.calculate_total2(show_progress=not args.quiet)
@@ -861,6 +899,38 @@ def cmd_calculate_total2(args: argparse.Namespace) -> int:
 
     except Exception as e:
         logger.exception("Failed to calculate TOTAL2: %s", e)
+        return 1
+
+
+def cmd_generate_charts(args: argparse.Namespace) -> int:
+    """Generate interactive Plotly charts for halving cycle analysis."""
+    from config import OUTPUT_DIR
+    from visualization import generate_all_charts
+
+    logger.info("=" * 60)
+    logger.info("HALVIX - Generate Charts")
+    logger.info("=" * 60)
+
+    output_dir = args.output_dir if args.output_dir else OUTPUT_DIR / "charts"
+
+    try:
+        logger.info("Generating charts in: %s", output_dir)
+        paths = generate_all_charts(output_dir)
+
+        logger.info("-" * 60)
+        logger.info("CHARTS GENERATED")
+        logger.info("-" * 60)
+        for name, path in paths.items():
+            logger.info("  %s: %s", name, path)
+
+        return 0
+
+    except FileNotFoundError as e:
+        logger.error("Missing data: %s", e)
+        logger.info("Run 'calculate-total2' and 'fetch-prices' first.")
+        return 1
+    except Exception as e:
+        logger.exception("Failed to generate charts: %s", e)
         return 1
 
 
@@ -1037,9 +1107,33 @@ def main() -> int:
         help=f"Number of coins in TOTAL2 (default: {TOP_N_FOR_TOTAL2})",
     )
     total2_parser.add_argument(
+        "--volume-sma",
+        type=int,
+        default=None,
+        help="Volume SMA window in days (default: from config)",
+    )
+    total2_parser.add_argument(
+        "--quote-currency",
+        type=str,
+        default=None,
+        help="Quote currency for prices (default: from config)",
+    )
+    total2_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Calculate but don't save results",
+    )
+
+    # generate-charts command
+    charts_parser = subparsers.add_parser(
+        "generate-charts",
+        help="Generate interactive Plotly charts for halving cycle analysis",
+    )
+    charts_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Output directory for charts (default: site/charts)",
     )
 
     # status command
@@ -1084,6 +1178,7 @@ def main() -> int:
         "list-coins": cmd_list_coins,
         "fetch-prices": cmd_fetch_prices,
         "calculate-total2": cmd_calculate_total2,
+        "generate-charts": cmd_generate_charts,
         "status": cmd_status,
         "clear-cache": cmd_clear_cache,
     }

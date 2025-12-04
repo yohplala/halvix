@@ -29,6 +29,7 @@ from config import (
     HALVING_DATES,
     MIN_DATA_DATE,
     PROCESSED_DIR,
+    QUOTE_CURRENCIES,
     TOP_N_COINS,
     USE_YESTERDAY_AS_END_DATE,
 )
@@ -145,7 +146,11 @@ class DataFetcher:
         export_filtered: bool = True,
     ) -> FetchResult:
         """
-        Fetch top N coins and apply filtering.
+        Fetch top N coins and apply filtering for download.
+
+        Uses filter_coins_for_download which:
+        - Excludes: stablecoins, wrapped/staked/bridged, BTC derivatives
+        - Includes: BTC (needed for BTC vs USD chart) and all other coins
 
         Args:
             n: Number of coins to fetch
@@ -162,8 +167,8 @@ class DataFetcher:
             # Fetch coins
             all_coins = self.fetch_top_coins(n=n, use_cache=use_cache)
 
-            # Apply filtering
-            filtered_coins = self.token_filter.filter_coins(
+            # Apply download filtering (includes BTC, excludes stablecoins/wrapped/staked)
+            filtered_coins = self.token_filter.filter_coins_for_download(
                 all_coins,
                 record_filtered=True,
             )
@@ -172,7 +177,7 @@ class DataFetcher:
             if export_filtered:
                 self.token_filter.export_rejected_coins_csv()
 
-            # Save accepted coins list
+            # Save accepted coins list (coins to download)
             self._save_accepted_coins(filtered_coins)
 
             return FetchResult(
@@ -222,10 +227,12 @@ class DataFetcher:
         incremental: bool = True,
     ) -> pd.DataFrame:
         """
-        Fetch historical price data for a single coin.
+        Fetch historical price data for a single coin-pair.
 
         Supports incremental fetching: if cached data exists, only fetch new data
         from the last cached date to yesterday.
+
+        Files are stored as {coin_id}-{vs_currency}.parquet (e.g., eth-btc.parquet).
 
         Args:
             coin_id: Coin ID (lowercase symbol)
@@ -235,10 +242,11 @@ class DataFetcher:
             incremental: If True and cache exists, only fetch new data
 
         Returns:
-            DataFrame with date index and price/volume columns
+            DataFrame with date index and OHLCV columns
         """
         # Use symbol for CryptoCompare (uppercase)
         symbol = symbol.upper()
+        vs_currency = vs_currency.upper()
 
         # Calculate end date (yesterday for complete data)
         yesterday = date.today() - timedelta(days=1)
@@ -246,7 +254,7 @@ class DataFetcher:
 
         # Check cache for incremental update
         if use_cache and incremental:
-            cached = self.price_cache.get_prices(coin_id)
+            cached = self.price_cache.get_prices(coin_id, vs_currency)
 
             if cached is not None and not cached.empty:
                 last_cached_date = cached.index.max().date()
@@ -264,7 +272,7 @@ class DataFetcher:
                 try:
                     new_data = self.client.get_full_daily_history(
                         symbol=symbol,
-                        vs_currency=vs_currency.upper(),
+                        vs_currency=vs_currency,
                         start_date=fetch_start,
                         end_date=effective_end_date,
                         show_progress=False,
@@ -275,7 +283,7 @@ class DataFetcher:
                         combined = pd.concat([cached, new_data])
                         combined = combined[~combined.index.duplicated(keep="last")]
                         combined = combined.sort_index()
-                        self.price_cache.set_prices(coin_id, combined)
+                        self.price_cache.set_prices(coin_id, combined, vs_currency)
                         return combined
 
                     return cached
@@ -288,7 +296,7 @@ class DataFetcher:
         try:
             df = self.client.get_full_daily_history(
                 symbol=symbol,
-                vs_currency=vs_currency.upper(),
+                vs_currency=vs_currency,
                 start_date=self.history_start_date,
                 end_date=effective_end_date,
                 show_progress=False,
@@ -296,7 +304,7 @@ class DataFetcher:
 
             # Cache the result
             if not df.empty:
-                self.price_cache.set_prices(coin_id, df)
+                self.price_cache.set_prices(coin_id, df, vs_currency)
 
             return df
 
@@ -307,19 +315,104 @@ class DataFetcher:
     def fetch_all_prices(
         self,
         coins: list[dict] | None = None,
-        vs_currency: str = "BTC",
+        vs_currencies: list[str] | None = None,
         use_cache: bool = True,
         incremental: bool = True,
         show_progress: bool = True,
-    ) -> dict[str, pd.DataFrame]:
+    ) -> dict[str, dict[str, pd.DataFrame]]:
         """
-        Fetch price data for all accepted coins.
+        Fetch price data for all accepted coins against multiple quote currencies.
 
         Fetches full historical data needed for halving cycle analysis
         (from 550 days before first halving to 880 days after last halving).
 
         Supports incremental updates: if cached data exists, only fetches
         new data from the last cached date to yesterday.
+
+        Files are stored as {coin_id}-{vs_currency}.parquet (e.g., eth-btc.parquet).
+
+        Args:
+            coins: List of coin dicts (default: load from accepted_coins.json)
+            vs_currencies: List of quote currencies (default: QUOTE_CURRENCIES from config)
+            use_cache: Whether to use cache
+            incremental: If True, only fetch new data since last cache
+            show_progress: Show progress bar
+
+        Returns:
+            Nested dictionary: {coin_id: {quote_currency: DataFrame}}
+        """
+        if coins is None:
+            coins = self.load_accepted_coins()
+
+        if vs_currencies is None:
+            vs_currencies = QUOTE_CURRENCIES
+
+        results: dict[str, dict[str, pd.DataFrame]] = {}
+        errors = []
+
+        # Calculate total iterations for progress bar
+        total_iterations = len(coins) * len(vs_currencies)
+
+        # Separate description based on mode
+        desc = f"Fetching prices ({', '.join(vs_currencies)})"
+        if incremental:
+            desc += " (incremental)"
+
+        if show_progress:
+            pbar = tqdm(total=total_iterations, desc=desc)
+        else:
+            pbar = None
+
+        for coin in coins:
+            coin_id = coin["id"]
+            symbol = coin.get("symbol", coin_id)
+            results[coin_id] = {}
+
+            for vs_currency in vs_currencies:
+                try:
+                    df = self.fetch_coin_prices(
+                        coin_id=coin_id,
+                        symbol=symbol,
+                        vs_currency=vs_currency,
+                        use_cache=use_cache,
+                        incremental=incremental,
+                    )
+
+                    if not df.empty:
+                        results[coin_id][vs_currency] = df
+
+                except CryptoCompareError as e:
+                    errors.append(f"{coin_id}-{vs_currency} ({symbol}): {e}")
+                except Exception as e:
+                    errors.append(f"{coin_id}-{vs_currency} ({symbol}): Unexpected error - {e}")
+
+                if pbar:
+                    pbar.update(1)
+
+        if pbar:
+            pbar.close()
+
+        if show_progress and errors:
+            logger.warning("%d errors occurred:", len(errors))
+            for error in errors[:10]:
+                logger.warning("  - %s", error)
+            if len(errors) > 10:
+                logger.warning("  ... and %d more", len(errors) - 10)
+
+        return results
+
+    def fetch_all_prices_single_currency(
+        self,
+        coins: list[dict] | None = None,
+        vs_currency: str = "BTC",
+        use_cache: bool = True,
+        incremental: bool = True,
+        show_progress: bool = True,
+    ) -> dict[str, pd.DataFrame]:
+        """
+        Fetch price data for all accepted coins against a single quote currency.
+
+        This is a convenience method that returns a flat dictionary.
 
         Args:
             coins: List of coin dicts (default: load from accepted_coins.json)
@@ -331,53 +424,26 @@ class DataFetcher:
         Returns:
             Dictionary mapping coin_id to price DataFrame
         """
-        if coins is None:
-            coins = self.load_accepted_coins()
+        nested = self.fetch_all_prices(
+            coins=coins,
+            vs_currencies=[vs_currency],
+            use_cache=use_cache,
+            incremental=incremental,
+            show_progress=show_progress,
+        )
 
-        results = {}
-        errors = []
-
-        # Separate description based on mode
-        desc = "Fetching prices"
-        if incremental:
-            desc += " (incremental)"
-
-        iterator = tqdm(coins, desc=desc) if show_progress else coins
-
-        for coin in iterator:
-            coin_id = coin["id"]
-            symbol = coin.get("symbol", coin_id)
-
-            try:
-                df = self.fetch_coin_prices(
-                    coin_id=coin_id,
-                    symbol=symbol,
-                    vs_currency=vs_currency,
-                    use_cache=use_cache,
-                    incremental=incremental,
-                )
-
-                if not df.empty:
-                    results[coin_id] = df
-
-            except CryptoCompareError as e:
-                errors.append(f"{coin_id} ({symbol}): {e}")
-            except Exception as e:
-                errors.append(f"{coin_id} ({symbol}): Unexpected error - {e}")
-
-        if show_progress and errors:
-            logger.warning("%d errors occurred:", len(errors))
-            for error in errors[:10]:
-                logger.warning("  - %s", error)
-            if len(errors) > 10:
-                logger.warning("  ... and %d more", len(errors) - 10)
-
-        return results
+        # Flatten the nested dictionary
+        return {
+            coin_id: currency_data.get(vs_currency)
+            for coin_id, currency_data in nested.items()
+            if vs_currency in currency_data
+        }
 
     def get_coins_with_data_before(
         self,
         cutoff_date: date = MIN_DATA_DATE,
         coins: list[dict] | None = None,
+        quote_currency: str = "BTC",
     ) -> list[dict]:
         """
         Filter coins to only those with price data before a cutoff date.
@@ -385,6 +451,7 @@ class DataFetcher:
         Args:
             cutoff_date: Only include coins with data before this date
             coins: List of coins to check (default: load accepted coins)
+            quote_currency: Quote currency to check (default: "BTC")
 
         Returns:
             Filtered list of coins with early data
@@ -396,7 +463,7 @@ class DataFetcher:
 
         for coin in coins:
             coin_id = coin["id"]
-            df = self.price_cache.get_prices(coin_id)
+            df = self.price_cache.get_prices(coin_id, quote_currency)
 
             if df is not None and not df.empty:
                 first_date = df.index.min().date()

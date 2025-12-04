@@ -195,7 +195,10 @@ class PriceDataCache:
     """
     Specialized cache for coin price data.
 
-    Stores price data in individual parquet files per coin for efficient access.
+    Stores price data in individual parquet files per coin-pair.
+    Files are named as {coin_id}-{quote_currency}.parquet (e.g., eth-btc.parquet).
+
+    Supports both legacy format (coin_id only) and new pair format.
     """
 
     def __init__(self, prices_dir: Path = PRICES_DIR):
@@ -208,28 +211,55 @@ class PriceDataCache:
         self.prices_dir = prices_dir
         self.prices_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_price_path(self, coin_id: str) -> Path:
-        """Get the file path for a coin's price data."""
+    def _get_price_path(self, coin_id: str, quote_currency: str = "BTC") -> Path:
+        """
+        Get the file path for a coin-pair's price data.
+
+        Args:
+            coin_id: Coin ID (lowercase symbol, e.g., "eth")
+            quote_currency: Quote currency (e.g., "BTC", "USD")
+
+        Returns:
+            Path like prices/eth-btc.parquet
+        """
+        safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in coin_id)
+        quote = quote_currency.lower()
+        return self.prices_dir / f"{safe_id}-{quote}.parquet"
+
+    def _get_legacy_price_path(self, coin_id: str) -> Path:
+        """Get the legacy file path (without quote currency)."""
         safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in coin_id)
         return self.prices_dir / f"{safe_id}.parquet"
 
-    def has_prices(self, coin_id: str) -> bool:
-        """Check if price data exists for a coin."""
-        return self._get_price_path(coin_id).exists()
+    def has_prices(self, coin_id: str, quote_currency: str = "BTC") -> bool:
+        """Check if price data exists for a coin-pair."""
+        # Check new format first
+        if self._get_price_path(coin_id, quote_currency).exists():
+            return True
+        # Fall back to legacy format for BTC
+        if quote_currency.upper() == "BTC":
+            return self._get_legacy_price_path(coin_id).exists()
+        return False
 
-    def get_prices(self, coin_id: str) -> pd.DataFrame | None:
+    def get_prices(self, coin_id: str, quote_currency: str = "BTC") -> pd.DataFrame | None:
         """
-        Get cached price data for a coin.
+        Get cached price data for a coin-pair.
 
         Returns a DataFrame with normalized DatetimeIndex at midnight.
 
         Args:
             coin_id: Coin ID (lowercase symbol)
+            quote_currency: Quote currency (e.g., "BTC", "USD")
 
         Returns:
-            DataFrame with DatetimeIndex and price/volume columns, or None
+            DataFrame with DatetimeIndex and OHLCV columns, or None
         """
-        filepath = self._get_price_path(coin_id)
+        # Try new format first
+        filepath = self._get_price_path(coin_id, quote_currency)
+
+        # Fall back to legacy format for BTC
+        if not filepath.exists() and quote_currency.upper() == "BTC":
+            filepath = self._get_legacy_price_path(coin_id)
 
         if not filepath.exists():
             return None
@@ -246,82 +276,129 @@ class PriceDataCache:
         except Exception:
             return None
 
-    def set_prices(self, coin_id: str, df: pd.DataFrame) -> Path:
+    def set_prices(self, coin_id: str, df: pd.DataFrame, quote_currency: str = "BTC") -> Path:
         """
-        Cache price data for a coin.
+        Cache price data for a coin-pair.
 
         Normalizes the DatetimeIndex to midnight UTC for consistent lookups.
-        Trims leading rows where price is 0 (dates before coin existed).
+        Trims leading rows where close is 0 (dates before coin existed).
 
         Args:
             coin_id: Coin ID (lowercase symbol)
             df: DataFrame with price data
+            quote_currency: Quote currency (e.g., "BTC", "USD")
 
         Returns:
             Path to the cache file
         """
-        filepath = self._get_price_path(coin_id)
+        filepath = self._get_price_path(coin_id, quote_currency)
 
         # Normalize index to DatetimeIndex at midnight for consistent lookups
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
         df.index = df.index.normalize()
 
-        # Trim leading rows where price is 0 (dates before coin existed)
+        # Trim leading rows where close is 0 (dates before coin existed)
         # CryptoCompare returns zeros for dates before a coin was listed
-        if "price" in df.columns:
-            first_valid_idx = (df["price"] > 0).idxmax()
+        if "close" in df.columns:
+            first_valid_idx = (df["close"] > 0).idxmax()
             if first_valid_idx is not None:
                 df = df.loc[first_valid_idx:]
 
         df.to_parquet(filepath, index=True)
         return filepath
 
-    def get_last_date(self, coin_id: str) -> pd.Timestamp | None:
+    def get_last_date(self, coin_id: str, quote_currency: str = "BTC") -> pd.Timestamp | None:
         """
-        Get the last date of cached price data for a coin.
+        Get the last date of cached price data for a coin-pair.
 
         Useful for incremental updates.
 
         Args:
             coin_id: Coin ID (lowercase symbol)
+            quote_currency: Quote currency (e.g., "BTC", "USD")
 
         Returns:
             Last date in the cached data as pd.Timestamp, or None
         """
-        df = self.get_prices(coin_id)
+        df = self.get_prices(coin_id, quote_currency)
         if df is None or df.empty:
             return None
 
         return df.index.max()
 
-    def list_cached_coins(self) -> list[str]:
+    def list_cached_coins(self, quote_currency: str | None = None) -> list[str]:
         """
         List all coins with cached price data.
+
+        Args:
+            quote_currency: If provided, only list coins with this quote currency.
+                          If None, lists all unique coin IDs.
 
         Returns:
             List of coin IDs
         """
-        coins = []
+        coins = set()
         for filepath in self.prices_dir.glob("*.parquet"):
-            coin_id = filepath.stem
-            coins.append(coin_id)
+            filename = filepath.stem
+            # Check if it's the new format (contains hyphen for pair)
+            if "-" in filename:
+                parts = filename.rsplit("-", 1)
+                if len(parts) == 2:
+                    coin_id, quote = parts
+                    if quote_currency is None or quote.upper() == quote_currency.upper():
+                        coins.add(coin_id)
+            else:
+                # Legacy format - assume BTC quote
+                if quote_currency is None or quote_currency.upper() == "BTC":
+                    coins.add(filename)
+
         return sorted(coins)
 
-    def delete_prices(self, coin_id: str) -> bool:
+    def list_cached_pairs(self) -> list[tuple[str, str]]:
         """
-        Delete cached price data for a coin.
+        List all cached coin-pairs.
+
+        Returns:
+            List of (coin_id, quote_currency) tuples
+        """
+        pairs = []
+        for filepath in self.prices_dir.glob("*.parquet"):
+            filename = filepath.stem
+            if "-" in filename:
+                parts = filename.rsplit("-", 1)
+                if len(parts) == 2:
+                    coin_id, quote = parts
+                    pairs.append((coin_id, quote.upper()))
+            else:
+                # Legacy format - assume BTC quote
+                pairs.append((filename, "BTC"))
+
+        return sorted(pairs)
+
+    def delete_prices(self, coin_id: str, quote_currency: str = "BTC") -> bool:
+        """
+        Delete cached price data for a coin-pair.
 
         Args:
             coin_id: Coin ID (lowercase symbol)
+            quote_currency: Quote currency (e.g., "BTC", "USD")
 
         Returns:
             True if deleted, False if not found
         """
-        filepath = self._get_price_path(coin_id)
+        filepath = self._get_price_path(coin_id, quote_currency)
         if filepath.exists():
             filepath.unlink()
             return True
+
+        # Try legacy format for BTC
+        if quote_currency.upper() == "BTC":
+            legacy_path = self._get_legacy_price_path(coin_id)
+            if legacy_path.exists():
+                legacy_path.unlink()
+                return True
+
         return False
 
     def clear(self) -> int:
@@ -336,3 +413,27 @@ class PriceDataCache:
             filepath.unlink()
             count += 1
         return count
+
+    def migrate_to_pair_format(self) -> int:
+        """
+        Migrate legacy files to new pair format.
+
+        Renames files like 'eth.parquet' to 'eth-btc.parquet'.
+
+        Returns:
+            Number of files migrated
+        """
+        migrated = 0
+        for filepath in self.prices_dir.glob("*.parquet"):
+            filename = filepath.stem
+            # Skip if already in pair format
+            if "-" in filename:
+                continue
+
+            # Rename to pair format
+            new_path = self.prices_dir / f"{filename}-btc.parquet"
+            if not new_path.exists():
+                filepath.rename(new_path)
+                migrated += 1
+
+        return migrated

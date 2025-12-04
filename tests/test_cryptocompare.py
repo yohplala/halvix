@@ -185,7 +185,7 @@ class TestCryptoCompareClientDailyHistory:
 
             assert isinstance(df, pd.DataFrame)
             assert not df.empty
-            assert "price" in df.columns  # 'close' is renamed to 'price'
+            assert "close" in df.columns
             assert len(df) == 2
 
     def test_get_full_daily_history_pagination(self, client):

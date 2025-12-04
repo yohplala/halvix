@@ -211,7 +211,7 @@ class TestPriceDataCache:
         """Create a sample price DataFrame."""
         return pd.DataFrame(
             {
-                "price": [1.0, 1.1, 1.2, 1.3, 1.4],
+                "close": [1.0, 1.1, 1.2, 1.3, 1.4],
                 "volume": [1000, 1100, 1200, 1300, 1400],
             },
             index=pd.date_range("2024-01-01", periods=5, name="date"),
