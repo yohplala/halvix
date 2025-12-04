@@ -264,7 +264,7 @@ def _generate_html(
         }}
 
         body {{
-            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             line-height: 1.6;
@@ -278,28 +278,60 @@ def _generate_html(
         }}
 
         header {{
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            padding: 3rem 2rem;
             text-align: center;
-            padding: 3rem 0;
             border-bottom: 1px solid var(--border-color);
-            margin-bottom: 2rem;
+        }}
+
+        .logo {{
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
         }}
 
         h1 {{
             font-size: 2.5rem;
-            color: var(--accent-orange);
-            margin-bottom: 0.5rem;
-            font-weight: 600;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }}
 
         .subtitle {{
             color: var(--text-secondary);
             font-size: 1.1rem;
+            margin-top: 0.5rem;
         }}
 
         .update-time {{
             color: var(--text-muted);
             font-size: 0.9rem;
             margin-top: 1rem;
+        }}
+
+        nav {{
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }}
+
+        nav ul {{
+            list-style: none;
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+        }}
+
+        nav a {{
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }}
+
+        nav a:hover {{
+            color: var(--accent-blue);
         }}
 
         .stats-grid {{
@@ -456,22 +488,32 @@ def _generate_html(
         footer {{
             text-align: center;
             padding: 2rem;
-            color: var(--text-muted);
             border-top: 1px solid var(--border-color);
-            margin-top: 3rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
         }}
 
-        .github-link {{
-            color: var(--accent-orange);
+        footer a {{
+            color: var(--accent-blue);
+            text-decoration: none;
+        }}
+
+        footer a:hover {{
+            text-decoration: underline;
         }}
 
         @media (max-width: 768px) {{
-            .container {{
-                padding: 1rem;
+            h1 {{
+                font-size: 1.75rem;
             }}
 
-            h1 {{
-                font-size: 1.8rem;
+            nav ul {{
+                flex-wrap: wrap;
+                gap: 1rem;
+            }}
+
+            .container {{
+                padding: 1rem;
             }}
 
             .stat-value {{
@@ -486,18 +528,22 @@ def _generate_html(
     </style>
 </head>
 <body>
+    <header>
+        <div class="logo">🔶</div>
+        <h1>Halvix Data Status</h1>
+        <p class="subtitle">Cryptocurrency Price Analysis Relative to Bitcoin Halving Cycles</p>
+        <p class="update-time">Last updated: {update_time}</p>
+    </header>
+
+    <nav>
+        <ul>
+            <li><a href="index.html">Data Status</a></li>
+            <li><a href="charts.html">Charts</a></li>
+            <li><a href="https://github.com/yohplala/halvix">GitHub</a></li>
+        </ul>
+    </nav>
+
     <div class="container">
-        <header>
-            <h1>🔶 Halvix Data Status</h1>
-            <p class="subtitle">Cryptocurrency Price Analysis Relative to Bitcoin Halving Cycles</p>
-            <p class="update-time">Last updated: {update_time}</p>
-        </header>
-
-        <nav style="text-align: center; margin-bottom: 2rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
-            <a href="index.html" style="color: var(--accent-orange); margin: 0 1rem; text-decoration: none; font-weight: 600;">📊 Data Status</a>
-            <a href="charts.html" style="color: var(--accent-blue); margin: 0 1rem; text-decoration: none; font-weight: 600;">📈 Charts</a>
-        </nav>
-
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-value">{len(accepted_coins) + len(rejected_coins)}</div>
@@ -628,16 +674,15 @@ def _generate_html(
 """
 
     html += """
-        <footer>
-            <p>
-                <a href="https://github.com/yohplala/halvix" class="github-link">Halvix</a> -
-                Cryptocurrency price analysis relative to Bitcoin halving cycles.
-            </p>
-            <p style="margin-top: 0.5rem;">
-                Data source: <a href="https://www.cryptocompare.com/" target="_blank">CryptoCompare</a>
-            </p>
-        </footer>
     </div>
+
+    <footer>
+        <p>
+            Generated by <strong>Halvix</strong> •
+            <a href="https://github.com/yohplala/halvix">Source Code</a> •
+            Data from <a href="https://www.cryptocompare.com/" target="_blank">CryptoCompare</a>
+        </p>
+    </footer>
 </body>
 </html>
 """
@@ -1290,7 +1335,6 @@ def cmd_calculate_total2(args: argparse.Namespace) -> int:
 
 def cmd_generate_charts(args: argparse.Namespace) -> int:
     """Generate interactive Plotly charts for halving cycle analysis."""
-    from config import OUTPUT_DIR
     from visualization import generate_all_charts
 
     logger.info("=" * 60)
@@ -1310,12 +1354,6 @@ def cmd_generate_charts(args: argparse.Namespace) -> int:
         logger.info("-" * 60)
         for name, path in paths.items():
             logger.info("  %s: %s", name, path)
-
-        # Also generate to output/charts for backward compatibility
-        if output_dir == site_charts_dir:
-            legacy_output_dir = OUTPUT_DIR / "charts"
-            logger.info("Also generating to: %s (backward compatibility)", legacy_output_dir)
-            generate_all_charts(legacy_output_dir)
 
         # Generate the charts.html index page
         logger.info("Generating charts index page...")
