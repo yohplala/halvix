@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from tqdm import tqdm
+
 from analysis.filters import TokenFilter
 from api.cryptocompare import CryptoCompareClient, CryptoCompareError
 from config import (
@@ -33,10 +35,8 @@ from config import (
     TOP_N_COINS,
     USE_YESTERDAY_AS_END_DATE,
 )
-from tqdm import tqdm
-from utils.logging import get_logger
-
 from data.cache import FileCache, PriceDataCache
+from utils.logging import get_logger
 
 # Module logger
 logger = get_logger(__name__)

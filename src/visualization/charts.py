@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 from config import (
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
@@ -20,8 +22,6 @@ from config import (
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_INDEX_FILE,
 )
-from plotly.subplots import make_subplots
-
 from data.cache import PriceDataCache
 
 # Color palettes

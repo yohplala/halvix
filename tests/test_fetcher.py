@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-from api.cryptocompare import Coin, CryptoCompareClient, CryptoCompareError
 
+from api.cryptocompare import Coin, CryptoCompareClient, CryptoCompareError
 from data.cache import FileCache, PriceDataCache
 from data.fetcher import DataFetcher, FetchResult
 
@@ -79,7 +79,10 @@ class TestDataFetcherTopCoins:
     @pytest.fixture
     def temp_dirs(self):
         """Create temporary directories for cache."""
-        with tempfile.TemporaryDirectory() as cache_dir, tempfile.TemporaryDirectory() as prices_dir:
+        with (
+            tempfile.TemporaryDirectory() as cache_dir,
+            tempfile.TemporaryDirectory() as prices_dir,
+        ):
             yield Path(cache_dir), Path(prices_dir)
 
     @pytest.fixture
@@ -190,7 +193,11 @@ class TestDataFetcherFilterCoins:
     @pytest.fixture
     def temp_dirs(self):
         """Create temporary directories."""
-        with tempfile.TemporaryDirectory() as cache_dir, tempfile.TemporaryDirectory() as prices_dir, tempfile.TemporaryDirectory() as processed_dir:
+        with (
+            tempfile.TemporaryDirectory() as cache_dir,
+            tempfile.TemporaryDirectory() as prices_dir,
+            tempfile.TemporaryDirectory() as processed_dir,
+        ):
             yield Path(cache_dir), Path(prices_dir), Path(processed_dir)
 
     @pytest.fixture
@@ -279,8 +286,9 @@ class TestDataFetcherFilterCoins:
         )
 
         # Patch the output paths
-        with patch("data.fetcher.ACCEPTED_COINS_JSON", processed_dir / "accepted.json"), patch(
-            "data.fetcher.PROCESSED_DIR", processed_dir
+        with (
+            patch("data.fetcher.ACCEPTED_COINS_JSON", processed_dir / "accepted.json"),
+            patch("data.fetcher.PROCESSED_DIR", processed_dir),
         ):
             result = fetcher.fetch_and_filter_coins(
                 n=7,
@@ -322,7 +330,10 @@ class TestDataFetcherPrices:
     @pytest.fixture
     def temp_dirs(self):
         """Create temporary directories."""
-        with tempfile.TemporaryDirectory() as cache_dir, tempfile.TemporaryDirectory() as prices_dir:
+        with (
+            tempfile.TemporaryDirectory() as cache_dir,
+            tempfile.TemporaryDirectory() as prices_dir,
+        ):
             yield Path(cache_dir), Path(prices_dir)
 
     @pytest.fixture
