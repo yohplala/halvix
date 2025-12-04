@@ -401,6 +401,23 @@ def _generate_html(
             border: 1px solid var(--border-color);
         }}
 
+        /* Consistent column widths for coin tables */
+        table th:first-child,
+        table td:first-child {{
+            width: 60px;
+            text-align: center;
+        }}
+
+        table th:nth-child(2),
+        table td:nth-child(2) {{
+            width: 100px;
+        }}
+
+        table th:nth-child(3),
+        table td:nth-child(3) {{
+            min-width: 200px;
+        }}
+
         footer {{
             text-align: center;
             padding: 2rem;
@@ -520,6 +537,7 @@ def _generate_html(
                 <table>
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>Symbol</th>
                             <th>Name</th>
                             <th>Reason</th>
@@ -529,7 +547,7 @@ def _generate_html(
 """
     )
 
-    for coin in rejected_coins:
+    for i, coin in enumerate(rejected_coins, 1):
         reason = coin.get("reason", "Unknown")
         reason_class = "reason-wrapped"
         if "BTC" in reason or "Bitcoin" in reason:
@@ -540,6 +558,7 @@ def _generate_html(
             reason_class = "reason-history"
 
         html += f"""                        <tr>
+                            <td>{i}</td>
                             <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
                             <td class="coin-name"><a href="{coin.get('url', '#')}" target="_blank">{coin.get('name', 'N/A')}</a></td>
                             <td><span class="reason-badge {reason_class}">{reason}</span></td>

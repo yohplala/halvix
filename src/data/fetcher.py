@@ -316,7 +316,7 @@ class DataFetcher:
         Fetch price data for all accepted coins.
 
         Fetches full historical data needed for halving cycle analysis
-        (from 550 days before first halving to 550 days after last halving).
+        (from 550 days before first halving to 880 days after last halving).
 
         Supports incremental updates: if cached data exists, only fetches
         new data from the last cached date to yesterday.
