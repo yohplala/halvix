@@ -100,3 +100,6 @@ Thumbs.db
 # Log files
 *.log
 logs/
+
+# Large generated charts (generated during CI)
+site/charts/total2_composition.html
