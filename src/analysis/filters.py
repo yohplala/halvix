@@ -1,14 +1,25 @@
 """
 Token filtering module for Halvix.
 
-Filters out from all analysis (halving cycles and TOTAL2):
-- Bitcoin (base currency)
-- Stablecoins (no price movement vs BTC)
-- Wrapped tokens (wBTC, wETH, AETHWETH, etc.)
-- Staked tokens (stETH, stSOL, etc.)
-- Bridged tokens
-- Liquid staking derivatives
-- BTC derivatives
+Two-stage filtering:
+
+1. DOWNLOAD FILTER (should_exclude_from_download):
+   Excludes from price data download:
+   - Stablecoins (stable vs fiat, not representative of crypto market trends)
+   - Wrapped tokens (wBTC, wETH, AETHWETH, etc.)
+   - Staked tokens (stETH, stSOL, etc.)
+   - Bridged tokens
+   - Liquid staking derivatives
+   - BTC derivatives
+
+   DOES NOT EXCLUDE: BTC (needed for BTC vs USD chart)
+
+2. INDIVIDUAL ANALYSIS FILTER:
+   After downloading, excludes from individual halving cycle analysis:
+   - Bitcoin (base currency - we compare coins TO BTC)
+   - Coins without sufficient historical data (before MIN_DATA_DATE)
+
+   DOES NOT EXCLUDE from TOTAL2: recent coins (they ARE used for TOTAL2)
 """
 
 import csv
@@ -41,13 +52,19 @@ class TokenFilter:
     """
     Filter tokens based on various exclusion criteria.
 
-    Always excludes:
-    - Bitcoin (base currency for analysis)
-    - Stablecoins (no meaningful price movement vs BTC)
-    - Wrapped tokens (wBTC, wETH, etc.)
-    - Staked/Liquid staking tokens (stETH, JitoSOL, etc.)
-    - Bridged tokens
-    - BTC derivatives
+    Two filtering modes:
+
+    1. For DOWNLOAD (should_exclude_from_download):
+       Excludes: stablecoins, wrapped/staked/bridged tokens, BTC derivatives
+       Includes: BTC (needed for charting), all other coins
+
+    2. For TOTAL2 (should_exclude_from_total2):
+       Excludes: BTC, stablecoins, wrapped/staked/bridged tokens, BTC derivatives
+       Includes: All coins including recent ones (for index immutability)
+
+    3. For INDIVIDUAL ANALYSIS:
+       Excludes: BTC, coins without data before MIN_DATA_DATE
+       (handled in fetcher after price data is downloaded)
 
     Maintains a list of filtered tokens for export and review.
     """
@@ -219,9 +236,58 @@ class TokenFilter:
 
         return coin_id_lower in btc_derivative_symbols or symbol_lower in btc_derivative_symbols
 
-    def should_exclude(self, coin_id: str, name: str = "", symbol: str = "") -> tuple[bool, str]:
+    def should_exclude_from_download(
+        self,
+        coin_id: str,
+        name: str = "",
+        symbol: str = "",
+    ) -> tuple[bool, str]:
         """
-        Check if a token should be excluded.
+        Check if a token should be excluded from price data download.
+
+        Excludes: stablecoins, wrapped/staked/bridged, BTC derivatives
+        Includes: BTC (needed for charting), all other coins
+
+        Args:
+            coin_id: The coin ID (lowercase symbol)
+            name: The coin name
+            symbol: The coin symbol
+
+        Returns:
+            Tuple of (should_exclude, reason)
+        """
+        # Check allowed list first
+        if self.is_allowed_token(coin_id, symbol):
+            return (False, "")
+
+        # BTC is NOT excluded from download - we need it for BTC vs USD chart
+        # (it will be excluded from TOTAL2 separately)
+
+        # Check stablecoins (always excluded - stable vs fiat)
+        if self.is_stablecoin(coin_id, name, symbol):
+            return (True, "Stablecoin")
+
+        # Check wrapped/staked/bridged
+        if self.is_wrapped_or_staked(coin_id, name, symbol):
+            return (True, "Wrapped/Staked/Bridged token")
+
+        # Check BTC derivatives
+        if self.is_btc_derivative(coin_id, name, symbol):
+            return (True, "BTC derivative")
+
+        return (False, "")
+
+    def should_exclude_from_total2(
+        self,
+        coin_id: str,
+        name: str = "",
+        symbol: str = "",
+    ) -> tuple[bool, str]:
+        """
+        Check if a token should be excluded from TOTAL2 calculation.
+
+        Excludes: BTC, stablecoins, wrapped/staked/bridged, BTC derivatives
+        Includes: Recent coins (for index immutability)
 
         Args:
             coin_id: The coin ID (lowercase symbol)
@@ -238,11 +304,11 @@ class TokenFilter:
         if self.is_allowed_token(coin_id, symbol):
             return (False, "")
 
-        # Check if it's Bitcoin itself (always exclude from non-BTC analysis)
+        # Check if it's Bitcoin itself - excluded from TOTAL2
         if coin_id_lower == "btc" or symbol_lower == "btc":
             return (True, "Bitcoin (base currency)")
 
-        # Check stablecoins (always excluded - no price movement relative to BTC)
+        # Check stablecoins
         if self.is_stablecoin(coin_id, name, symbol):
             return (True, "Stablecoin")
 
@@ -256,16 +322,23 @@ class TokenFilter:
 
         return (False, "")
 
-    def filter_coins(self, coins: list[dict], record_filtered: bool = True) -> list[dict]:
+    def filter_coins_for_download(
+        self,
+        coins: list[dict],
+        record_filtered: bool = True,
+    ) -> list[dict]:
         """
-        Filter a list of coins based on exclusion criteria.
+        Filter coins for price data download.
+
+        Excludes: stablecoins, wrapped/staked/bridged, BTC derivatives
+        Includes: BTC and all other coins
 
         Args:
             coins: List of coin dictionaries with 'id', 'name', 'symbol' keys
             record_filtered: If True, record filtered tokens for export
 
         Returns:
-            Filtered list of coins
+            Filtered list of coins (includes BTC)
         """
         filtered = []
 
@@ -274,7 +347,7 @@ class TokenFilter:
             name = coin.get("name", "")
             symbol = coin.get("symbol", "")
 
-            should_exclude, reason = self.should_exclude(coin_id, name, symbol)
+            should_exclude, reason = self.should_exclude_from_download(coin_id, name, symbol)
 
             if should_exclude:
                 if record_filtered:
@@ -288,6 +361,38 @@ class TokenFilter:
                         )
                     )
             else:
+                filtered.append(coin)
+
+        return filtered
+
+    def filter_coins_for_total2(
+        self,
+        coins: list[dict],
+    ) -> list[dict]:
+        """
+        Filter coins for TOTAL2 calculation.
+
+        Excludes: BTC, stablecoins, wrapped/staked/bridged, BTC derivatives
+        Includes: Recent coins (for index immutability)
+
+        Does NOT record filtered tokens (use filter_coins_for_download for that).
+
+        Args:
+            coins: List of coin dictionaries with 'id', 'name', 'symbol' keys
+
+        Returns:
+            Filtered list of coins (excludes BTC)
+        """
+        filtered = []
+
+        for coin in coins:
+            coin_id = coin.get("id", "")
+            name = coin.get("name", "")
+            symbol = coin.get("symbol", "")
+
+            should_exclude, _ = self.should_exclude_from_total2(coin_id, name, symbol)
+
+            if not should_exclude:
                 filtered.append(coin)
 
         return filtered

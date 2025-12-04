@@ -183,7 +183,7 @@ class TestCryptoCompareIntegrationFullHistory:
         assert len(df) >= 350
 
         # Check columns
-        assert "price" in df.columns  # 'close' is renamed to 'price'
+        assert "close" in df.columns
         assert "open" in df.columns
         assert "high" in df.columns
         assert "low" in df.columns

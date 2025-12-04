@@ -336,7 +336,7 @@ class TestDataFetcherPrices:
         dates = pd.date_range(end=yesterday, periods=3, freq="D")
         return pd.DataFrame(
             {
-                "price": [1.0, 1.1, 1.2],
+                "close": [1.0, 1.1, 1.2],
                 "open": [0.9, 1.0, 1.1],
                 "high": [1.1, 1.2, 1.3],
                 "low": [0.8, 0.9, 1.0],
@@ -362,7 +362,7 @@ class TestDataFetcherPrices:
         df = fetcher.fetch_coin_prices("btc", symbol="BTC", use_cache=False)
 
         assert not df.empty
-        assert "price" in df.columns
+        assert "close" in df.columns
         assert len(df) == 3
 
     def test_fetch_coin_prices_uses_cache(self, temp_dirs, sample_price_df):

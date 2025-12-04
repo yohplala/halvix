@@ -108,8 +108,8 @@ def get_regression_end_date() -> date:
 # Only process coins with data available before this date
 MIN_DATA_DATE = date(2024, 1, 10)
 
-# Number of top coins to fetch
-TOP_N_COINS = 300
+# Number of top coins to fetch (increased to 1000 to include historical coins like XEM)
+TOP_N_COINS = 1000
 
 # Number of top coins to use for TOTAL2 calculation
 TOP_N_FOR_TOTAL2 = 50
@@ -117,12 +117,23 @@ TOP_N_FOR_TOTAL2 = 50
 # Number of top performers to show in summary chart
 TOP_N_SUMMARY = 10
 
+# Volume smoothing window for TOTAL2 calculation (days)
+# Uses Simple Moving Average to smooth out daily volume spikes
+VOLUME_SMA_WINDOW = 14
+
+# Quote currencies for price data
+# Prices are fetched against each of these currencies
+QUOTE_CURRENCIES = ["BTC", "USD"]
+
+# Default quote currency for analysis
+DEFAULT_QUOTE_CURRENCY = "BTC"
+
 # =============================================================================
 # Stablecoin Exclusion List
 # =============================================================================
 
 # These coins are excluded from ALL analysis (halving cycles and TOTAL2)
-# Stablecoins have no meaningful price movement relative to BTC
+# Stablecoins are stable vs fiat, not representative of crypto market trends
 # Use lowercase symbols for matching
 EXCLUDED_STABLECOINS = {
     # Major USD stablecoins (by symbol)

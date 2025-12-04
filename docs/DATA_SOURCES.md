@@ -141,15 +141,20 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
 ### Price Data Caching
 
-Price data is stored in parquet format, one file per coin:
+Price data is stored in parquet format, one file per coin-pair:
 
 ```
 data/raw/prices/
-├── eth.parquet
-├── xrp.parquet
-├── bnb.parquet
-└── ... (one file per accepted coin)
+├── eth-btc.parquet    # ETH priced in BTC
+├── eth-usd.parquet    # ETH priced in USD
+├── xrp-btc.parquet
+├── xrp-usd.parquet
+├── bnb-btc.parquet
+├── bnb-usd.parquet
+└── ... (one file per coin per quote currency)
 ```
+
+Files are named as `{coin_id}-{quote_currency}.parquet` for clarity.
 
 ### Incremental Update Behavior
 
@@ -209,7 +214,7 @@ Price data never expires because historical data doesn't change. Incremental mod
 | `open` | float | Opening price for the day |
 | `high` | float | Highest price during the day |
 | `low` | float | Lowest price during the day |
-| `close` | float | Closing price (stored as `price`) |
+| `close` | float | Closing price |
 | `volumefrom` | float | Volume in base currency |
 | `volumeto` | float | Volume in quote currency |
 

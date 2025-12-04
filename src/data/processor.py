@@ -2,23 +2,29 @@
 Data processor for TOTAL2 index calculation.
 
 Calculates the volume-weighted TOTAL2 index:
-- For each day, identifies top N coins by 24h trading volume
+- For each day, identifies top N coins by smoothed 24h trading volume
+- Uses 14-day SMA for volume smoothing (configurable via VOLUME_SMA_WINDOW)
 - Excludes BTC, derivatives, and stablecoins
 - Computes volume-weighted average price in BTC
 - Tracks daily composition (which coins were in the index)
+
+Vectorized implementation for efficient computation across all dates.
 """
 
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from analysis.filters import TokenFilter
 from config import (
+    DEFAULT_QUOTE_CURRENCY,
     PROCESSED_DIR,
     TOP_N_FOR_TOTAL2,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_INDEX_FILE,
+    VOLUME_SMA_WINDOW,
 )
 from tqdm import tqdm
 
@@ -49,12 +55,14 @@ class Total2Processor:
     TOTAL2 is a volume-weighted index of top N altcoins,
     excluding BTC, derivatives, and stablecoins.
 
-    The composition changes daily based on 24h trading volume rankings.
+    The composition changes daily based on smoothed 24h trading volume rankings.
 
-    Algorithm:
-    - For each day, rank coins by their 24h volume (volumeto in BTC)
-    - Take top N coins
-    - Calculate: TOTAL2 = Σ(price × volume) / Σ(volume)
+    Algorithm (vectorized):
+    1. Load all price data into DataFrames (coins as columns, dates as rows)
+    2. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 14)
+    3. Rank coins by smoothed volume for each day
+    4. Create mask for top N coins
+    5. Calculate: TOTAL2 = Σ(price × smoothed_volume) / Σ(smoothed_volume)
 
     Important: TOTAL2 uses ALL cached price data, including recent coins.
     The MIN_DATA_DATE filter only applies to individual coin halving cycle
@@ -74,6 +82,8 @@ class Total2Processor:
         price_cache: PriceDataCache | None = None,
         token_filter: TokenFilter | None = None,
         top_n: int = TOP_N_FOR_TOTAL2,
+        volume_sma_window: int = VOLUME_SMA_WINDOW,
+        quote_currency: str = DEFAULT_QUOTE_CURRENCY,
     ):
         """
         Initialize the TOTAL2 processor.
@@ -82,10 +92,14 @@ class Total2Processor:
             price_cache: Cache for price data (default: new instance)
             token_filter: Token filter for exclusions (default: new instance)
             top_n: Number of coins to include in TOTAL2 (default: TOP_N_FOR_TOTAL2)
+            volume_sma_window: SMA window for volume smoothing (default: VOLUME_SMA_WINDOW)
+            quote_currency: Quote currency for prices (default: DEFAULT_QUOTE_CURRENCY)
         """
         self.price_cache = price_cache or PriceDataCache()
         self.token_filter = token_filter or TokenFilter()
         self.top_n = top_n
+        self.volume_sma_window = volume_sma_window
+        self.quote_currency = quote_currency
 
     def load_all_price_data(
         self,
@@ -103,17 +117,61 @@ class Total2Processor:
             Dictionary mapping coin_id to price DataFrame
         """
         if coin_ids is None:
-            coin_ids = self.price_cache.list_cached_coins()
+            coin_ids = self.price_cache.list_cached_coins(self.quote_currency)
 
         data = {}
         iterator = tqdm(coin_ids, desc="Loading price data") if show_progress else coin_ids
 
         for coin_id in iterator:
-            df = self.price_cache.get_prices(coin_id)
+            df = self.price_cache.get_prices(coin_id, self.quote_currency)
             if df is not None and not df.empty:
                 data[coin_id] = df
 
         return data
+
+    def build_aligned_dataframes(
+        self,
+        price_data: dict[str, pd.DataFrame],
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Build aligned price and volume DataFrames for vectorized calculation.
+
+        Creates two DataFrames with:
+        - Rows: all dates from earliest to latest across all coins
+        - Columns: coin IDs
+
+        Args:
+            price_data: Dictionary of price DataFrames per coin
+
+        Returns:
+            Tuple of (close_df, volume_df) with aligned indices
+        """
+        # Find global date range
+        all_dates = set()
+        for df in price_data.values():
+            all_dates.update(df.index)
+
+        if not all_dates:
+            raise ProcessorError("No dates found in price data")
+
+        # Create complete date index
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        date_index = pd.date_range(start=min_date, end=max_date, freq="D")
+
+        # Build price and volume DataFrames
+        close_data = {}
+        volume_data = {}
+
+        for coin_id, df in price_data.items():
+            # Reindex to common dates (NaN where no data)
+            close_data[coin_id] = df["close"].reindex(date_index)
+            volume_data[coin_id] = df["volume_to"].reindex(date_index)
+
+        close_df = pd.DataFrame(close_data, index=date_index)
+        volume_df = pd.DataFrame(volume_data, index=date_index)
+
+        return close_df, volume_df
 
     def filter_coins_for_total2(
         self,
@@ -133,7 +191,7 @@ class Total2Processor:
         for coin_id in coin_ids:
             # Check if should be excluded
             # coin_id is lowercase symbol (e.g., "eth")
-            should_exclude, reason = self.token_filter.should_exclude(
+            should_exclude, _ = self.token_filter.should_exclude_from_total2(
                 coin_id=coin_id,
                 name="",  # We only have ID from cache
                 symbol=coin_id.upper(),
@@ -181,7 +239,10 @@ class Total2Processor:
         show_progress: bool = True,
     ) -> Total2Result:
         """
-        Calculate the volume-weighted TOTAL2 index for all available dates.
+        Calculate the volume-weighted TOTAL2 index using vectorized operations.
+
+        Uses SMA-smoothed volume for ranking and weighting. The first
+        (volume_sma_window - 1) days will have NaN values due to warmup.
 
         Args:
             coin_ids: Optional list of coin IDs (default: all cached, filtered)
@@ -197,7 +258,7 @@ class Total2Processor:
         # The MIN_DATA_DATE filter does not apply to TOTAL2 calculation.
         # This ensures index immutability: the value for any day D won't change
         # when recalculated in the future (no retroactive changes).
-        all_cached = self.price_cache.list_cached_coins()
+        all_cached = self.price_cache.list_cached_coins(self.quote_currency)
 
         if not all_cached:
             raise ProcessorError(
@@ -219,41 +280,91 @@ class Total2Processor:
         if not price_data:
             raise ProcessorError("Failed to load price data for eligible coins")
 
-        # Determine date range
-        data_start, data_end = self.get_common_date_range(price_data)
+        if show_progress:
+            print(f"Building aligned DataFrames for {len(price_data)} coins...")
 
-        if start_date is not None and start_date > data_start:
-            data_start = start_date
-        if end_date is not None and end_date < data_end:
-            data_end = end_date
+        # Build aligned DataFrames
+        close_df, volume_df = self.build_aligned_dataframes(price_data)
 
-        # Generate all dates in range
-        date_range = pd.date_range(start=data_start, end=data_end, freq="D")
+        if show_progress:
+            print(f"Applying {self.volume_sma_window}-day SMA to volume...")
 
-        # Calculate TOTAL2 for each day
-        index_records = []
-        composition_records = []
+        # Apply SMA to volume
+        smoothed_volume_df = volume_df.rolling(
+            window=self.volume_sma_window, min_periods=self.volume_sma_window
+        ).mean()
 
-        iterator = tqdm(date_range, desc="Calculating TOTAL2") if show_progress else date_range
+        # Set prices to NaN for warmup period per coin
+        # For each coin, the first (sma_window - 1) days after their first valid volume
+        # should have NaN prices to avoid using incomplete SMA
+        warmup_days = self.volume_sma_window - 1
+        for coin_id in close_df.columns:
+            # Find first valid (non-NaN) value
+            first_valid = volume_df[coin_id].first_valid_index()
+            if first_valid is not None:
+                warmup_end = first_valid + pd.Timedelta(days=warmup_days)
+                close_df.loc[:warmup_end, coin_id] = np.nan
 
-        for current_date in iterator:
-            result = self._calculate_daily_total2(
-                price_data=price_data,
-                target_date=current_date,
-            )
+        if show_progress:
+            print("Calculating daily rankings and TOTAL2...")
 
-            if result is not None:
-                index_record, comp_records = result
-                index_records.append(index_record)
-                composition_records.extend(comp_records)
+        # Rank by smoothed volume (highest = 1)
+        rank_df = smoothed_volume_df.rank(axis=1, ascending=False, method="first")
 
-        if not index_records:
+        # Create mask for top N
+        mask_df = rank_df <= self.top_n
+
+        # Apply mask
+        masked_close = close_df.where(mask_df)
+        masked_volume = smoothed_volume_df.where(mask_df)
+
+        # Calculate TOTAL2 = Σ(price × volume) / Σ(volume)
+        numerator = (masked_close * masked_volume).sum(axis=1)
+        denominator = masked_volume.sum(axis=1)
+        total2_series = numerator / denominator
+
+        # Count coins included per day
+        coin_count_series = mask_df.sum(axis=1)
+
+        # Filter date range
+        if start_date is not None:
+            total2_series = total2_series[total2_series.index >= pd.Timestamp(start_date)]
+            denominator = denominator[denominator.index >= pd.Timestamp(start_date)]
+            coin_count_series = coin_count_series[
+                coin_count_series.index >= pd.Timestamp(start_date)
+            ]
+
+        if end_date is not None:
+            total2_series = total2_series[total2_series.index <= pd.Timestamp(end_date)]
+            denominator = denominator[denominator.index <= pd.Timestamp(end_date)]
+            coin_count_series = coin_count_series[coin_count_series.index <= pd.Timestamp(end_date)]
+
+        # Drop NaN values (warmup period and days with insufficient data)
+        valid_mask = total2_series.notna() & (coin_count_series >= 3)
+        total2_series = total2_series[valid_mask]
+        denominator = denominator[valid_mask]
+        coin_count_series = coin_count_series[valid_mask]
+
+        if total2_series.empty:
             raise ProcessorError("Could not calculate TOTAL2 for any date")
 
-        # Build DataFrames
-        index_df = pd.DataFrame(index_records)
-        index_df["date"] = pd.to_datetime(index_df["date"])
-        index_df = index_df.set_index("date").sort_index()
+        # Build index DataFrame
+        index_df = pd.DataFrame(
+            {
+                "total2_price": total2_series,
+                "total_volume": denominator,
+                "coin_count": coin_count_series.astype(int),
+            }
+        )
+        index_df.index.name = "date"
+
+        # Build composition DataFrame
+        if show_progress:
+            print("Building composition records...")
+
+        composition_records = self._build_composition_records(
+            close_df, smoothed_volume_df, rank_df, mask_df, total2_series.index
+        )
 
         composition_df = pd.DataFrame(composition_records)
         if not composition_df.empty:
@@ -261,7 +372,9 @@ class Total2Processor:
             composition_df = composition_df.sort_values(["date", "rank"])
 
         # Calculate stats
-        avg_coins = index_df["coin_count"].mean() if "coin_count" in index_df.columns else 0
+        data_start = total2_series.index.min().date()
+        data_end = total2_series.index.max().date()
+        avg_coins = coin_count_series.mean()
 
         return Total2Result(
             index_df=index_df,
@@ -271,17 +384,71 @@ class Total2Processor:
             avg_coins_per_day=avg_coins,
         )
 
+    def _build_composition_records(
+        self,
+        close_df: pd.DataFrame,
+        volume_df: pd.DataFrame,
+        rank_df: pd.DataFrame,
+        mask_df: pd.DataFrame,
+        valid_dates: pd.DatetimeIndex,
+    ) -> list[dict]:
+        """
+        Build composition records for each day.
+
+        Args:
+            close_df: DataFrame of close prices
+            volume_df: DataFrame of smoothed volumes
+            rank_df: DataFrame of volume ranks
+            mask_df: DataFrame of inclusion mask
+            valid_dates: DatetimeIndex of dates with valid TOTAL2 values
+
+        Returns:
+            List of composition record dictionaries
+        """
+        records = []
+
+        for dt in valid_dates:
+            # Get data for this date
+            mask_row = mask_df.loc[dt]
+            included_coins = mask_row[mask_row].index.tolist()
+
+            if not included_coins:
+                continue
+
+            volume_row = volume_df.loc[dt]
+            close_row = close_df.loc[dt]
+            rank_row = rank_df.loc[dt]
+
+            total_vol = volume_row[included_coins].sum()
+
+            for coin_id in included_coins:
+                vol = volume_row[coin_id]
+                price = close_row[coin_id]
+                rank = int(rank_row[coin_id])
+
+                if pd.notna(vol) and pd.notna(price) and total_vol > 0:
+                    records.append(
+                        {
+                            "date": dt.date(),
+                            "rank": rank,
+                            "coin_id": coin_id,
+                            "volume": vol,
+                            "weight": vol / total_vol,
+                            "price_btc": price,
+                        }
+                    )
+
+        return records
+
     def _calculate_daily_total2(
         self,
         price_data: dict[str, pd.DataFrame],
         target_date: datetime,
     ) -> tuple[dict, list[dict]] | None:
         """
-        Calculate volume-weighted TOTAL2 for a single day.
+        Calculate volume-weighted TOTAL2 for a single day (legacy method).
 
-        Uses 24h trading volume (volumeto) for both:
-        - Ranking coins (top N by volume)
-        - Weighting the average price
+        Kept for backward compatibility with tests.
 
         Args:
             price_data: Dictionary of price DataFrames (with normalized DatetimeIndex)
@@ -303,7 +470,7 @@ class Total2Processor:
                 row = df.loc[target_date_normalized]
 
                 # Extract values from the Series
-                price = row["price"] if "price" in row.index else None
+                price = row["close"] if "close" in row.index else None
                 # Use volume_to (volume in quote currency, i.e., BTC)
                 volume = row["volume_to"] if "volume_to" in row.index else None
 
