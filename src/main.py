@@ -42,6 +42,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
+
 from api.cryptocompare import CryptoCompareClient
 from config import (
     ACCEPTED_COINS_JSON,
@@ -55,11 +56,10 @@ from config import (
     TOP_N_FOR_TOTAL2,
     TOTAL2_INDEX_FILE,
 )
-from utils.logging import get_logger, setup_logging
-
 from data.cache import FileCache, PriceDataCache
 from data.fetcher import DataFetcher
 from data.processor import Total2Processor
+from utils.logging import get_logger, setup_logging
 
 # Module logger
 logger = get_logger(__name__)
@@ -664,6 +664,392 @@ def generate_docs() -> Path:
     return output_file
 
 
+def _generate_charts_html() -> str:
+    """
+    Generate the charts HTML page with consistent styling.
+
+    Returns:
+        Complete HTML string for charts.html
+    """
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Halvix Charts - Halving Cycle Analysis</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2128;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-orange: #f7931a;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --border-color: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            padding: 3rem 2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-top: 0.5rem;
+        }
+
+        nav {
+            background: var(--bg-secondary);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        nav ul {
+            list-style: none;
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+        }
+
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        nav a:hover {
+            color: var(--accent-blue);
+        }
+
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .chart-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .chart-card a {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .card-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-icon {
+            font-size: 2rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-description {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .card-footer {
+            padding: 1rem 1.5rem;
+            background: var(--bg-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-tag {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .card-tag.orange {
+            background: var(--accent-orange);
+        }
+
+        .card-tag.green {
+            background: var(--accent-green);
+        }
+
+        .card-arrow {
+            color: var(--accent-blue);
+            font-size: 1.25rem;
+        }
+
+        .info-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .info-box h3 {
+            color: var(--accent-blue);
+            margin-bottom: 0.75rem;
+        }
+
+        .info-box ul {
+            margin-left: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        .info-box li {
+            margin-bottom: 0.5rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.75rem;
+            }
+
+            nav ul {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">📊</div>
+        <h1>Halvix Charts</h1>
+        <p class="subtitle">Cryptocurrency Analysis Relative to Bitcoin Halving Cycles</p>
+    </header>
+
+    <nav>
+        <ul>
+            <li><a href="index.html">Data Status</a></li>
+            <li><a href="charts.html">Charts</a></li>
+            <li><a href="https://github.com/yohplala/halvix">GitHub</a></li>
+        </ul>
+    </nav>
+
+    <main>
+
+        <div class="info-box">
+            <h3>ℹ️ About These Charts</h3>
+            <ul>
+                <li><strong>Normalized values</strong>: All prices are set to 1.0 at the halving day, allowing direct comparison across cycles</li>
+                <li><strong>4 Halving cycles</strong>: 2012, 2016, 2020, 2024 - each shown in progressively darker colors</li>
+                <li><strong>Interactive</strong>: Hover over data points for detailed information</li>
+            </ul>
+        </div>
+
+        <h2 class="section-title">🪙 Bitcoin Charts</h2>
+        <div class="charts-grid">
+            <div class="chart-card">
+                <a href="charts/btc_usd_normalized.html">
+                    <div class="card-header">
+                        <div class="card-icon">₿</div>
+                        <div class="card-title">BTC/USD - Normalized</div>
+                        <div class="card-description">
+                            Bitcoin price across 4 halving cycles, normalized to 1.0 at each halving day.
+                            Compare performance patterns across different cycles.
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-tag orange">Bitcoin</span>
+                        <span class="card-arrow">→</span>
+                    </div>
+                </a>
+            </div>
+
+            <div class="chart-card">
+                <a href="charts/btc_halving_cycles.html">
+                    <div class="card-header">
+                        <div class="card-icon">💵</div>
+                        <div class="card-title">BTC/USD - Absolute</div>
+                        <div class="card-description">
+                            Bitcoin price in USD with absolute values. See the dramatic price increases
+                            from ~$12 in 2012 to ~$60,000+ in 2024.
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-tag orange">Bitcoin</span>
+                        <span class="card-arrow">→</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        <h2 class="section-title">📈 TOTAL2 Index Charts</h2>
+        <div class="charts-grid">
+            <div class="chart-card">
+                <a href="charts/total2_dual_normalized.html">
+                    <div class="card-header">
+                        <div class="card-icon">📊</div>
+                        <div class="card-title">TOTAL2 - Dual View (USD & BTC)</div>
+                        <div class="card-description">
+                            Side-by-side comparison: TOTAL2 vs USD (left) and TOTAL2 vs BTC (right).
+                            Both normalized to 1.0 at halving day.
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-tag">TOTAL2</span>
+                        <span class="card-arrow">→</span>
+                    </div>
+                </a>
+            </div>
+
+            <div class="chart-card">
+                <a href="charts/total2_halving_cycles.html">
+                    <div class="card-header">
+                        <div class="card-icon">📉</div>
+                        <div class="card-title">TOTAL2/BTC - Absolute</div>
+                        <div class="card-description">
+                            TOTAL2 index priced in BTC with absolute values. Shows altcoin market
+                            performance relative to Bitcoin over time.
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-tag">TOTAL2</span>
+                        <span class="card-arrow">→</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        <h2 class="section-title">🔍 Analysis Tools</h2>
+        <div class="charts-grid">
+            <div class="chart-card">
+                <a href="charts/total2_composition.html">
+                    <div class="card-header">
+                        <div class="card-icon">🧩</div>
+                        <div class="card-title">TOTAL2 Composition Viewer</div>
+                        <div class="card-description">
+                            Interactive tool to explore which coins make up TOTAL2 on any given date.
+                            See rankings, weights, and volumes.
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-tag green">Interactive</span>
+                        <span class="card-arrow">→</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>
+            Generated by <strong>Halvix</strong> •
+            <a href="https://github.com/yohplala/halvix">Source Code</a> •
+            Data from <a href="https://www.cryptocompare.com/">CryptoCompare</a>
+        </p>
+    </footer>
+</body>
+</html>
+"""
+    return html
+
+
+def generate_charts_page() -> Path:
+    """Generate the charts.html page in the site directory."""
+    DOCS_SITE_DIR.mkdir(parents=True, exist_ok=True, mode=0o755)
+
+    html_content = _generate_charts_html()
+    output_file = DOCS_SITE_DIR / "charts.html"
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    logger.info("Charts page generated: %s", output_file)
+    return output_file
+
+
 def cmd_list_coins(args: argparse.Namespace) -> int:
     """Fetch and filter top N coins."""
     logger.info("=" * 60)
@@ -911,7 +1297,9 @@ def cmd_generate_charts(args: argparse.Namespace) -> int:
     logger.info("HALVIX - Generate Charts")
     logger.info("=" * 60)
 
-    output_dir = args.output_dir if args.output_dir else OUTPUT_DIR / "charts"
+    # Default to site/charts for GitHub Pages deployment
+    site_charts_dir = DOCS_SITE_DIR / "charts"
+    output_dir = args.output_dir if args.output_dir else site_charts_dir
 
     try:
         logger.info("Generating charts in: %s", output_dir)
@@ -922,6 +1310,16 @@ def cmd_generate_charts(args: argparse.Namespace) -> int:
         logger.info("-" * 60)
         for name, path in paths.items():
             logger.info("  %s: %s", name, path)
+
+        # Also generate to output/charts for backward compatibility
+        if output_dir == site_charts_dir:
+            legacy_output_dir = OUTPUT_DIR / "charts"
+            logger.info("Also generating to: %s (backward compatibility)", legacy_output_dir)
+            generate_all_charts(legacy_output_dir)
+
+        # Generate the charts.html index page
+        logger.info("Generating charts index page...")
+        generate_charts_page()
 
         return 0
 
