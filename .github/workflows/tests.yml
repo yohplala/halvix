@@ -127,20 +127,14 @@ jobs:
       - name: Fetch coin list
         working-directory: main
         run: poetry run python -m main list-coins --skip-ping
-        env:
-          CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
       - name: Fetch price data (incremental)
         working-directory: main
         run: poetry run python -m main fetch-prices
-        env:
-          CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
       - name: Calculate TOTAL2 index
         working-directory: main
         run: poetry run python -m main calculate-total2
-        env:
-          CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
       - name: Show data status
         working-directory: main
