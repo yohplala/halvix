@@ -17,6 +17,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+
 from analysis.filters import TokenFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
@@ -26,8 +28,6 @@ from config import (
     TOTAL2_INDEX_FILE,
     VOLUME_SMA_WINDOW,
 )
-from tqdm import tqdm
-
 from data.cache import PriceDataCache
 
 

@@ -18,6 +18,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 import pytest
+
 from api.cryptocompare import (
     APIError,
     Coin,

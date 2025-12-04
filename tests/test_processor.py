@@ -241,9 +241,11 @@ class TestTotal2SaveLoad:
         index_path = temp_dir / "total2_index.parquet"
         comp_path = temp_dir / "total2_composition.parquet"
 
-        with patch("data.processor.PROCESSED_DIR", temp_dir), patch(
-            "data.processor.TOTAL2_INDEX_FILE", index_path
-        ), patch("data.processor.TOTAL2_COMPOSITION_FILE", comp_path):
+        with (
+            patch("data.processor.PROCESSED_DIR", temp_dir),
+            patch("data.processor.TOTAL2_INDEX_FILE", index_path),
+            patch("data.processor.TOTAL2_COMPOSITION_FILE", comp_path),
+        ):
             processor.save_results(sample_result, index_path, comp_path)
 
             assert index_path.exists()

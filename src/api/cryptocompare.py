@@ -17,15 +17,16 @@ from typing import Any
 
 import pandas as pd
 import requests
-from config import (
-    CRYPTOCOMPARE_API_CALLS_PER_MINUTE,
-    CRYPTOCOMPARE_BASE_URL,
-)
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
+)
+
+from config import (
+    CRYPTOCOMPARE_API_CALLS_PER_MINUTE,
+    CRYPTOCOMPARE_BASE_URL,
 )
 
 
