@@ -26,7 +26,7 @@ format YYYY.MM.patch.
 - **Added:** Navigation bar in HTML documentation pages
 - **Changed:** `TOP_N_COINS` increased from 300 to 1000 (includes historical coins like XEM)
 - **Changed:** Price files now use pair-based naming: `eth-btc.parquet`, `eth-usd.parquet`
-- **Changed:** 14-day SMA warmup period means coins appear 14 days after their data starts
+- **Changed:** 28-day SMA warmup period means coins appear 28 days after their data starts
 - **Fixed:** BTC is now downloaded (for charts) but excluded from TOTAL2 calculation
 - **Fixed:** Recent coins are included in TOTAL2 but marked as "not for individual analysis"
 - **Updated:** README with charts section and GitHub Pages setup instructions

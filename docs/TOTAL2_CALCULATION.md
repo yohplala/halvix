@@ -21,7 +21,7 @@ TOP_N_FOR_TOTAL2 = 50
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
-VOLUME_SMA_WINDOW = 14
+VOLUME_SMA_WINDOW = 28
 
 # Quote currencies for price data
 QUOTE_CURRENCIES = ["BTC", "USD"]
@@ -45,18 +45,18 @@ TOTAL2(day) = Σ(price[i] × smoothed_volume[i]) / Σ(smoothed_volume[i])
 
 Where:
 - `price[i]` = Close price of coin i on that day
-- `smoothed_volume[i]` = 14-day SMA of 24h trading volume
+- `smoothed_volume[i]` = 28-day SMA of 24h trading volume
 - `N` = `TOP_N_FOR_TOTAL2` (default: 50)
 
 ### Volume Smoothing
 
-Volume can change dramatically from one day to the next. To provide a more stable ranking, we apply a **14-day Simple Moving Average (SMA)** to the volume data:
+Volume can change dramatically from one day to the next. To provide a more stable ranking, we apply a **28-day Simple Moving Average (SMA)** to the volume data:
 
 ```
-smoothed_volume[day] = average(volume[day-13], volume[day-12], ..., volume[day])
+smoothed_volume[day] = average(volume[day-27], volume[day-26], ..., volume[day])
 ```
 
-**Important:** The first 13 days of each coin's data will have NaN values (warmup period) and are excluded from the calculation.
+**Important:** The first 27 days of each coin's data will have NaN values (warmup period) and are excluded from the calculation.
 
 ### Vectorized Implementation
 
@@ -92,8 +92,8 @@ total2 = numerator / denominator
    - Columns: coin IDs
 
 2. APPLY SMA smoothing to volume data
-   - Window: VOLUME_SMA_WINDOW (default: 14 days)
-   - First 13 days per coin become NaN (warmup)
+   - Window: VOLUME_SMA_WINDOW (default: 28 days)
+   - First 27 days per coin become NaN (warmup)
 
 3. FILTER OUT (before ranking):
    - Bitcoin (BTC) - base currency
@@ -279,7 +279,7 @@ python -m main generate-charts
 ```
 
 This generates:
-- `output/charts/total2_halving_cycles.html` - TOTAL2 across 4 halving cycles
+- `output/charts/total2_halving_cycles.html` - TOTAL2 across 3 halving cycles (2016, 2020, 2024)
 - `output/charts/total2_composition.html` - Interactive date picker to view TOTAL2 composition
 
 ## Related Configuration
@@ -289,7 +289,7 @@ From `src/config.py`:
 ```python
 # TOTAL2 calculation
 TOP_N_FOR_TOTAL2 = 50              # Number of coins in index
-VOLUME_SMA_WINDOW = 14             # Days for volume SMA smoothing
+VOLUME_SMA_WINDOW = 28             # Days for volume SMA smoothing
 
 # Quote currencies
 QUOTE_CURRENCIES = ["BTC", "USD"]
