@@ -56,6 +56,11 @@ class Total2Processor:
     - Take top N coins
     - Calculate: TOTAL2 = Σ(price × volume) / Σ(volume)
 
+    Important: TOTAL2 uses ALL cached price data, including recent coins.
+    The MIN_DATA_DATE filter only applies to individual coin halving cycle
+    analysis, not to TOTAL2 calculation. This ensures the market index
+    accurately reflects current market composition.
+
     Usage:
         processor = Total2Processor()
         result = processor.calculate_total2()
@@ -186,7 +191,10 @@ class Total2Processor:
         Returns:
             Total2Result with index and composition DataFrames
         """
-        # Load all price data
+        # Load all price data from cache
+        # Note: This includes ALL cached coins (including recent ones).
+        # The MIN_DATA_DATE filter does not apply to TOTAL2 calculation.
+        # This ensures the market index reflects current market composition.
         all_cached = self.price_cache.list_cached_coins()
 
         if not all_cached:

@@ -41,8 +41,8 @@ PROJECTED_5TH_HALVING = date(2028, 3, 15)
 # =============================================================================
 
 DAYS_BEFORE_HALVING = 550
-DAYS_AFTER_HALVING = 550
-TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1100 days
+DAYS_AFTER_HALVING = 880  # Extended to capture bear market phase following bull run
+TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1430 days
 
 
 def get_cycle_window(halving_date: date) -> tuple[date, date]:

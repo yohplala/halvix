@@ -119,6 +119,10 @@ These are additionally excluded from TOTAL2:
 
 Stablecoins are excluded because they don't track the crypto market - they're pegged to fiat currencies.
 
+### NOT Excluded from TOTAL2
+
+**Important:** Recent coins (those without data before `MIN_DATA_DATE`) are **included** in TOTAL2 calculation. The `MIN_DATA_DATE` filter only applies to individual coin halving cycle analysis, not to TOTAL2. This ensures that the market index accurately reflects current market composition, including newer coins that have gained significant volume.
+
 ### Never Excluded (Allowed List)
 
 Some tokens with pattern-matching names are explicitly allowed:

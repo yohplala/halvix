@@ -81,16 +81,16 @@ halvix/
 
 | Halving | Date | Cycle Window Start | Cycle Window End |
 |---------|------|-------------------|------------------|
-| 1st | 2012-11-28 | 2011-06-02 | 2014-06-01 |
-| 2nd | 2016-07-09 | 2015-01-02 | 2018-01-09 |
-| 3rd | 2020-05-11 | 2018-11-08 | 2021-11-12 |
-| 4th | 2024-04-19 | 2022-10-16 | 2025-10-21 |
+| 1st | 2012-11-28 | 2011-06-02 | 2015-04-27 |
+| 2nd | 2016-07-09 | 2015-01-02 | 2018-11-05 |
+| 3rd | 2020-05-11 | 2018-11-08 | 2022-09-07 |
+| 4th | 2024-04-19 | 2022-10-16 | 2026-08-16 |
 | 5th (projected) | ~2028-03-XX | - | - |
 
 ### 3.2 Time Windows
 - **Days before halving**: 550
-- **Days after halving**: 550
-- **Total window**: 1100 days
+- **Days after halving**: 880 (extended to capture bear market phase following bull run)
+- **Total window**: 1430 days
 
 ### 3.3 Data Source
 
@@ -168,12 +168,14 @@ ALLOWED_TOKENS = {
 
 #### Insufficient Historical Data:
 
-Coins must have price data available before `MIN_DATA_DATE` (2024-01-10) to be included in analysis. This ensures:
+Coins must have price data available before `MIN_DATA_DATE` (2024-01-10) to be included in **halving cycle analysis**. This ensures:
 - Sufficient data for meaningful halving cycle comparisons
 - Coins have enough history to calculate trends and patterns
-- New/recent coins don't skew analysis with incomplete data
+- New/recent coins don't skew individual analysis with incomplete data
 
 This filter is applied **after** fetching price data (in `fetch-prices` command), since the actual data start date is only known after fetching.
+
+**Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 to accurately reflect current market composition. The TOTAL2 index uses all cached price data (after filtering stablecoins/wrapped/staked tokens).
 
 ### 4.3 CSV Export
 Rejected coins exported to `data/processed/rejected_coins.csv`:
@@ -310,7 +312,7 @@ HALVING_DATES = [
 ]
 
 DAYS_BEFORE_HALVING = 550
-DAYS_AFTER_HALVING = 550
+DAYS_AFTER_HALVING = 880
 
 REGRESSION_START_DATE = date(2023, 11, 1)
 MIN_DATA_DATE = date(2024, 1, 10)
