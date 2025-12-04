@@ -33,29 +33,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: latest
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Install dependencies
-        run: poetry install --no-interaction
-
-      - name: Generate large charts
+      - name: Generate placeholder for large charts
         run: |
-          poetry run python -c "
-          from src.visualization.charts import create_composition_viewer_html
-          from pathlib import Path
-          create_composition_viewer_html(Path('site/charts/total2_composition.html'))
-          print('Generated total2_composition.html')
-          "
+          cat > site/charts/total2_composition.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>TOTAL2 Composition Viewer</title>
+            <style>
+              body { font-family: system-ui; max-width: 600px; margin: 100px auto; text-align: center; }
+              code { background: #f4f4f4; padding: 2px 8px; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            <h1>TOTAL2 Composition Viewer</h1>
+            <p>This interactive chart requires local data (18MB) and cannot be hosted on GitHub Pages.</p>
+            <p>Generate it locally:</p>
+            <code>poetry run python -m main generate-charts</code>
+            <p style="margin-top: 2em;"><a href="index.html">← Back to Charts</a></p>
+          </body>
+          </html>
+          EOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
