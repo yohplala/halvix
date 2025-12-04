@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "halvix"
-version = "2025.12.4"
+version = "2025.12.6"
 description = "Cryptocurrency price analysis relative to Bitcoin halving cycles"
 authors = ["yohplala <yohplala@users.noreply.github.com>"]
 readme = "README.md"
@@ -15,7 +15,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.13"
 pandas = "^2.1"
 numpy = "^2.0"
 plotly = "^5.18"
@@ -42,12 +42,12 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py313']
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings

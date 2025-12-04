@@ -7,9 +7,9 @@ Halvix analyzes cryptocurrency performance across BTC halving cycles, comparing 
 ## Features
 
 - 📊 Retrieve and analyze top 1000 cryptocurrencies by market cap
-- 🔍 Filter out wrapped, staked, bridged tokens and stablecoins
-- 📉 Volume-weighted TOTAL2 index with 14-day SMA smoothing
-- 📈 Compare price performance across 4 BTC halving cycles
+- 🔍 Filter out from download wrapped, staked, bridged tokens and stablecoins
+- 📉 Volume-weighted TOTAL2 index with 28-day SMA smoothing
+- 📈 Compare price performance across 2nd to 4th BTC halving cycles
 - 🎨 Interactive Plotly charts with normalized values
 - 🧩 Composition viewer to explore TOTAL2 makeup on any date
 
@@ -41,8 +41,8 @@ poetry run python -m main status
 
 ### 📊 Live Data & Charts
 
-- **[Charts Dashboard](site/charts.html)** - Interactive halving cycle charts (BTC, TOTAL2)
-- **[Data Status](site/index.html)** - Current coin lists, filtered coins, and price data summary
+- **[Charts Dashboard](https://yohplala.github.io/halvix/charts.html)** - Interactive halving cycle charts (BTC, TOTAL2)
+- **[Data Status](https://yohplala.github.io/halvix/index.html)** - Current coin lists, filtered coins, and price data summary
 
 ### 📋 References
 - **[Project Context](docs/PROJECT_CONTEXT.md)** - Full project specification for developers
@@ -63,19 +63,7 @@ poetry run python -m main status
 | Halving Cycle Charts | ✅ Complete |
 | Linear Regression | ⏳ To implement |
 
-## GitHub Pages Setup
-
-To serve the HTML charts directly from GitHub:
-
-1. Go to your repository **Settings** → **Pages**
-2. Under "Source", select **Deploy from a branch**
-3. Choose the branch (e.g., `main`) and folder (`/site` or `/root`)
-4. Click **Save**
-
-Your charts will be available at: `https://YOUR_USERNAME.github.io/halvix/charts.html`
-
-> **Note**: The `output/charts/` folder contains the actual Plotly charts. The `site/charts.html` index page links to them via relative paths (`../output/charts/`). For GitHub Pages, you may want to copy charts to `site/` or configure the build accordingly.
 
 ## License
 
-MIT
+[MIT](LICENSE)

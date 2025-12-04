@@ -119,7 +119,7 @@ TOP_N_SUMMARY = 10
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
-VOLUME_SMA_WINDOW = 14
+VOLUME_SMA_WINDOW = 28
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
