@@ -119,9 +119,31 @@ These are additionally excluded from TOTAL2:
 
 Stablecoins are excluded because they don't track the crypto market - they're pegged to fiat currencies.
 
-### NOT Excluded from TOTAL2
+### NOT Excluded from TOTAL2: Recent Coins
 
-**Important:** Recent coins (those without data before `MIN_DATA_DATE`) are **included** in TOTAL2 calculation. The `MIN_DATA_DATE` filter only applies to individual coin halving cycle analysis, not to TOTAL2. This ensures that the market index accurately reflects current market composition, including newer coins that have gained significant volume.
+**Important:** Recent coins (those without data before `MIN_DATA_DATE`) are **included** in TOTAL2 calculation. The `MIN_DATA_DATE` filter only applies to individual coin halving cycle analysis, not to TOTAL2.
+
+#### Why Include Recent Coins?
+
+TOTAL2 is designed to capture the cryptocurrency market trend, and its value for any given day **must remain immutable** once calculated. This immutability requirement is why we include all coins that qualify by volume, regardless of how recently they appeared.
+
+**The problem with excluding recent coins:**
+
+Consider a coin that launched in 2024 and quickly reached top 50 by trading volume. If we excluded it because it's "recent":
+
+1. Today, calculating TOTAL2 for day D would exclude this coin
+2. One year from now, this coin is no longer "recent" (it now has sufficient history)
+3. Recalculating TOTAL2 for the same day D would now include this coin
+4. **The TOTAL2 value for day D would change** - this breaks our immutability requirement
+
+**Our intended behavior:**
+
+- TOTAL2 for any day D should reflect the **actual market composition on that day**
+- The value should be calculated once and remain stable forever
+- The index must include all coins that were in the top 50 by 24h trading volume on that specific day
+- No retroactive changes should occur when recalculating historical values
+
+By including recent coins, we ensure that TOTAL2 accurately represents the full cryptocurrency market (restricted to top 50 by volume) on each day, and that this representation is permanent and reproducible.
 
 ### Never Excluded (Allowed List)
 
