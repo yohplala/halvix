@@ -101,5 +101,5 @@ Thumbs.db
 *.log
 logs/
 
-# Large generated charts (generated during CI)
-site/charts/total2_composition.html
+# Note: site/charts/ files are tracked and deployed to GitHub Pages
+# They are generated locally with: poetry run python -m main generate-charts

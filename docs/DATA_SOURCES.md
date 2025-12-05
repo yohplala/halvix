@@ -1,5 +1,9 @@
 # Data Sources and API Strategy
 
+**[← Back to README](../README.md)**
+
+---
+
 This document details the API strategy used by Halvix for cryptocurrency data retrieval, including rate limits, data types, and implementation details.
 
 ## Overview
@@ -300,3 +304,7 @@ API_RETRY_MAX_WAIT = 60        # seconds
 ---
 
 *Last updated: 2025-12-03*
+
+---
+
+**[← Back to README](../README.md)**

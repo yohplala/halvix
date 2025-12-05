@@ -1,5 +1,9 @@
 # TOTAL2 Index Calculation
 
+**[← Back to README](../README.md)**
+
+---
+
 > **TOTAL2** is a volume-weighted market index representing the cryptocurrency market excluding Bitcoin. This document describes how Halvix calculates the TOTAL2 index.
 
 ## Overview
@@ -310,4 +314,8 @@ TOTAL2_COMPOSITION_FILE = PROCESSED_DIR / "total2_daily_composition.parquet"
 
 ---
 
-*See also: [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md) for full project specification*
+*See also: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) for full project specification*
+
+---
+
+**[← Back to README](../README.md)**

@@ -1,5 +1,9 @@
 # Edge Cases and Solutions
 
+**[← Back to README](../README.md)**
+
+---
+
 This document analyzes edge cases identified in the data fetching pipeline and their implemented solutions.
 
 > **Status**: All edge cases have been implemented ✅
@@ -281,3 +285,7 @@ class TestVolumeWeightedTotal2:
 
 *Document created: 2025-12-03*
 *Updated: 2025-12-03 (simplified for single data source)*
+
+---
+
+**[← Back to README](../README.md)**
