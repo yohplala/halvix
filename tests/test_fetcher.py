@@ -287,13 +287,13 @@ class TestDataFetcherFilterCoins:
 
         # Patch the output paths
         with (
-            patch("data.fetcher.ACCEPTED_COINS_JSON", processed_dir / "accepted.json"),
+            patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", processed_dir / "accepted.json"),
             patch("data.fetcher.PROCESSED_DIR", processed_dir),
         ):
             result = fetcher.fetch_and_filter_coins(
                 n=7,
                 use_cache=False,
-                export_filtered=False,
+                export_skipped=False,
             )
 
         assert result.success is True
