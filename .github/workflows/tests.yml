@@ -53,11 +53,12 @@ jobs:
       - name: Run tests with coverage
         run: poetry run pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=45
 
-  # Separate job for data fetching (only on push to main, not PRs)
+  # Separate job for data fetching - MANUAL TRIGGER ONLY
+  # This is heavy and currently not working properly
   # Stores data in an orphan 'data' branch for browsing via GitHub UI
   fetch-data:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch'
     needs: test  # Only run after tests pass
     permissions:
       contents: write  # Required to push to data branch

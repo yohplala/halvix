@@ -356,20 +356,22 @@ def create_btc_usd_normalized_chart(
             "bgcolor": "rgba(0,0,0,0.5)",
         },
         template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=700,
         margin={"t": 80},
     )
 
     # Add vertical line at halving (day 0)
-    fig.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.7)", line_width=2)
+    fig.add_vline(x=0, line_dash="dot", line_color="rgba(200,200,200,0.5)", line_width=2)
     fig.add_annotation(
         x=0,
         y=1.02,
         yref="paper",
         text="⚡ HALVING",
         showarrow=False,
-        font={"color": "white", "size": 14},
+        font={"color": "rgba(180,180,180,0.8)", "size": 14},
     )
 
     # Add horizontal line at 1.0
@@ -493,6 +495,8 @@ def create_total2_dual_chart(
             "x": 0.5,
         },
         template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
         legend={
@@ -528,7 +532,19 @@ def create_total2_dual_chart(
 
     # Add vertical lines at halving
     for col in [1, 2]:
-        fig.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.5)", row=1, col=col)
+        fig.add_vline(
+            x=0, line_dash="dot", line_color="rgba(200,200,200,0.5)", line_width=2, row=1, col=col
+        )
+    # Add halving annotation for left chart only
+    fig.add_annotation(
+        x=0,
+        y=1.02,
+        yref="paper",
+        xref="x1",
+        text="⚡ HALVING",
+        showarrow=False,
+        font={"color": "rgba(180,180,180,0.8)", "size": 12},
+    )
 
     # Add horizontal lines at 1.0
     fig.add_hline(y=1, line_dash="dot", line_color="rgba(255,255,255,0.3)", row=1, col=1)
@@ -642,25 +658,28 @@ def create_total2_halving_chart(
             "gridcolor": "rgba(128, 128, 128, 0.2)",
         },
         legend={
-            "yanchor": "top",
-            "y": 0.99,
-            "xanchor": "left",
-            "x": 0.01,
+            "yanchor": "bottom",
+            "y": 0.01,
+            "xanchor": "right",
+            "x": 0.99,
+            "bgcolor": "rgba(0,0,0,0.5)",
         },
         template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
     )
 
     # Add vertical line at halving (day 0)
-    fig.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
+    fig.add_vline(x=0, line_dash="dot", line_color="rgba(200,200,200,0.5)", line_width=2)
     fig.add_annotation(
         x=0,
-        y=1,
+        y=1.02,
         yref="paper",
-        text="HALVING",
+        text="⚡ HALVING",
         showarrow=False,
-        font={"color": "white"},
+        font={"color": "rgba(180,180,180,0.8)", "size": 14},
     )
 
     if output_path:
@@ -733,25 +752,28 @@ def create_btc_usd_halving_chart(
             "gridcolor": "rgba(128, 128, 128, 0.2)",
         },
         legend={
-            "yanchor": "top",
-            "y": 0.99,
-            "xanchor": "left",
-            "x": 0.01,
+            "yanchor": "bottom",
+            "y": 0.01,
+            "xanchor": "right",
+            "x": 0.99,
+            "bgcolor": "rgba(0,0,0,0.5)",
         },
         template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
     )
 
     # Add vertical line at halving (day 0)
-    fig.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
+    fig.add_vline(x=0, line_dash="dot", line_color="rgba(200,200,200,0.5)", line_width=2)
     fig.add_annotation(
         x=0,
-        y=1,
+        y=1.02,
         yref="paper",
-        text="HALVING",
+        text="⚡ HALVING",
         showarrow=False,
-        font={"color": "white"},
+        font={"color": "rgba(180,180,180,0.8)", "size": 14},
     )
 
     if output_path:
@@ -766,56 +788,73 @@ def create_btc_usd_halving_chart(
 
 def create_composition_viewer_html(
     output_path: Path,
-) -> Path:
+) -> dict[int, Path]:
     """
-    Create an HTML page with interactive TOTAL2 composition viewer.
+    Create HTML pages with interactive TOTAL2 composition viewer, split by year.
 
-    Allows selecting a date and viewing which coins were in TOTAL2.
+    Creates one page per year with navigation between years.
 
     Args:
-        output_path: Path to save HTML file
+        output_path: Base path for HTML files (will append year suffix)
 
     Returns:
-        Path to created file
+        Dictionary mapping year to file path
     """
+    import json
+
     # Load composition data
     if not TOTAL2_COMPOSITION_FILE.exists():
         raise FileNotFoundError("TOTAL2 composition not found. Run calculate-total2 first.")
 
     composition_df = pd.read_parquet(TOTAL2_COMPOSITION_FILE)
-    pd.read_parquet(TOTAL2_INDEX_FILE)
 
-    # Get unique dates
+    # Get unique dates and group by year
     dates = sorted(composition_df["date"].unique())
+    years = sorted({d.year for d in dates})
 
-    # Create date options
-    date_options = "\n".join([f'<option value="{d}">{d}</option>' for d in dates])
+    created_files = {}
 
-    # Create composition data as JSON
-    composition_by_date = {}
-    for dt in dates:
-        day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
-        composition_by_date[str(dt)] = [
-            {
-                "rank": int(row["rank"]),
-                "coin_id": row["coin_id"].upper(),
-                "volume": float(row["volume"]),
-                "weight": float(row["weight"]) * 100,
-                "price_btc": float(row["price_btc"]),
-            }
-            for _, row in day_comp.iterrows()
-        ]
+    for year in years:
+        # Filter dates for this year
+        year_dates = [d for d in dates if d.year == year]
 
-    import json
+        # Create date options for this year
+        date_options = "\n".join([f'<option value="{d}">{d}</option>' for d in year_dates])
 
-    composition_json = json.dumps(composition_by_date)
+        # Create composition data as JSON for this year only
+        composition_by_date = {}
+        for dt in year_dates:
+            day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
+            composition_by_date[str(dt)] = [
+                {
+                    "rank": int(row["rank"]),
+                    "coin_id": row["coin_id"].upper(),
+                    "volume": float(row["volume"]),
+                    "weight": float(row["weight"]) * 100,
+                    "price_btc": float(row["price_btc"]),
+                }
+                for _, row in day_comp.iterrows()
+            ]
 
-    html_content = f"""<!DOCTYPE html>
+        composition_json = json.dumps(composition_by_date)
+
+        # Generate year navigation links
+        year_nav_items = []
+        for y in years:
+            if y == year:
+                year_nav_items.append(f'<span class="year-current">{y}</span>')
+            else:
+                year_nav_items.append(
+                    f'<a href="total2_composition_{y}.html" class="year-link">{y}</a>'
+                )
+        year_nav_html = " | ".join(year_nav_items)
+
+        html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TOTAL2 Composition Viewer - Halvix</title>
+    <title>TOTAL2 Composition {year} - Halvix</title>
     <style>
         :root {{
             --bg-primary: #0d1117;
@@ -901,7 +940,31 @@ def create_composition_viewer_html(
 
         .page-title {{
             color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }}
+
+        .year-nav {{
             margin-bottom: 1.5rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            text-align: center;
+        }}
+
+        .year-nav .year-link {{
+            color: var(--accent-blue);
+            text-decoration: none;
+            padding: 0.25rem 0.5rem;
+        }}
+
+        .year-nav .year-link:hover {{
+            text-decoration: underline;
+        }}
+
+        .year-nav .year-current {{
+            color: var(--accent-orange);
+            font-weight: bold;
+            padding: 0.25rem 0.5rem;
         }}
 
         .controls {{
@@ -1001,7 +1064,7 @@ def create_composition_viewer_html(
     <header>
         <div class="logo">📊</div>
         <h1>Halvix Charts</h1>
-        <p class="subtitle">TOTAL2 Composition Viewer</p>
+        <p class="subtitle">TOTAL2 Composition Viewer - {year}</p>
     </header>
 
     <nav>
@@ -1014,6 +1077,10 @@ def create_composition_viewer_html(
 
     <div class="container">
         <h2 class="page-title">🧩 TOTAL2 Composition Viewer</h2>
+
+        <div class="year-nav">
+            <strong>Year:</strong> {year_nav_html}
+        </div>
 
         <div class="controls">
             <label for="date-select">Select Date:</label>
@@ -1098,11 +1165,32 @@ def create_composition_viewer_html(
 </html>
 """
 
+        # Construct filename for this year
+        year_output_path = output_path.parent / f"total2_composition_{year}.html"
+        year_output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(year_output_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        created_files[year] = year_output_path
+
+    # Create a redirect from the original path to the latest year
+    latest_year = max(years)
+    redirect_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="refresh" content="0; url=total2_composition_{latest_year}.html">
+    <title>Redirecting...</title>
+</head>
+<body>
+    <p>Redirecting to <a href="total2_composition_{latest_year}.html">TOTAL2 Composition {latest_year}</a>...</p>
+</body>
+</html>
+"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
+        f.write(redirect_html)
 
-    return output_path
+    return created_files
 
 
 def generate_all_charts(output_dir: Path | None = None) -> dict[str, Path]:
@@ -1140,9 +1228,11 @@ def generate_all_charts(output_dir: Path | None = None) -> dict[str, Path]:
     create_btc_usd_halving_chart(btc_path)
     paths["btc"] = btc_path
 
-    # Composition viewer
+    # Composition viewer (split by year)
     comp_path = output_dir / "total2_composition.html"
-    create_composition_viewer_html(comp_path)
+    year_paths = create_composition_viewer_html(comp_path)
     paths["composition"] = comp_path
+    for year, year_path in year_paths.items():
+        paths[f"composition_{year}"] = year_path
 
     return paths

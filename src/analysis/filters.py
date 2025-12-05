@@ -30,16 +30,16 @@ from pathlib import Path
 from config import (
     ALLOWED_TOKENS,
     CRYPTOCOMPARE_COIN_URL,
+    DOWNLOAD_SKIPPED_CSV,
     EXCLUDED_PATTERNS,
     EXCLUDED_STABLECOINS,
     EXCLUDED_WRAPPED_STAKED_IDS,
-    REJECTED_COINS_CSV,
 )
 
 
 @dataclass
-class FilteredToken:
-    """Represents a token that was filtered out."""
+class SkippedCoin:
+    """Represents a coin that was skipped for download."""
 
     coin_id: str
     name: str
@@ -48,15 +48,19 @@ class FilteredToken:
     url: str
 
 
+# Backwards compatibility alias
+FilteredToken = SkippedCoin
+
+
 class TokenFilter:
     """
     Filter tokens based on various exclusion criteria.
 
     Two filtering modes:
 
-    1. For DOWNLOAD (should_exclude_from_download):
-       Excludes: stablecoins, wrapped/staked/bridged tokens, BTC derivatives
-       Includes: BTC (needed for charting), all other coins
+    1. For DOWNLOAD (should_skip_download):
+       Skips: stablecoins, wrapped/staked/bridged tokens, BTC derivatives
+       Downloads: BTC (needed for charting), all other coins
 
     2. For TOTAL2 (should_exclude_from_total2):
        Excludes: BTC, stablecoins, wrapped/staked/bridged tokens, BTC derivatives
@@ -66,18 +70,24 @@ class TokenFilter:
        Excludes: BTC, coins without data before MIN_DATA_DATE
        (handled in fetcher after price data is downloaded)
 
-    Maintains a list of filtered tokens for export and review.
+    Maintains a list of skipped coins for export and review.
     """
 
     def __init__(self):
-        self.filtered_tokens: list[FilteredToken] = []
+        self.skipped_coins: list[SkippedCoin] = []
         self._compiled_patterns = [
             re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS
         ]
 
+    # Property for backwards compatibility
+    @property
+    def filtered_tokens(self) -> list[SkippedCoin]:
+        """Backwards compatibility alias for skipped_coins."""
+        return self.skipped_coins
+
     def reset(self):
-        """Clear the filtered tokens list."""
-        self.filtered_tokens = []
+        """Clear the skipped coins list."""
+        self.skipped_coins = []
 
     def is_allowed_token(self, coin_id: str, symbol: str = "") -> bool:
         """
@@ -236,17 +246,17 @@ class TokenFilter:
 
         return coin_id_lower in btc_derivative_symbols or symbol_lower in btc_derivative_symbols
 
-    def should_exclude_from_download(
+    def should_skip_download(
         self,
         coin_id: str,
         name: str = "",
         symbol: str = "",
     ) -> tuple[bool, str]:
         """
-        Check if a token should be excluded from price data download.
+        Check if a coin should be skipped from price data download.
 
-        Excludes: stablecoins, wrapped/staked/bridged, BTC derivatives
-        Includes: BTC (needed for charting), all other coins
+        Skips: stablecoins, wrapped/staked/bridged, BTC derivatives
+        Downloads: BTC (needed for charting), all other coins
 
         Args:
             coin_id: The coin ID (lowercase symbol)
@@ -254,16 +264,16 @@ class TokenFilter:
             symbol: The coin symbol
 
         Returns:
-            Tuple of (should_exclude, reason)
+            Tuple of (should_skip, reason)
         """
         # Check allowed list first
         if self.is_allowed_token(coin_id, symbol):
             return (False, "")
 
-        # BTC is NOT excluded from download - we need it for BTC vs USD chart
+        # BTC is NOT skipped - we need it for BTC vs USD chart
         # (it will be excluded from TOTAL2 separately)
 
-        # Check stablecoins (always excluded - stable vs fiat)
+        # Check stablecoins (always skipped - stable vs fiat)
         if self.is_stablecoin(coin_id, name, symbol):
             return (True, "Stablecoin")
 
@@ -276,6 +286,16 @@ class TokenFilter:
             return (True, "BTC derivative")
 
         return (False, "")
+
+    # Backwards compatibility alias
+    def should_exclude_from_download(
+        self,
+        coin_id: str,
+        name: str = "",
+        symbol: str = "",
+    ) -> tuple[bool, str]:
+        """Backwards compatibility alias for should_skip_download."""
+        return self.should_skip_download(coin_id, name, symbol)
 
     def should_exclude_from_total2(
         self,
@@ -322,37 +342,37 @@ class TokenFilter:
 
         return (False, "")
 
-    def filter_coins_for_download(
+    def get_coins_to_download(
         self,
         coins: list[dict],
-        record_filtered: bool = True,
+        record_skipped: bool = True,
     ) -> list[dict]:
         """
-        Filter coins for price data download.
+        Get coins that should have price data downloaded.
 
-        Excludes: stablecoins, wrapped/staked/bridged, BTC derivatives
-        Includes: BTC and all other coins
+        Skips: stablecoins, wrapped/staked/bridged, BTC derivatives
+        Downloads: BTC and all other coins
 
         Args:
             coins: List of coin dictionaries with 'id', 'name', 'symbol' keys
-            record_filtered: If True, record filtered tokens for export
+            record_skipped: If True, record skipped coins for export
 
         Returns:
-            Filtered list of coins (includes BTC)
+            List of coins to download (includes BTC)
         """
-        filtered = []
+        to_download = []
 
         for coin in coins:
             coin_id = coin.get("id", "")
             name = coin.get("name", "")
             symbol = coin.get("symbol", "")
 
-            should_exclude, reason = self.should_exclude_from_download(coin_id, name, symbol)
+            should_skip, reason = self.should_skip_download(coin_id, name, symbol)
 
-            if should_exclude:
-                if record_filtered:
-                    self.filtered_tokens.append(
-                        FilteredToken(
+            if should_skip:
+                if record_skipped:
+                    self.skipped_coins.append(
+                        SkippedCoin(
                             coin_id=coin_id,
                             name=name,
                             symbol=symbol,
@@ -361,9 +381,18 @@ class TokenFilter:
                         )
                     )
             else:
-                filtered.append(coin)
+                to_download.append(coin)
 
-        return filtered
+        return to_download
+
+    # Backwards compatibility alias
+    def filter_coins_for_download(
+        self,
+        coins: list[dict],
+        record_filtered: bool = True,
+    ) -> list[dict]:
+        """Backwards compatibility alias for get_coins_to_download."""
+        return self.get_coins_to_download(coins, record_skipped=record_filtered)
 
     def filter_coins_for_total2(
         self,
@@ -397,9 +426,9 @@ class TokenFilter:
 
         return filtered
 
-    def export_rejected_coins_csv(self, filepath: Path | None = None) -> Path:
+    def export_skipped_coins_csv(self, filepath: Path | None = None) -> Path:
         """
-        Export rejected coins to CSV for review.
+        Export skipped coins to CSV for review.
 
         Args:
             filepath: Optional custom path for CSV file
@@ -407,27 +436,37 @@ class TokenFilter:
         Returns:
             Path to the created CSV file
         """
-        filepath = filepath or REJECTED_COINS_CSV
+        filepath = filepath or DOWNLOAD_SKIPPED_CSV
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f, delimiter=";")  # Use semicolon for Excel compatibility
             writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
 
-            for token in sorted(self.filtered_tokens, key=lambda t: t.coin_id):
-                writer.writerow([token.coin_id, token.name, token.symbol, token.reason, token.url])
+            for coin in sorted(self.skipped_coins, key=lambda c: c.coin_id):
+                writer.writerow([coin.coin_id, coin.name, coin.symbol, coin.reason, coin.url])
 
         return filepath
 
-    def get_filtered_summary(self) -> dict:
+    # Backwards compatibility alias
+    def export_rejected_coins_csv(self, filepath: Path | None = None) -> Path:
+        """Backwards compatibility alias for export_skipped_coins_csv."""
+        return self.export_skipped_coins_csv(filepath)
+
+    def get_skipped_summary(self) -> dict:
         """
-        Get a summary of filtered tokens by reason.
+        Get a summary of skipped coins by reason.
 
         Returns:
             Dictionary with counts by reason
         """
         summary = {}
-        for token in self.filtered_tokens:
-            reason = token.reason
+        for coin in self.skipped_coins:
+            reason = coin.reason
             summary[reason] = summary.get(reason, 0) + 1
         return summary
+
+    # Backwards compatibility alias
+    def get_filtered_summary(self) -> dict:
+        """Backwards compatibility alias for get_skipped_summary."""
+        return self.get_skipped_summary()

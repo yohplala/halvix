@@ -12,9 +12,9 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
-### [2025.12.6] - 2025-12-04
+### [2025.12.5] - 2025-12-04
 
-**Visualization, dual currency support, and expanded coin coverage**
+**Visualization, dual currency support, expanded coin coverage, and bug fixes**
 
 - **Added:** Interactive halving cycle charts with Plotly
   - `btc_usd_normalized.html` - BTC/USD across 4 cycles (normalized to halving day)
@@ -24,29 +24,22 @@ format YYYY.MM.patch.
 - **Added:** Dual currency support - fetch both BTC and USD prices
 - **Added:** `generate-charts` CLI command
 - **Added:** Navigation bar in HTML documentation pages
+- **Added:** Coins removed due to insufficient historical data are now added to rejected_coins.csv with detailed reason (includes actual start date)
+- **Added:** New badge style for "Insufficient historical data" in HTML documentation
 - **Changed:** `TOP_N_COINS` increased from 300 to 1000 (includes historical coins like XEM)
 - **Changed:** Price files now use pair-based naming: `eth-btc.parquet`, `eth-usd.parquet`
 - **Changed:** 28-day SMA warmup period means coins appear 28 days after their data starts
 - **Fixed:** BTC is now downloaded (for charts) but excluded from TOTAL2 calculation
 - **Fixed:** Recent coins are included in TOTAL2 but marked as "not for individual analysis"
-- **Updated:** README with charts section and GitHub Pages setup instructions
-- **Updated:** All documentation to reflect new features and configuration
-
-**Categories:** Features, Visualization, Documentation, API
-
-### [2025.12.5] - 2025-12-04
-
-**Bug fixes and documentation improvements**
-
 - **Fixed:** End date for price fetching now dynamically set to yesterday instead of being capped at analysis end date (2025-10-21)
 - **Fixed:** Coins without price data before MIN_DATA_DATE (2024-01-10) are now automatically removed from accepted_coins.json after price fetching
-- **Added:** Coins removed due to insufficient historical data are now added to rejected_coins.csv with detailed reason (includes actual start date)
-- **Added:** New badge style for "Insufficient historical data" in HTML documentation
 - **Fixed:** Project structure in PROJECT_CONTEXT.md now correctly shows docs/ directory location
 - **Fixed:** Stablecoin exclusion reason updated from "no price movement vs BTC" to "stable vs fiat, not representative of crypto market trends"
+- **Updated:** README with charts section and GitHub Pages setup instructions
+- **Updated:** All documentation to reflect new features and configuration
 - **Updated:** Documentation to list insufficient historical data as a filtering criterion
 
-**Categories:** Bug Fixes, Documentation, Features
+**Categories:** Features, Visualization, Documentation, API, Bug Fixes
 
 ### [2025.12.4] - 2025-12-03
 
