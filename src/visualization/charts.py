@@ -880,6 +880,28 @@ def create_composition_viewer_html(
         ]
         return f"{month_names[int(month) - 1]} {year}"
 
+    def get_cycle_info(d) -> str:
+        """
+        Get cycle day info for a date, showing which cycle(s) it belongs to.
+
+        Returns string like "C4: Day 12" or "C3: Day 880 | C4: Day -5" for overlaps.
+        """
+        # Convert Pandas Timestamp to date if needed
+        if hasattr(d, "date"):
+            d = d.date()
+        cycle_infos = []
+        for i, halving_date in enumerate(HALVING_DATES):
+            cycle_num = i + 1
+            # Skip cycle 1 (not shown in charts)
+            if cycle_num == 1:
+                continue
+            start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
+            end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
+            if start <= d <= end:
+                day_num = (d - halving_date).days
+                cycle_infos.append(f"C{cycle_num}: Day {day_num}")
+        return " | ".join(cycle_infos) if cycle_infos else ""
+
     # Get all unique months
     months = sorted({get_month_key(d) for d in dates})
 
@@ -894,8 +916,18 @@ def create_composition_viewer_html(
         # Filter dates for this month
         month_dates = [d for d in dates if get_month_key(d) == month_key]
 
-        # Create date options for this month
-        date_options = "\n".join([f'<option value="{d}">{d}</option>' for d in month_dates])
+        # Create date options for this month with cycle day info
+        date_options_list = []
+        for d in month_dates:
+            # Convert to date string for clean display
+            date_str = d.date() if hasattr(d, "date") else d
+            cycle_info = get_cycle_info(d)
+            if cycle_info:
+                display = f"{date_str}  ({cycle_info})"
+            else:
+                display = str(date_str)
+            date_options_list.append(f'<option value="{d}">{display}</option>')
+        date_options = "\n".join(date_options_list)
 
         # Create composition data as JSON for this month only
         composition_by_date = {}

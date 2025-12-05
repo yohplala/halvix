@@ -37,6 +37,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout data branch
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data-branch
+        continue-on-error: true  # Branch may not exist yet
+
+      - name: Restore data from data branch
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          if [ -d "data-branch/processed" ]; then
+            mkdir -p data
+            cp -r data-branch/raw data/ 2>/dev/null || true
+            cp -r data-branch/processed data/ 2>/dev/null || true
+            cp -r data-branch/cache data/ 2>/dev/null || true
+            echo "Restored data from data branch:"
+            ls -la data/processed/ 2>/dev/null || echo "No processed data"
+          else
+            echo "No data branch or processed data found"
+          fi
+
       - name: Set up Python for chart generation
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: actions/setup-python@v5
