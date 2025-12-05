@@ -905,6 +905,16 @@ def create_composition_viewer_html(
     # Get all unique months
     months = sorted({get_month_key(d) for d in dates})
 
+    # Load TOTAL2 index for displaying values
+    total2_df = pd.read_parquet(TOTAL2_INDEX_FILE)
+
+    # Build month navigation table (shared across all pages)
+    years_in_nav = sorted({m.split("_")[0] for m in months})
+    month_letters = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
+
+    # Build a set of available months for quick lookup
+    available_months = set(months)
+
     created_files = {}
 
     for month_key in months:
@@ -929,58 +939,57 @@ def create_composition_viewer_html(
             date_options_list.append(f'<option value="{d}">{display}</option>')
         date_options = "\n".join(date_options_list)
 
-        # Create composition data as JSON for this month only
+        # Create composition data as JSON for this month only, including TOTAL2 value
         composition_by_date = {}
         for dt in month_dates:
             day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
-            composition_by_date[str(dt)] = [
-                {
-                    "rank": int(row["rank"]),
-                    "coin_id": row["coin_id"].upper(),
-                    "volume": float(row["volume"]),
-                    "weight": float(row["weight"]) * 100,
-                    "price_btc": float(row["price_btc"]),
-                }
-                for _, row in day_comp.iterrows()
-            ]
+            # Get TOTAL2 value for this date
+            total2_value = None
+            if dt in total2_df.index:
+                total2_value = float(total2_df.loc[dt, "total2_price"])
+            elif hasattr(dt, "date") and pd.Timestamp(dt.date()) in total2_df.index:
+                total2_value = float(total2_df.loc[pd.Timestamp(dt.date()), "total2_price"])
+
+            composition_by_date[str(dt)] = {
+                "total2_value": total2_value,
+                "coins": [
+                    {
+                        "rank": int(row["rank"]),
+                        "coin_id": row["coin_id"].upper(),
+                        "volume": float(row["volume"]),
+                        "weight": float(row["weight"]) * 100,
+                        "price_btc": float(row["price_btc"]),
+                    }
+                    for _, row in day_comp.iterrows()
+                ],
+            }
 
         composition_json = json.dumps(composition_by_date)
 
-        # Generate month navigation links (grouped by year for better readability)
-        years_in_nav = sorted({m.split("_")[0] for m in months})
-        month_nav_sections = []
+        # Generate month navigation as a table (12 columns for months, rows for years)
+        month_nav_rows = []
         for nav_year in years_in_nav:
-            year_months = [m for m in months if m.startswith(nav_year)]
-            year_links = []
-            for m in year_months:
-                m_year, m_month = m.split("_")
-                month_names_short = [
-                    "J",
-                    "F",
-                    "M",
-                    "A",
-                    "M",
-                    "J",
-                    "J",
-                    "A",
-                    "S",
-                    "O",
-                    "N",
-                    "D",
-                ]
-                display_short = month_names_short[int(m_month) - 1]
-                if m == month_key:
-                    year_links.append(
-                        f'<span class="month-current" title="{get_month_display(m)}">'
-                        f"{display_short}</span>"
-                    )
+            row_cells = [f'<td class="year-label">{nav_year}</td>']
+            for m_idx in range(1, 13):
+                m_key = f"{nav_year}_{m_idx:02d}"
+                letter = month_letters[m_idx - 1]
+                if m_key in available_months:
+                    if m_key == month_key:
+                        row_cells.append(
+                            f'<td><span class="month-current" '
+                            f'title="{get_month_display(m_key)}">{letter}</span></td>'
+                        )
+                    else:
+                        row_cells.append(
+                            f'<td><a href="total2_composition_{m_key}.html" '
+                            f'class="month-link" title="{get_month_display(m_key)}">'
+                            f"{letter}</a></td>"
+                        )
                 else:
-                    year_links.append(
-                        f'<a href="total2_composition_{m}.html" class="month-link" '
-                        f'title="{get_month_display(m)}">{display_short}</a>'
-                    )
-            month_nav_sections.append(f"<strong>{nav_year}:</strong> {' '.join(year_links)}")
-        month_nav_html = " &nbsp;|&nbsp; ".join(month_nav_sections)
+                    # Month not available - show greyed out
+                    row_cells.append(f'<td><span class="month-empty">{letter}</span></td>')
+            month_nav_rows.append("<tr>" + "".join(row_cells) + "</tr>")
+        month_nav_html = "\n".join(month_nav_rows)
 
         display_month = get_month_display(month_key)
         html_content = f"""<!DOCTYPE html>
@@ -1079,18 +1088,35 @@ def create_composition_viewer_html(
 
         .month-nav {{
             margin-bottom: 1.5rem;
-            padding: 0.75rem 1rem;
-            background: var(--bg-secondary);
-            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+        }}
+
+        .month-nav-table {{
+            border-collapse: collapse;
+            background: transparent;
+        }}
+
+        .month-nav-table td {{
+            padding: 0.2rem 0.4rem;
             text-align: center;
-            line-height: 2;
+            border: none;
+            background: transparent;
+        }}
+
+        .month-nav-table .year-label {{
+            font-weight: bold;
+            color: var(--text-secondary);
+            text-align: right;
+            padding-right: 0.75rem;
+            font-size: 0.85rem;
         }}
 
         .month-nav .month-link {{
             color: var(--accent-blue);
             text-decoration: none;
-            padding: 0.15rem 0.3rem;
             font-family: monospace;
+            font-size: 0.9rem;
         }}
 
         .month-nav .month-link:hover {{
@@ -1100,39 +1126,102 @@ def create_composition_viewer_html(
         .month-nav .month-current {{
             color: var(--accent-orange);
             font-weight: bold;
-            padding: 0.15rem 0.3rem;
             font-family: monospace;
+            font-size: 0.9rem;
         }}
 
-        .controls {{
-            margin-bottom: 2rem;
+        .month-nav .month-empty {{
+            color: var(--border-color);
+            font-family: monospace;
+            font-size: 0.9rem;
         }}
 
         select {{
             padding: 0.5rem 1rem;
             font-size: 1rem;
-            background: var(--bg-secondary);
+            background: var(--bg-primary);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
             border-radius: 4px;
+            width: 100%;
+            cursor: pointer;
         }}
 
-        .stats {{
+        .stats-row {{
             display: flex;
-            gap: 2rem;
+            gap: 1.5rem;
             margin-bottom: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
         }}
 
         .stat {{
             background: var(--bg-secondary);
-            padding: 1rem;
+            padding: 1rem 1.5rem;
             border-radius: 8px;
+            text-align: center;
+            min-width: 160px;
+        }}
+
+        .stat-label {{
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
         }}
 
         .stat-value {{
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             font-weight: bold;
             color: var(--accent-green);
+        }}
+
+        .stat-value.blue {{
+            color: var(--accent-blue);
+        }}
+
+        .stat-value.orange {{
+            color: var(--accent-orange);
+        }}
+
+        .changes-row {{
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }}
+
+        .changes-box {{
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 200px;
+        }}
+
+        .changes-box .label {{
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }}
+
+        .changes-box .coins {{
+            font-size: 0.95rem;
+            font-weight: bold;
+        }}
+
+        .changes-box .coins.added {{
+            color: var(--accent-green);
+        }}
+
+        .changes-box .coins.removed {{
+            color: #f85149;
+        }}
+
+        .changes-box .coins.none {{
+            color: var(--text-secondary);
+            font-weight: normal;
+            font-style: italic;
         }}
 
         table {{
@@ -1190,9 +1279,19 @@ def create_composition_viewer_html(
                 gap: 1rem;
             }}
 
-            .stats {{
+            .stats-row {{
                 flex-direction: column;
                 gap: 1rem;
+            }}
+
+            .changes-row {{
+                flex-direction: column;
+                gap: 1rem;
+            }}
+
+            .stat, .changes-box {{
+                min-width: auto;
+                width: 100%;
             }}
         }}
     </style>
@@ -1216,24 +1315,40 @@ def create_composition_viewer_html(
         <h2 class="page-title">🧩 TOTAL2 Composition Viewer</h2>
 
         <div class="month-nav">
-            {month_nav_html}
+            <table class="month-nav-table">
+                {month_nav_html}
+            </table>
         </div>
 
-        <div class="controls">
-            <label for="date-select">Select Date:</label>
-            <select id="date-select">
-                {date_options}
-            </select>
-        </div>
-
-        <div class="stats">
+        <div class="stats-row">
             <div class="stat">
-                <div>Coins in TOTAL2</div>
-                <div class="stat-value" id="coin-count">-</div>
+                <div class="stat-label">Select Date</div>
+                <select id="date-select">
+                    {date_options}
+                </select>
             </div>
             <div class="stat">
-                <div>Total Volume</div>
+                <div class="stat-label">TOTAL2 Value</div>
+                <div class="stat-value" id="total2-value">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Coins in TOTAL2</div>
+                <div class="stat-value blue" id="coin-count">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Total Volume</div>
                 <div class="stat-value" id="total-volume">-</div>
+            </div>
+        </div>
+
+        <div class="changes-row">
+            <div class="changes-box">
+                <div class="label">↑ New vs Previous Day</div>
+                <div class="coins added" id="coins-added">-</div>
+            </div>
+            <div class="changes-box">
+                <div class="label">↓ Removed vs Previous Day</div>
+                <div class="coins removed" id="coins-removed">-</div>
             </div>
         </div>
 
@@ -1262,23 +1377,83 @@ def create_composition_viewer_html(
 
     <script>
         const compositionData = {composition_json};
+        const sortedDates = Object.keys(compositionData).sort();
+
+        function getPreviousDate(dateStr) {{
+            const idx = sortedDates.indexOf(dateStr);
+            if (idx > 0) {{
+                return sortedDates[idx - 1];
+            }}
+            return null;
+        }}
 
         function updateTable(dateStr) {{
-            const data = compositionData[dateStr] || [];
+            const dayData = compositionData[dateStr];
             const tbody = document.getElementById('composition-body');
 
-            if (data.length === 0) {{
+            if (!dayData || !dayData.coins || dayData.coins.length === 0) {{
                 tbody.innerHTML = '<tr><td colspan="5">No data for this date</td></tr>';
+                document.getElementById('total2-value').textContent = '-';
                 document.getElementById('coin-count').textContent = '-';
                 document.getElementById('total-volume').textContent = '-';
+                document.getElementById('coins-added').textContent = '-';
+                document.getElementById('coins-added').className = 'coins none';
+                document.getElementById('coins-removed').textContent = '-';
+                document.getElementById('coins-removed').className = 'coins none';
                 return;
             }}
 
-            document.getElementById('coin-count').textContent = data.length;
-            const totalVol = data.reduce((sum, c) => sum + c.volume, 0);
+            const coins = dayData.coins;
+            const total2Value = dayData.total2_value;
+
+            // Display TOTAL2 value
+            if (total2Value !== null && total2Value !== undefined) {{
+                document.getElementById('total2-value').textContent = total2Value.toFixed(8) + ' BTC';
+            }} else {{
+                document.getElementById('total2-value').textContent = '-';
+            }}
+
+            document.getElementById('coin-count').textContent = coins.length;
+            const totalVol = coins.reduce((sum, c) => sum + c.volume, 0);
             document.getElementById('total-volume').textContent = totalVol.toFixed(2) + ' BTC';
 
-            tbody.innerHTML = data.map(coin => `
+            // Calculate changes vs previous day
+            const prevDateStr = getPreviousDate(dateStr);
+            const prevData = prevDateStr ? compositionData[prevDateStr] : null;
+
+            if (prevData && prevData.coins) {{
+                const currentCoins = new Set(coins.map(c => c.coin_id));
+                const prevCoins = new Set(prevData.coins.map(c => c.coin_id));
+
+                const added = [...currentCoins].filter(c => !prevCoins.has(c));
+                const removed = [...prevCoins].filter(c => !currentCoins.has(c));
+
+                const addedEl = document.getElementById('coins-added');
+                const removedEl = document.getElementById('coins-removed');
+
+                if (added.length > 0) {{
+                    addedEl.textContent = added.join(', ');
+                    addedEl.className = 'coins added';
+                }} else {{
+                    addedEl.textContent = 'None';
+                    addedEl.className = 'coins none';
+                }}
+
+                if (removed.length > 0) {{
+                    removedEl.textContent = removed.join(', ');
+                    removedEl.className = 'coins removed';
+                }} else {{
+                    removedEl.textContent = 'None';
+                    removedEl.className = 'coins none';
+                }}
+            }} else {{
+                document.getElementById('coins-added').textContent = 'N/A (first day)';
+                document.getElementById('coins-added').className = 'coins none';
+                document.getElementById('coins-removed').textContent = 'N/A (first day)';
+                document.getElementById('coins-removed').className = 'coins none';
+            }}
+
+            tbody.innerHTML = coins.map(coin => `
                 <tr>
                     <td>${{coin.rank}}</td>
                     <td class="coin-symbol">${{coin.coin_id}}</td>
