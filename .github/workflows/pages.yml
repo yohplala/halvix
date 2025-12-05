@@ -7,12 +7,7 @@ on:
     branches: ["main"]
     paths:
       - "site/**"
-      - "src/visualization/**"
       - ".github/workflows/pages.yml"
-
-  # Monthly schedule to update TOTAL2 composition pages (1st of each month at 00:00 UTC)
-  schedule:
-    - cron: '0 0 1 * *'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -37,87 +32,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Checkout data branch
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
-        with:
-          ref: data
-          path: data-branch
-        continue-on-error: true  # Branch may not exist yet
-
-      - name: Restore data from data branch
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: |
-          if [ -d "data-branch/processed" ]; then
-            mkdir -p data
-            cp -r data-branch/raw data/ 2>/dev/null || true
-            cp -r data-branch/processed data/ 2>/dev/null || true
-            cp -r data-branch/cache data/ 2>/dev/null || true
-            echo "Restored data from data branch:"
-            ls -la data/processed/ 2>/dev/null || echo "No processed data"
-          else
-            echo "No data branch or processed data found"
-          fi
-
-      - name: Set up Python for chart generation
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install Poetry
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        uses: snok/install-poetry@v1
-        with:
-          version: latest
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Install dependencies
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: poetry install --no-interaction
-
-      - name: Generate TOTAL2 composition pages (monthly update)
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: |
-          # Only generate composition pages if data exists
-          if [ -f "data/processed/total2_daily_composition.parquet" ]; then
-            poetry run python -m main generate-charts
-            echo "Generated composition pages for deployment"
-          else
-            echo "No composition data found, skipping generation"
-          fi
-
-      - name: Generate placeholder for large charts (push only)
-        if: github.event_name == 'push'
-        run: |
-          cat > site/charts/total2_composition.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>TOTAL2 Composition Viewer</title>
-            <style>
-              body { font-family: system-ui; max-width: 600px; margin: 100px auto; text-align: center; }
-              code { background: #f4f4f4; padding: 2px 8px; border-radius: 4px; }
-            </style>
-          </head>
-          <body>
-            <h1>TOTAL2 Composition Viewer</h1>
-            <p>This interactive chart requires local data and is updated monthly.</p>
-            <p>Generate it locally:</p>
-            <code>poetry run python -m main generate-charts</code>
-            <p style="margin-top: 2em;"><a href="index.html">← Back to Charts</a></p>
-          </body>
-          </html>
-          EOF
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload site directory
+          # Upload site directory as-is (user generates HTML locally)
           path: "site"
 
   # Deployment job
