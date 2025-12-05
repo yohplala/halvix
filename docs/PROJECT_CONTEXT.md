@@ -213,18 +213,21 @@ This ensures stable rankings that don't fluctuate wildly from one day to the nex
 
 ### 5.3 Algorithm (Vectorized)
 ```python
-# Vectorized calculation for efficiency
-close_df = load_all_prices()  # (dates × coins)
-volume_df = load_all_volumes()
+# 1. Filter coin IDs BEFORE loading (BTC, derivatives, stablecoins are excluded)
+eligible_coins = filter_coins_for_total2(all_cached_coins)
 
-# Apply SMA smoothing
+# 2. Load price data for eligible coins only
+close_df = load_prices(eligible_coins)  # (dates × coins)
+volume_df = load_volumes(eligible_coins)
+
+# 3. Apply SMA smoothing
 smoothed_volume = volume_df.rolling(window=VOLUME_SMA_WINDOW).mean()
 
-# Rank by smoothed volume per day
+# 4. Rank by smoothed volume per day
 rank_df = smoothed_volume.rank(axis=1, ascending=False)
 mask = rank_df <= TOP_N_FOR_TOTAL2
 
-# Calculate weighted average
+# 5. Calculate weighted average
 numerator = (close_df.where(mask) * smoothed_volume.where(mask)).sum(axis=1)
 denominator = smoothed_volume.where(mask).sum(axis=1)
 total2 = numerator / denominator

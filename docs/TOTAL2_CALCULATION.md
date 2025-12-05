@@ -63,20 +63,23 @@ smoothed_volume[day] = average(volume[day-27], volume[day-26], ..., volume[day])
 The calculation uses a highly efficient vectorized approach:
 
 ```python
-# 1. Build aligned DataFrames (coins as columns, dates as rows)
+# 1. Filter coin IDs before loading (excludes BTC, derivatives, stablecoins)
+eligible_coins = filter_coins_for_total2(all_cached_coins)
+
+# 2. Load price data for eligible coins only, build aligned DataFrames
 close_df = DataFrame(...)      # Shape: (num_days, num_coins)
 volume_df = DataFrame(...)     # Shape: (num_days, num_coins)
 
-# 2. Apply SMA to volume
+# 3. Apply SMA to volume
 smoothed_volume_df = volume_df.rolling(window=VOLUME_SMA_WINDOW).mean()
 
-# 3. Rank by smoothed volume (highest = rank 1)
+# 4. Rank by smoothed volume (highest = rank 1)
 rank_df = smoothed_volume_df.rank(axis=1, ascending=False)
 
-# 4. Create mask for top N coins
+# 5. Create mask for top N coins
 mask_df = rank_df <= TOP_N_FOR_TOTAL2
 
-# 5. Calculate weighted average
+# 6. Calculate weighted average
 masked_close = close_df.where(mask_df)
 masked_volume = smoothed_volume_df.where(mask_df)
 numerator = (masked_close * masked_volume).sum(axis=1)
@@ -87,28 +90,30 @@ total2 = numerator / denominator
 ### Step-by-Step Process
 
 ```
-1. LOAD all price data into aligned DataFrames
-   - Rows: all dates from earliest to latest
-   - Columns: coin IDs
+1. GET all cached coin IDs from price data directory
 
-2. APPLY SMA smoothing to volume data
-   - Window: VOLUME_SMA_WINDOW (default: 28 days)
-   - First 27 days per coin become NaN (warmup)
-
-3. FILTER OUT (before ranking):
-   - Bitcoin (BTC) - base currency
+2. FILTER coin IDs (before loading any price data):
+   - Bitcoin (BTC) - excluded as base currency
    - Wrapped tokens (wBTC, wETH, etc.)
    - Staked tokens (stETH, JitoSOL, etc.)
    - Bridged tokens
    - Stablecoins (USDT, USDC, DAI, etc.)
+   → Excluded coins are NEVER loaded
 
-4. RANK coins by smoothed volume (per day, vectorized)
+3. LOAD price data for eligible coins only
+   - Build aligned DataFrames (coins as columns, dates as rows)
 
-5. SELECT top N coins per day using rank mask
+4. APPLY SMA smoothing to volume data
+   - Window: VOLUME_SMA_WINDOW (default: 28 days)
+   - First 27 days per coin become NaN (warmup)
 
-6. CALCULATE volume-weighted average price (vectorized)
+5. RANK coins by smoothed volume (per day, vectorized)
 
-7. BUILD composition records (which coins made top N each day)
+6. SELECT top N coins per day using rank mask
+
+7. CALCULATE volume-weighted average price (vectorized)
+
+8. BUILD composition records (which coins made top N each day)
 ```
 
 ### Example Calculation
@@ -152,20 +157,22 @@ Halvix saves the daily composition to `data/processed/total2_daily_composition.p
 
 ## Exclusions
 
-### Always Excluded (from all analysis)
+### Excluded from TOTAL2
 
-These are excluded because they don't represent independent price action:
+The following coins are **filtered out before loading** price data. They are never included in the TOTAL2 calculation:
 
+#### Bitcoin (BTC)
+- **BTC** is excluded as the base currency (TOTAL2 represents the altcoin market)
+
+#### Derivatives (no independent price action)
 - **Wrapped tokens**: wBTC, wETH, wSOL, wBNB
 - **Staked tokens**: stETH, JitoSOL, mSOL, cbETH
 - **Bridged tokens**: Arbitrum bridged, L2 bridged
 - **Liquid staking derivatives**: Lido, Rocket Pool, Renzo, etc.
 
-### Also Excluded for TOTAL2
-
-These are additionally excluded from TOTAL2:
-
-- **Stablecoins**: USDT, USDC, DAI, FRAX, GHO, etc.
+#### Stablecoins (pegged to fiat)
+- **USD stablecoins**: USDT, USDC, DAI, FRAX, GHO, etc.
+- **EUR stablecoins**: EURS, EURC, EURT, AGEUR
 
 Stablecoins are excluded because they don't track the crypto market - they're pegged to fiat currencies.
 

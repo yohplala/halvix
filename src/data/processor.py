@@ -58,11 +58,12 @@ class Total2Processor:
     The composition changes daily based on smoothed 24h trading volume rankings.
 
     Algorithm (vectorized):
-    1. Load all price data into DataFrames (coins as columns, dates as rows)
-    2. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 28)
-    3. Rank coins by smoothed volume for each day
-    4. Create mask for top N coins
-    5. Calculate: TOTAL2 = Σ(price × smoothed_volume) / Σ(smoothed_volume)
+    1. Get cached coin IDs, filter out BTC/derivatives/stablecoins (before loading)
+    2. Load price data for eligible coins only into aligned DataFrames
+    3. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 28)
+    4. Rank coins by smoothed volume for each day
+    5. Create mask for top N coins
+    6. Calculate: TOTAL2 = Σ(price × smoothed_volume) / Σ(smoothed_volume)
 
     Important: TOTAL2 uses ALL cached price data, including recent coins.
     The MIN_DATA_DATE filter only applies to individual coin halving cycle
