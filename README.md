@@ -48,6 +48,7 @@ poetry run python -m main status
 - **[Project Context](docs/PROJECT_CONTEXT.md)** - Full project specification for developers
 - **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
+- **[Deployment](docs/DEPLOYMENT.md)** - Charts generation and GitHub Pages deployment workflow
 - **[Changelog](CHANGELOG.md)** - Version history and release notes
 
 ## Project Status

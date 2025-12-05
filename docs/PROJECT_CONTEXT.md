@@ -1,5 +1,9 @@
 # Halvix - Cryptocurrency Halving Cycle Analysis
 
+**[← Back to README](../README.md)**
+
+---
+
 > **Purpose**: This document provides complete project context for AI agents to implement, debug, and extend this cryptocurrency analysis tool.
 
 ## 1. Project Overview
@@ -453,3 +457,7 @@ from analysis.filters import TokenFilter
 *Last updated: 2025-12-05*
 *Document version: 6.0*
 *Project name: Halvix*
+
+---
+
+**[← Back to README](../README.md)**
