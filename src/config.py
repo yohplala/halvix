@@ -119,7 +119,8 @@ TOP_N_SUMMARY = 10
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
-VOLUME_SMA_WINDOW = 28
+# 60 days (~2 months) provides more stable ranking for the TOTAL2 index
+VOLUME_SMA_WINDOW = 60
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
@@ -359,9 +360,15 @@ HALF_MONTHLY_FREQ = "SMS"
 # Output Files
 # =============================================================================
 
-# Coin lists after filtering
-ACCEPTED_COINS_JSON = PROCESSED_DIR / "accepted_coins.json"
-REJECTED_COINS_CSV = PROCESSED_DIR / "rejected_coins.csv"
+# Coin lists for download phase
+# coins_to_download.json - coins that will have price data fetched
+# download_skipped.csv - coins that are skipped with reason (stablecoins, wrapped tokens, etc.)
+COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"
+DOWNLOAD_SKIPPED_CSV = PROCESSED_DIR / "download_skipped.csv"
+
+# Legacy aliases for backwards compatibility
+ACCEPTED_COINS_JSON = COINS_TO_DOWNLOAD_JSON
+REJECTED_COINS_CSV = DOWNLOAD_SKIPPED_CSV
 
 # Analysis results
 REGRESSION_RESULTS_CSV = PROCESSED_DIR / "regression_results.csv"

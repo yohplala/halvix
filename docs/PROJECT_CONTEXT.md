@@ -63,7 +63,8 @@ halvix/
 ├── data/
 │   ├── raw/prices/             # Raw price data (parquet files)
 │   ├── processed/              # Processed data & results
-│   │   ├── rejected_coins.csv  # Excluded coins with URLs
+│   │   ├── coins_to_download.json  # Coins that will be downloaded
+│   │   ├── download_skipped.csv    # Skipped coins with reason and URLs
 │   │   ├── regression_results.csv
 │   │   └── total2_index.parquet
 │   └── cache/                  # API cache
@@ -190,10 +191,10 @@ This filter is applied **after** fetching price data (in `fetch-prices` command)
 **Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 because the index must be **immutable** - the value for any given day should not change when recalculated in the future. If we excluded recent coins today but included them next year (when they're no longer "recent"), historical TOTAL2 values would change retroactively. Instead, TOTAL2 captures the actual market composition (top 50 by volume) on each day, ensuring stable and reproducible values.
 
 ### 4.3 CSV Export
-Rejected coins exported to `data/processed/rejected_coins.csv`:
+Skipped coins exported to `data/processed/download_skipped.csv`:
 - Semicolon delimiter (Excel compatible)
 - Columns: Coin ID, Name, Symbol, Reason, URL
-- Includes all rejection reasons: stablecoins, wrapped/staked/bridged tokens, BTC derivatives, and insufficient historical data
+- Includes all skip reasons: stablecoins, wrapped/staked/bridged tokens, BTC derivatives, and insufficient historical data
 
 ---
 
@@ -208,7 +209,7 @@ Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 50), exc
 - All stablecoins
 
 ### 5.2 Volume Smoothing
-Volume is smoothed using a 28-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
+Volume is smoothed using a 60-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
 This ensures stable rankings that don't fluctuate wildly from one day to the next.
 
 ### 5.3 Algorithm (Vectorized)
@@ -407,7 +408,7 @@ MIN_DATA_DATE = date(2024, 1, 10)
 TOP_N_COINS = 1000  # Increased to include historical coins (e.g., XEM)
 TOP_N_FOR_TOTAL2 = 50
 TOP_N_SUMMARY = 10
-VOLUME_SMA_WINDOW = 28  # Days for volume smoothing
+VOLUME_SMA_WINDOW = 60  # Days for volume smoothing (~2 months)
 
 # Quote currencies for price data
 QUOTE_CURRENCIES = ["BTC", "USD"]
@@ -449,6 +450,6 @@ from analysis.filters import TokenFilter
 
 ---
 
-*Last updated: 2025-12-04*
-*Document version: 5.0*
+*Last updated: 2025-12-05*
+*Document version: 6.0*
 *Project name: Halvix*

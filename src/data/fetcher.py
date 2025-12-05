@@ -25,7 +25,7 @@ from tqdm import tqdm
 from analysis.filters import TokenFilter
 from api.cryptocompare import CryptoCompareClient, CryptoCompareError
 from config import (
-    ACCEPTED_COINS_JSON,
+    COINS_TO_DOWNLOAD_JSON,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
@@ -143,19 +143,19 @@ class DataFetcher:
         self,
         n: int = TOP_N_COINS,
         use_cache: bool = True,
-        export_filtered: bool = True,
+        export_skipped: bool = True,
     ) -> FetchResult:
         """
-        Fetch top N coins and apply filtering for download.
+        Fetch top N coins and determine which should be downloaded.
 
-        Uses filter_coins_for_download which:
-        - Excludes: stablecoins, wrapped/staked/bridged, BTC derivatives
-        - Includes: BTC (needed for BTC vs USD chart) and all other coins
+        Uses get_coins_to_download which:
+        - Skips: stablecoins, wrapped/staked/bridged, BTC derivatives
+        - Downloads: BTC (needed for BTC vs USD chart) and all other coins
 
         Args:
             n: Number of coins to fetch
             use_cache: Whether to use cached data
-            export_filtered: If True, export filtered tokens to CSV
+            export_skipped: If True, export skipped coins to CSV
 
         Returns:
             FetchResult with statistics
@@ -167,25 +167,25 @@ class DataFetcher:
             # Fetch coins
             all_coins = self.fetch_top_coins(n=n, use_cache=use_cache)
 
-            # Apply download filtering (includes BTC, excludes stablecoins/wrapped/staked)
-            filtered_coins = self.token_filter.filter_coins_for_download(
+            # Determine coins to download (includes BTC, skips stablecoins/wrapped/staked)
+            coins_to_download = self.token_filter.get_coins_to_download(
                 all_coins,
-                record_filtered=True,
+                record_skipped=True,
             )
 
-            # Export rejected coins for review
-            if export_filtered:
-                self.token_filter.export_rejected_coins_csv()
+            # Export skipped coins for review
+            if export_skipped:
+                self.token_filter.export_skipped_coins_csv()
 
-            # Save accepted coins list (coins to download)
-            self._save_accepted_coins(filtered_coins)
+            # Save coins to download list
+            self._save_coins_to_download(coins_to_download)
 
             return FetchResult(
                 success=True,
-                message=f"Successfully fetched and filtered {len(filtered_coins)} coins",
+                message=f"Successfully fetched and filtered {len(coins_to_download)} coins",
                 coins_fetched=len(all_coins),
-                coins_filtered=len(self.token_filter.filtered_tokens),
-                coins_accepted=len(filtered_coins),
+                coins_filtered=len(self.token_filter.skipped_coins),
+                coins_accepted=len(coins_to_download),
             )
 
         except CryptoCompareError as e:
@@ -201,22 +201,32 @@ class DataFetcher:
                 errors=[str(e)],
             )
 
-    def _save_accepted_coins(self, coins: list[dict]) -> Path:
-        """Save the accepted coin list to JSON."""
+    def _save_coins_to_download(self, coins: list[dict]) -> Path:
+        """Save the coins to download list to JSON."""
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-        with open(ACCEPTED_COINS_JSON, "w", encoding="utf-8") as f:
+        with open(COINS_TO_DOWNLOAD_JSON, "w", encoding="utf-8") as f:
             json.dump(coins, f, indent=2)
 
-        return ACCEPTED_COINS_JSON
+        return COINS_TO_DOWNLOAD_JSON
 
-    def load_accepted_coins(self) -> list[dict]:
-        """Load the previously accepted coin list."""
-        if not ACCEPTED_COINS_JSON.exists():
-            raise FetcherError("No accepted coins found. Run fetch_and_filter_coins first.")
+    # Backwards compatibility alias
+    def _save_accepted_coins(self, coins: list[dict]) -> Path:
+        """Backwards compatibility alias for _save_coins_to_download."""
+        return self._save_coins_to_download(coins)
 
-        with open(ACCEPTED_COINS_JSON, encoding="utf-8") as f:
+    def load_coins_to_download(self) -> list[dict]:
+        """Load the previously saved coins to download list."""
+        if not COINS_TO_DOWNLOAD_JSON.exists():
+            raise FetcherError("No coins to download found. Run fetch_and_filter_coins first.")
+
+        with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
             return json.load(f)
+
+    # Backwards compatibility alias
+    def load_accepted_coins(self) -> list[dict]:
+        """Backwards compatibility alias for load_coins_to_download."""
+        return self.load_coins_to_download()
 
     def fetch_coin_prices(
         self,
@@ -475,15 +485,26 @@ class DataFetcher:
     def get_filter_summary(self) -> dict[str, Any]:
         """Get a summary of the last filtering operation."""
         return {
-            "filtered_count": len(self.token_filter.filtered_tokens),
-            "by_reason": self.token_filter.get_filtered_summary(),
+            "skipped_count": len(self.token_filter.skipped_coins),
+            "by_reason": self.token_filter.get_skipped_summary(),
+            "skipped_coins": [
+                {
+                    "id": c.coin_id,
+                    "name": c.name,
+                    "symbol": c.symbol,
+                    "reason": c.reason,
+                }
+                for c in self.token_filter.skipped_coins
+            ],
+            # Backwards compatibility aliases
+            "filtered_count": len(self.token_filter.skipped_coins),
             "filtered_tokens": [
                 {
-                    "id": t.coin_id,
-                    "name": t.name,
-                    "symbol": t.symbol,
-                    "reason": t.reason,
+                    "id": c.coin_id,
+                    "name": c.name,
+                    "symbol": c.symbol,
+                    "reason": c.reason,
                 }
-                for t in self.token_filter.filtered_tokens
+                for c in self.token_filter.skipped_coins
             ],
         }

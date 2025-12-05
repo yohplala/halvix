@@ -45,13 +45,13 @@ import pandas as pd
 
 from api.cryptocompare import CryptoCompareClient
 from config import (
-    ACCEPTED_COINS_JSON,
+    COINS_TO_DOWNLOAD_JSON,
     CRYPTOCOMPARE_COIN_URL,
+    DOWNLOAD_SKIPPED_CSV,
     MIN_DATA_DATE,
     OUTPUT_DIR,
     PRICES_DIR,
     PROJECT_ROOT,
-    REJECTED_COINS_CSV,
     TOP_N_COINS,
     TOP_N_FOR_TOTAL2,
     TOTAL2_INDEX_FILE,
@@ -73,27 +73,27 @@ DOCS_SITE_DIR = PROJECT_ROOT / "site"
 # =============================================================================
 
 
-def _load_accepted_coins() -> list[dict]:
-    """Load accepted coins from JSON file."""
-    if not ACCEPTED_COINS_JSON.exists():
+def _load_coins_to_download() -> list[dict]:
+    """Load coins to download from JSON file."""
+    if not COINS_TO_DOWNLOAD_JSON.exists():
         return []
-    with open(ACCEPTED_COINS_JSON, encoding="utf-8") as f:
+    with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _load_rejected_coins() -> list[dict]:
-    """Load rejected coins from CSV file."""
-    if not REJECTED_COINS_CSV.exists():
+def _load_skipped_coins() -> list[dict]:
+    """Load skipped coins from CSV file."""
+    if not DOWNLOAD_SKIPPED_CSV.exists():
         return []
 
-    rejected = []
-    with open(REJECTED_COINS_CSV, encoding="utf-8") as f:
+    skipped = []
+    with open(DOWNLOAD_SKIPPED_CSV, encoding="utf-8") as f:
         lines = f.readlines()
         if len(lines) > 1:
             for line in lines[1:]:  # Skip header
                 parts = line.strip().split(";")
                 if len(parts) >= 5:
-                    rejected.append(
+                    skipped.append(
                         {
                             "id": parts[0],
                             "name": parts[1],
@@ -102,16 +102,21 @@ def _load_rejected_coins() -> list[dict]:
                             "url": parts[4],
                         }
                     )
-    return rejected
+    return skipped
 
 
-def _append_insufficient_history_to_rejected(
+# Backwards compatibility aliases
+_load_accepted_coins = _load_coins_to_download
+_load_rejected_coins = _load_skipped_coins
+
+
+def _append_insufficient_history_to_skipped(
     removed_coins: list[dict],
     price_cache: PriceDataCache,
     min_data_date: date,
 ) -> None:
     """
-    Append coins with insufficient historical data to rejected_coins.csv.
+    Append coins with insufficient historical data to download_skipped.csv.
 
     Args:
         removed_coins: List of coin dicts that were removed due to insufficient history
@@ -121,10 +126,10 @@ def _append_insufficient_history_to_rejected(
     if not removed_coins:
         return
 
-    # Load existing rejected coins to avoid duplicates
+    # Load existing skipped coins to avoid duplicates
     existing_ids = set()
-    if REJECTED_COINS_CSV.exists():
-        with open(REJECTED_COINS_CSV, encoding="utf-8") as f:
+    if DOWNLOAD_SKIPPED_CSV.exists():
+        with open(DOWNLOAD_SKIPPED_CSV, encoding="utf-8") as f:
             lines = f.readlines()
             for line in lines[1:]:  # Skip header
                 parts = line.strip().split(";")
@@ -136,7 +141,7 @@ def _append_insufficient_history_to_rejected(
     for coin in removed_coins:
         coin_id = coin.get("id", "")
         if coin_id.lower() in existing_ids:
-            continue  # Skip if already in rejected list
+            continue  # Skip if already in skipped list
 
         symbol = coin.get("symbol", coin_id.upper())
         name = coin.get("name", symbol)
@@ -156,13 +161,17 @@ def _append_insufficient_history_to_rejected(
         return
 
     # Append to CSV file
-    file_exists = REJECTED_COINS_CSV.exists()
-    with open(REJECTED_COINS_CSV, "a", newline="", encoding="utf-8") as f:
+    file_exists = DOWNLOAD_SKIPPED_CSV.exists()
+    with open(DOWNLOAD_SKIPPED_CSV, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, delimiter=";")
         if not file_exists:
             writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
         for entry in new_entries:
             writer.writerow(entry)
+
+
+# Backwards compatibility alias
+_append_insufficient_history_to_rejected = _append_insufficient_history_to_skipped
 
 
 def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
@@ -216,16 +225,16 @@ def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
 
 
 def _generate_html(
-    accepted_coins: list[dict],
-    rejected_coins: list[dict],
+    coins_to_download: list[dict],
+    skipped_coins: list[dict],
     price_summaries: dict[str, dict],
 ) -> str:
     """
     Generate the complete HTML documentation page.
 
     Args:
-        accepted_coins: List of accepted coin dictionaries
-        rejected_coins: List of rejected coin dictionaries
+        coins_to_download: List of coins to download dictionaries
+        skipped_coins: List of skipped coin dictionaries
         price_summaries: Dictionary mapping coin_id to price data summary
 
     Returns:
@@ -234,7 +243,9 @@ def _generate_html(
     update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Count coins with downloaded price data
-    coins_with_data = sum(1 for c in accepted_coins if c.get("id", "").lower() in price_summaries)
+    coins_with_data = sum(
+        1 for c in coins_to_download if c.get("id", "").lower() in price_summaries
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -546,7 +557,7 @@ def _generate_html(
     <div class="container">
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-value">{len(accepted_coins) + len(rejected_coins)}</div>
+                <div class="stat-value">{len(coins_to_download) + len(skipped_coins)}</div>
                 <div class="stat-label">Total Coins Fetched</div>
             </div>
             <div class="stat-card">
@@ -554,12 +565,12 @@ def _generate_html(
                 <div class="stat-label">Downloaded Price Data</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value red">{len(rejected_coins)}</div>
-                <div class="stat-label">Not Downloaded</div>
+                <div class="stat-value red">{len(skipped_coins)}</div>
+                <div class="stat-label">Skipped (Not Downloaded)</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value orange">{len(accepted_coins)}</div>
-                <div class="stat-label">Accepted for Analysis</div>
+                <div class="stat-value orange">{len(coins_to_download)}</div>
+                <div class="stat-label">Coins to Download</div>
             </div>
         </div>
 
@@ -586,7 +597,7 @@ def _generate_html(
                     <tbody>
 """
 
-    for i, coin in enumerate(accepted_coins, 1):
+    for i, coin in enumerate(coins_to_download, 1):
         coin_id = coin.get("id", "").lower()
         price_info = price_summaries.get(coin_id, {})
 
@@ -626,12 +637,12 @@ def _generate_html(
             </div>
         </section>
 
-        <section id="rejected">
-            <h2>❌ Not Downloaded ("""
-        + str(len(rejected_coins))
+        <section id="skipped">
+            <h2>⏭️ Skipped ("""
+        + str(len(skipped_coins))
         + """)</h2>
             <p class="section-description">
-                These coins were excluded from download: stablecoins, wrapped/staked/bridged tokens, BTC derivatives,
+                These coins were skipped from download: stablecoins, wrapped/staked/bridged tokens, BTC derivatives,
                 and coins without sufficient historical data (before 2024-01-10).
                 Click the coin name to view on CryptoCompare.
             </p>
@@ -649,7 +660,7 @@ def _generate_html(
 """
     )
 
-    for i, coin in enumerate(rejected_coins, 1):
+    for i, coin in enumerate(skipped_coins, 1):
         reason = coin.get("reason", "Unknown")
         reason_class = "reason-wrapped"
         if "BTC" in reason or "Bitcoin" in reason:
@@ -695,11 +706,11 @@ def generate_docs() -> Path:
     # Create directory using Pathlib with proper mode
     DOCS_SITE_DIR.mkdir(parents=True, exist_ok=True, mode=0o755)
 
-    accepted_coins = _load_accepted_coins()
-    rejected_coins = _load_rejected_coins()
+    coins_to_download = _load_coins_to_download()
+    skipped_coins = _load_skipped_coins()
     price_summaries = _get_price_data_summary()
 
-    html_content = _generate_html(accepted_coins, rejected_coins, price_summaries)
+    html_content = _generate_html(coins_to_download, skipped_coins, price_summaries)
     output_file = DOCS_SITE_DIR / "index.html"
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -1146,8 +1157,8 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
             logger.info("  - %s: %d", reason, count)
 
     logger.info("Output files:")
-    logger.info("  - Accepted coins: %s", ACCEPTED_COINS_JSON)
-    logger.info("  - Rejected coins: %s", REJECTED_COINS_CSV)
+    logger.info("  - Coins to download: %s", COINS_TO_DOWNLOAD_JSON)
+    logger.info("  - Skipped coins: %s", DOWNLOAD_SKIPPED_CSV)
 
     logger.info("Successfully processed %d coins", result.coins_accepted)
 
@@ -1376,18 +1387,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     logger.info("HALVIX - Data Status")
     logger.info("=" * 60)
 
-    # Check accepted coins
-    if ACCEPTED_COINS_JSON.exists():
-        with open(ACCEPTED_COINS_JSON) as f:
+    # Check coins to download
+    if COINS_TO_DOWNLOAD_JSON.exists():
+        with open(COINS_TO_DOWNLOAD_JSON) as f:
             coins = json.load(f)
-        logger.info("Accepted coins: %d", len(coins))
+        logger.info("Coins to download: %d", len(coins))
     else:
-        logger.info("Accepted coins: Not yet generated")
+        logger.info("Coins to download: Not yet generated")
         logger.info("  Run 'python -m main list-coins' to generate")
 
-    # Check rejected coins CSV
-    if REJECTED_COINS_CSV.exists():
-        logger.info("Rejected coins CSV: %s", REJECTED_COINS_CSV)
+    # Check skipped coins CSV
+    if DOWNLOAD_SKIPPED_CSV.exists():
+        logger.info("Skipped coins CSV: %s", DOWNLOAD_SKIPPED_CSV)
 
     # Check price cache
     price_cache = PriceDataCache()
