@@ -926,6 +926,15 @@ def create_composition_viewer_html(
         # Filter dates for this month
         month_dates = [d for d in dates if get_month_key(d) == month_key]
 
+        # Find the last day of the previous month for cross-month comparison
+        prev_month_last_day = None
+        month_idx = months.index(month_key)
+        if month_idx > 0:
+            prev_month_key = months[month_idx - 1]
+            prev_month_dates = [d for d in dates if get_month_key(d) == prev_month_key]
+            if prev_month_dates:
+                prev_month_last_day = max(prev_month_dates)
+
         # Create date options for this month with cycle day info
         date_options_list = []
         for d in month_dates:
@@ -939,8 +948,35 @@ def create_composition_viewer_html(
             date_options_list.append(f'<option value="{d}">{display}</option>')
         date_options = "\n".join(date_options_list)
 
-        # Create composition data as JSON for this month only, including TOTAL2 value
+        # Create composition data as JSON for this month, including TOTAL2 value
+        # Also include previous month's last day for cross-month comparison
         composition_by_date = {}
+
+        # Add previous month's last day if available (for comparison only)
+        if prev_month_last_day is not None:
+            dt = prev_month_last_day
+            day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
+            total2_value = None
+            if dt in total2_df.index:
+                total2_value = float(total2_df.loc[dt, "total2_price"])
+            elif hasattr(dt, "date") and pd.Timestamp(dt.date()) in total2_df.index:
+                total2_value = float(total2_df.loc[pd.Timestamp(dt.date()), "total2_price"])
+
+            composition_by_date[str(dt)] = {
+                "total2_value": total2_value,
+                "coins": [
+                    {
+                        "rank": int(row["rank"]),
+                        "coin_id": row["coin_id"].upper(),
+                        "volume": float(row["volume"]),
+                        "weight": float(row["weight"]) * 100,
+                        "price_btc": float(row["price_btc"]),
+                    }
+                    for _, row in day_comp.iterrows()
+                ],
+            }
+
+        # Add this month's dates
         for dt in month_dates:
             day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
             # Get TOTAL2 value for this date
