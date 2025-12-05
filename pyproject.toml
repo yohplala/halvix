@@ -73,3 +73,17 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 pythonpath = ["src"]
 addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/main.py",           # CLI entry point - tested via integration
+    "src/visualization/*",   # UI code - tested visually
+    "src/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
