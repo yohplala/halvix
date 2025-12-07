@@ -21,12 +21,12 @@ The TOTAL2 calculation uses these key variables from `src/config.py`:
 
 ```python
 # Number of top coins to use for TOTAL2 calculation
-TOP_N_FOR_TOTAL2 = 50
+TOP_N_FOR_TOTAL2 = 30
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
-# 60 days (~2 months) provides more stable ranking
-VOLUME_SMA_WINDOW = 60
+# 120 days (~4 months) provides stable ranking and reduces max weight change
+VOLUME_SMA_WINDOW = 120
 
 # Quote currencies for price data
 QUOTE_CURRENCIES = ["BTC", "USD"]
@@ -50,18 +50,273 @@ TOTAL2(day) = Σ(price[i] × smoothed_volume[i]) / Σ(smoothed_volume[i])
 
 Where:
 - `price[i]` = Close price of coin i on that day
-- `smoothed_volume[i]` = 60-day SMA of 24h trading volume
-- `N` = `TOP_N_FOR_TOTAL2` (default: 50)
+- `smoothed_volume[i]` = 120-day SMA of 24h trading volume
+- `N` = `TOP_N_FOR_TOTAL2` (default: 30)
 
 ### Volume Smoothing
 
-Volume can change dramatically from one day to the next. To provide a more stable ranking, we apply a **60-day Simple Moving Average (SMA)** to the volume data:
+Volume can change dramatically from one day to the next. To provide a more stable ranking, we apply a **120-day Simple Moving Average (SMA)** to the volume data:
 
 ```
-smoothed_volume[day] = average(volume[day-59], volume[day-58], ..., volume[day])
+smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day])
 ```
 
-**Important:** The first 59 days of each coin's data will have NaN values (warmup period) and are excluded from the calculation.
+### Zero-Padding of 24h Volume
+
+**Problem:** When a coin starts trading (first day of data), it could immediately have high volume and jump into the TOP30 with significant weight. This creates a sudden change in TOTAL2 composition that doesn't reflect actual market price movements.
+
+**Example:** YFI appeared on 2020-09-19 with >2.5% weight, causing a sudden leg up/down in the TOTAL2 curve unrelated to actual market performance.
+
+**Solution - Zero-Padding:** Instead of excluding the first 119 days of data (warmup period), we prepend zeros:
+
+1. For each coin, all days **before its first trading data** are filled with 0 volume
+2. The SMA is applied with `min_periods=1`
+3. On a coin's first trading day, its smoothed volume = `actual_volume / 90`
+4. The weight gradually increases over the 120-day warmup period as more actual data enters the SMA
+
+**Result:** When a coin first has trade data and potentially enters the TOP30, it does so gradually. Its weight starts at ~0.83% of what it would be without smoothing (1/120) and increases linearly over the SMA window.
+
+### Max Weight Change Tracking
+
+**Purpose:** Ensure that TOTAL2 curve variations reflect actual price movements rather than sudden changes in coin weights within the index.
+
+**Why it matters:** If a coin's weight suddenly changes by 2%, even if its price stays the same, it can move the TOTAL2 value significantly. We want the index to track market performance, not composition shuffling.
+
+**Implementation:**
+- Calculate daily weight change for each coin in TOTAL2
+- Track the maximum absolute change (positive or negative)
+- Only track after **2017-11-01** when TOTAL2 has 30 coins (avoids early noise)
+- Log a warning if max change exceeds 0.5%
+
+**Tuning:** If the max weight change is too high, consider increasing `VOLUME_SMA_WINDOW` to smooth more aggressively. The goal is to keep max daily weight changes below 0.5-0.6%.
+
+### Automatic Outlier Detection and Correction
+
+CryptoCompare occasionally has bad data points with impossible volume spikes. Additionally, coins launching with extreme prices (like ZEC at 27.8 BTC) can distort TOTAL2. Both issues are automatically detected and corrected.
+
+**IMPORTANT: Past-Only Principle**
+
+All outlier detection and correction uses **only past data** (data available at time t, not future data). This ensures:
+1. The algorithm can run iteratively as new data appears
+2. Past TOTAL2 values are never recalculated
+3. Index immutability is maintained
+
+There are **no exceptions** - all corrections use only past data, including launch day smoothing which uses zero-padded SMA (same approach as volume smoothing).
+
+#### Volume Outlier Detection
+
+Volume spikes can severely distort the TOTAL2 calculation by inflating a coin's weight artificially.
+
+**How Outliers Are Detected:**
+
+The system uses rolling statistics on **past data only** to detect outliers:
+
+```python
+# Calculate rolling median using ONLY past data (not centered)
+rolling_median = volume_df.rolling(window=7, min_periods=3).median()
+
+# Shift to exclude current day from median calculation
+past_median = rolling_median.shift(1)
+
+# Calculate ratio and identify outliers
+ratio_df = volume_df / past_median
+is_outlier = (
+    (ratio_df > OUTLIER_THRESHOLD)
+    & (volume_df > MIN_VOLUME_FOR_OUTLIER_CHECK)
+    & (past_median > 0)  # Don't flag new coins as outliers
+)
+```
+
+Detection criteria:
+- Volume is **> 20x** the rolling median of past 7 days
+- Volume is significant (**> 5,000 BTC**) to focus on spikes that impact TOTAL2
+- Past median is **> 0** (new coins with no valid past data are not flagged)
+
+**How Outliers Are Corrected (Capped Average):**
+
+Detected outliers are replaced using a **capped average** approach that only uses past data:
+
+1. Skip if `previous_day <= 0` or `past_median <= 0` (cannot correct without valid past data)
+2. Cap the outlier value at `OUTLIER_THRESHOLD × past_median`
+3. Compute capped average: `(previous_day + min(outlier, cap)) / 2`
+4. Skip if corrected value would be <= 0
+
+This approach:
+- Smooths out spikes while preserving trend direction
+- Never uses future data for correction
+- Never produces zero or negative corrections
+- Skips correction for new coins (e.g., UNI on launch day) that have no valid past data
+
+**Known Bad Data Examples:**
+
+| Coin | Date | Original | Corrected | Ratio | Impact |
+|------|------|----------|-----------|-------|--------|
+| PPC | 2017-12-10 | 90,215,196 BTC | 56 BTC | 730,724x | Would dominate TOTAL2 for 120 days |
+| BCH | 2018-06-20 | 756,204 BTC | 19,415 BTC | 37x | Caused -5.4% weight drop when exiting SMA |
+| BCH | 2022-12-11 | 7,058 BTC | 47 BTC | 121x | Volume spike artifact |
+| BTT | 2019-02-04 | 33,415 BTC | 4,989 BTC | 1,208x | Launch day anomaly |
+
+**Why This Matters:**
+
+Without correction, a single bad data point can:
+1. Inflate a coin's weight in TOTAL2 for the entire SMA window (120 days)
+2. Cause a sudden weight drop when the bad data exits the SMA window
+3. Create artificial jumps in the TOTAL2 curve unrelated to actual market movements
+
+**Example - BCH 2018-06-20:**
+- Bad volume: 756,204 BTC (normal: ~20,000 BTC)
+- This inflated BCH's smoothed volume for 120 days
+- On 2018-08-19, this bad data point exited the SMA window
+- Result: BCH weight suddenly dropped by 5.4% in one day
+- Without correction, this creates artificial TOTAL2 curve movements
+
+**Configuration:**
+
+The outlier detection parameters are defined in `processor.py`:
+```python
+VOLUME_OUTLIER_THRESHOLD = 20  # 20x median - catches BCH (37x), PPC (730,724x)
+MIN_VOLUME_FOR_OUTLIER_CHECK = 5000  # Only significant spikes (BTC)
+OUTLIER_WINDOW_DAYS = 7  # 15-day window (7 before + current + 7 after)
+```
+
+**Design Decisions:**
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Threshold | 20x | Low enough to catch BCH (37x), high enough to avoid false positives |
+| Min Volume | 5,000 BTC | Only correct spikes that would impact TOP30 rankings significantly |
+| Window | 15 days | Wide enough for stable median, narrow enough to catch isolated spikes |
+
+The high minimum volume ensures we only correct spikes that would significantly impact TOTAL2 rankings. Small coins with natural volatility (e.g., 100 BTC → 2,000 BTC) are left unchanged.
+
+**Reporting:**
+
+All volume corrections are:
+1. Logged during TOTAL2 calculation (top 20 by ratio shown)
+2. Saved to `data/processed/total2_max_weight_change.json`
+3. Displayed on the "Data Outliers Corrected" page
+
+#### Price Outlier Detection
+
+Extreme price moves can also distort TOTAL2, especially launch day spikes.
+
+**Two types of price corrections:**
+
+1. **Warmup SMA smoothing**: For the first `PRICE_SMA_WARMUP_DAYS` (7 days) of each coin,
+   apply zero-padded SMA to smooth launch spikes using only past data
+2. **Day-over-day outliers**: >5x spike or >80% crash using only past data
+
+**Warmup SMA Smoothing (Zero-Padded, Past-Only):**
+
+Uses the **same approach as volume smoothing**:
+
+```python
+# 1. Fill NaN values before first valid price with 0 (zero-padding)
+padded_close_df = close_df.copy()
+for coin_id in padded_close_df.columns:
+    first_valid_idx = close_df[coin_id].first_valid_index()
+    if first_valid_idx is not None:
+        mask = padded_close_df.index < first_valid_idx
+        padded_close_df.loc[mask, coin_id] = 0.0
+
+# 2. Apply rolling SMA with min_periods=1
+smoothed_close_df = padded_close_df.rolling(
+    window=PRICE_SMA_WARMUP_WINDOW, min_periods=1
+).mean()
+
+# Result for N-period SMA:
+# Day 1: (0 + ... + 0 + price) / N = price / N  (N-1 zeros)
+# Day 2: (0 + ... + prev + price) / N
+# Day N+: regular N-day SMA
+```
+
+This zero-padding approach:
+- Uses only past data (no forward-looking)
+- Identical mechanism to volume smoothing (pandas rolling with zero-padding)
+- Aggressively smooths launch spikes (first day reduced to 1/N)
+- Gradually transitions to actual prices as more data accumulates
+- Only applies during warmup period (first `PRICE_SMA_WARMUP_DAYS` days)
+
+**How Day-Over-Day Outliers Are Corrected (Past-Only):**
+
+For price spikes (>5x increase):
+```python
+max_allowed = previous_price * PRICE_OUTLIER_THRESHOLD
+corrected = (previous_price + min(original_price, max_allowed)) / 2
+```
+
+For price crashes (>80% drop):
+```python
+min_allowed = previous_price / PRICE_OUTLIER_THRESHOLD
+corrected = (previous_price + max(original_price, min_allowed)) / 2
+```
+
+**Edge case handling:**
+- Skip if `previous_price <= 0` (cannot correct without valid past data)
+- Skip if `original_price <= 0` (cannot correct zero prices meaningfully)
+- Skip if corrected value would be <= 0
+- Require both current AND previous price > `MIN_PRICE_FOR_OUTLIER_CHECK`
+
+This capped average approach:
+- Only uses past data (previous day's corrected price)
+- Smooths extreme moves while preserving direction
+- Ensures iterative recalculation produces same results
+- Never produces zero or negative corrections
+
+**Examples of corrections:**
+
+| Coin | Date | Original | Corrected | Ratio | Type |
+|------|------|----------|-----------|-------|------|
+| ZEC | 2016-10-28 | 27.8 BTC | ~9.3 BTC | 10x | warmup-sma |
+| MLN | 2017-02-16 | 0.13 BTC | ~0.04 BTC | 5.4x | warmup-sma |
+
+**Why warmup smoothing is important:**
+
+ZEC launched on 2016-10-28 at 27.8 BTC due to extreme scarcity and hype. The next day it crashed 90% to 2.79 BTC. Without correction:
+- ZEC enters TOP30 at rank #20 with 0.086% weight
+- But its 27.8 BTC price contributes disproportionately to TOTAL2
+- TOTAL2 jumped 267% on ZEC launch day
+
+With warmup SMA smoothing, ZEC's first-day price is reduced to ~9.3 BTC (27.8/3), preventing the artificial TOTAL2 spike while using only past data (zero-padding).
+
+**Configuration:**
+
+```python
+PRICE_OUTLIER_THRESHOLD = 5  # >5x or <0.2x triggers correction
+MIN_PRICE_FOR_OUTLIER_CHECK = 0.001  # Only check meaningful prices (BTC)
+PRICE_SMA_WARMUP_WINDOW = 3  # 3-day SMA for warmup smoothing
+PRICE_SMA_WARMUP_DAYS = 7  # Apply warmup smoothing for first 7 days
+```
+
+#### Iterative Correction
+
+Both volume and price outlier corrections are applied **iteratively** to handle consecutive outliers:
+
+```python
+for iteration in range(max_iterations):
+    # Detect outliers using corrected data from previous iteration
+    is_outlier = detect_outliers(corrected_df)
+
+    if no_outliers_found:
+        break
+
+    # Apply corrections using only past (already corrected) data
+    for outlier in outliers:
+        corrected_df[outlier] = compute_correction(corrected_df)
+```
+
+**Why iterative correction is necessary:**
+
+Consider two consecutive days with outliers:
+- Day t: Volume spike 100x median → corrected
+- Day t+1: Original volume might be 50x the UNCORRECTED day t value
+
+Without iteration, day t+1's correction would be based on the wrong reference.
+With iteration, after correcting day t, we re-check day t+1 against the corrected value.
+
+**Iteration limits:**
+- Maximum 10 iterations to prevent infinite loops
+- In practice, convergence typically occurs in 1-3 iterations
 
 ### Vectorized Implementation
 
@@ -109,8 +364,8 @@ total2 = numerator / denominator
    - Build aligned DataFrames (coins as columns, dates as rows)
 
 4. APPLY SMA smoothing to volume data
-   - Window: VOLUME_SMA_WINDOW (default: 60 days)
-   - First 59 days per coin become NaN (warmup)
+   - Window: VOLUME_SMA_WINDOW (default: 120 days)
+   - First 119 days per coin become NaN (warmup)
 
 5. RANK coins by smoothed volume (per day, vectorized)
 
@@ -178,8 +433,9 @@ The following coins are **filtered out before loading** price data. They are nev
 #### Stablecoins (pegged to fiat)
 - **USD stablecoins**: USDT, USDC, DAI, FRAX, GHO, etc.
 - **EUR stablecoins**: EURS, EURC, EURT, AGEUR
+- **Algorithmic stablecoins**: UST, USTC (TerraUSD)
 
-Stablecoins are excluded because they don't track the crypto market - they're pegged to fiat currencies.
+Stablecoins are excluded because they don't track the crypto market - they're pegged to fiat currencies. This includes algorithmic stablecoins like TerraUSD (UST/USTC) that were designed to maintain a USD peg, even though USTC depegged in May 2022. Note: LUNA/LUNC are NOT excluded - they were the mechanism tokens, not stablecoins themselves.
 
 ### NOT Excluded from TOTAL2: Recent Coins
 
@@ -191,7 +447,7 @@ TOTAL2 is designed to capture the cryptocurrency market trend, and its value for
 
 **The problem with excluding recent coins:**
 
-Consider a coin that launched in 2024 and quickly reached top 50 by trading volume. If we excluded it because it's "recent":
+Consider a coin that launched in 2024 and quickly reached top 30 by trading volume. If we excluded it because it's "recent":
 
 1. Today, calculating TOTAL2 for day D would exclude this coin
 2. One year from now, this coin is no longer "recent" (it now has sufficient history)
@@ -202,10 +458,10 @@ Consider a coin that launched in 2024 and quickly reached top 50 by trading volu
 
 - TOTAL2 for any day D should reflect the **actual market composition on that day**
 - The value should be calculated once and remain stable forever
-- The index must include all coins that were in the top 50 by 24h trading volume on that specific day
+- The index must include all coins that were in the top 30 by 24h trading volume on that specific day
 - No retroactive changes should occur when recalculating historical values
 
-By including recent coins, we ensure that TOTAL2 accurately represents the full cryptocurrency market (restricted to top 50 by volume) on each day, and that this representation is permanent and reproducible.
+By including recent coins, we ensure that TOTAL2 accurately represents the full cryptocurrency market (restricted to top 30 by volume) on each day, and that this representation is permanent and reproducible.
 
 ### Never Excluded (Allowed List)
 
@@ -300,8 +556,8 @@ From `src/config.py`:
 
 ```python
 # TOTAL2 calculation
-TOP_N_FOR_TOTAL2 = 50              # Number of coins in index
-VOLUME_SMA_WINDOW = 60             # Days for volume SMA smoothing (~2 months)
+TOP_N_FOR_TOTAL2 = 30              # Number of coins in index
+VOLUME_SMA_WINDOW = 120            # Days for volume SMA smoothing (~4 months)
 
 # Quote currencies
 QUOTE_CURRENCIES = ["BTC", "USD"]

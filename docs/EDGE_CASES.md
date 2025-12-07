@@ -229,7 +229,7 @@ USE_YESTERDAY_AS_END_DATE = True  # Don't fetch incomplete today's data
 │     └── Today's data is incomplete                                 │
 │                                                                     │
 │  5. Calculate Volume-Weighted TOTAL2                               │
-│     ├── For each day: rank by volume, take top 50                  │
+│     ├── For each day: rank by volume, take top 30                  │
 │     └── Weighted average: Σ(price × volume) / Σ(volume)           │
 │                                                                     │
 └────────────────────────────────────────────────────────────────────┘

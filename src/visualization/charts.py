@@ -24,168 +24,178 @@ from config import (
 )
 from data.cache import PriceDataCache
 
-# Color palettes
-TOTAL2_COLORS = [
-    "rgba(100, 149, 237, 0.5)",  # Cycle 1 - lightest blue
-    "rgba(65, 105, 225, 0.7)",  # Cycle 2
-    "rgba(30, 64, 175, 0.85)",  # Cycle 3
-    "rgba(15, 32, 100, 1.0)",  # Cycle 4 - darkest blue
-]
+# =============================================================================
+# Color Palettes - High contrast on dark background (#0d1117)
+# =============================================================================
 
+# BTC: Yellow to bright orange progression (4 cycles)
+# Designed for maximum contrast and visual distinction
 BTC_COLORS = [
-    "rgba(255, 180, 100, 0.5)",  # Cycle 1 - lightest orange
-    "rgba(255, 140, 0, 0.7)",  # Cycle 2
-    "rgba(255, 100, 0, 0.85)",  # Cycle 3
-    "rgba(230, 80, 0, 1.0)",  # Cycle 4 - darkest orange
+    "rgba(255, 245, 157, 0.9)",  # Cycle 1 (2012) - pale yellow
+    "rgba(255, 200, 87, 0.92)",  # Cycle 2 (2016) - light orange
+    "rgba(255, 145, 50, 0.95)",  # Cycle 3 (2020) - bright orange
+    "rgba(255, 87, 34, 1.0)",  # Cycle 4 (2024) - deep orange-red
+]
+
+# TOTAL2: Cyan to blue progression (3 cycles - skip cycle 1)
+# Designed for clear distinction from BTC and high visibility
+TOTAL2_COLORS = [
+    "rgba(200, 230, 255, 0.85)",  # Cycle 1 (unused) - placeholder
+    "rgba(144, 224, 239, 0.9)",  # Cycle 2 (2016) - pale cyan
+    "rgba(56, 189, 248, 0.95)",  # Cycle 3 (2020) - bright cyan-blue
+    "rgba(37, 99, 235, 1.0)",  # Cycle 4 (2024) - vivid blue
 ]
 
 
-def _get_page_template(title: str, chart_html: str) -> str:
-    """
-    Wrap a Plotly chart in a page template with consistent header/nav.
+# =============================================================================
+# Shared HTML Components - DRY principle for consistent styling
+# =============================================================================
 
-    Args:
-        title: Page title for the browser tab
-        chart_html: The Plotly chart HTML content
+
+def _get_base_css() -> str:
+    """
+    Return the base CSS variables and reset styles shared across all pages.
 
     Returns:
-        Complete HTML page with header, nav, chart, and footer
+        CSS string with root variables and base styles
     """
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title} - Halvix</title>
-    <style>
-        :root {{
+    return """
+        :root {
             --bg-primary: #0d1117;
             --bg-secondary: #161b22;
             --text-primary: #e6edf3;
             --text-secondary: #8b949e;
             --accent-orange: #f7931a;
             --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
             --border-color: #30363d;
-        }}
+        }
 
-        * {{
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-        }}
+        }
 
-        body {{
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.6;
-        }}
+        }
+    """
 
-        header {{
+
+def _get_header_css() -> str:
+    """
+    Return CSS for the compact page header.
+
+    Returns:
+        CSS string for header styling
+    """
+    return """
+        header {
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            padding: 2rem;
+            padding: 0.5rem 2rem;
             text-align: center;
             border-bottom: 1px solid var(--border-color);
-        }}
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            position: relative;
+        }
 
-        .logo {{
-            font-size: 2rem;
-            margin-bottom: 0.25rem;
-        }}
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 1.1rem;
+            position: absolute;
+            left: 1.25rem;
+        }
 
-        h1 {{
-            font-size: 1.75rem;
+        .back-link:hover {
+            color: var(--accent-blue);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+        }
+
+        header h1 {
+            font-size: 1.1rem;
             font-weight: 700;
             background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-        }}
+        }
+    """
 
-        .subtitle {{
-            color: var(--text-secondary);
-            font-size: 0.95rem;
-            margin-top: 0.25rem;
-        }}
 
-        nav {{
-            background: var(--bg-secondary);
-            padding: 0.75rem 2rem;
-            border-bottom: 1px solid var(--border-color);
-        }}
+def _get_footer_css() -> str:
+    """
+    Return CSS for the page footer.
 
-        nav ul {{
-            list-style: none;
-            display: flex;
-            gap: 2rem;
-            justify-content: center;
-        }}
-
-        nav a {{
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.2s;
-        }}
-
-        nav a:hover {{
-            color: var(--accent-blue);
-        }}
-
-        .chart-container {{
-            width: 100%;
-            padding: 1rem;
-        }}
-
-        footer {{
+    Returns:
+        CSS string for footer styling
+    """
+    return """
+        footer {
             text-align: center;
-            padding: 1.5rem;
+            padding: 0.75rem;
             border-top: 1px solid var(--border-color);
             color: var(--text-secondary);
-            font-size: 0.85rem;
-        }}
+            font-size: 0.75rem;
+        }
 
-        footer a {{
+        footer a {
             color: var(--accent-blue);
             text-decoration: none;
-        }}
+        }
 
-        footer a:hover {{
+        footer a:hover {
             text-decoration: underline;
-        }}
+        }
+    """
 
-        @media (max-width: 768px) {{
-            h1 {{
-                font-size: 1.5rem;
-            }}
 
-            nav ul {{
-                flex-wrap: wrap;
-                gap: 1rem;
-            }}
-        }}
-    </style>
-</head>
-<body>
+def _get_header_html(back_link: str = "../index.html") -> str:
+    """
+    Return the HTML for the compact page header.
+
+    Args:
+        back_link: URL for the back arrow link
+
+    Returns:
+        HTML string for the header
+    """
+    return f"""
     <header>
-        <div class="logo">📊</div>
-        <h1>Halvix Charts</h1>
-        <p class="subtitle">{title}</p>
+        <a href="{back_link}" class="back-link">← Back</a>
+        <div class="header-content">
+            <div class="logo">📊</div>
+            <h1>Halvix</h1>
+        </div>
     </header>
+    """
 
-    <nav>
-        <ul>
-            <li><a href="../index.html">Data Status</a></li>
-            <li><a href="../charts.html">Charts</a></li>
-            <li><a href="https://github.com/yohplala/halvix">GitHub</a></li>
-        </ul>
-    </nav>
 
-    <div class="chart-container">
-        {chart_html}
-    </div>
+def _get_footer_html() -> str:
+    """
+    Return the HTML for the page footer.
 
+    Returns:
+        HTML string for the footer
+    """
+    return """
     <footer>
         <p>
             Generated by <strong>Halvix</strong> •
@@ -193,6 +203,66 @@ def _get_page_template(title: str, chart_html: str) -> str:
             Data from <a href="https://www.cryptocompare.com/">CryptoCompare</a>
         </p>
     </footer>
+    """
+
+
+def _get_page_template(title: str, chart_html: str, back_link: str = "../index.html") -> str:
+    """
+    Wrap a Plotly chart in a page template with minimal header.
+
+    Uses shared CSS and HTML components for consistency across all pages.
+
+    Args:
+        title: Page title for the browser tab
+        chart_html: The Plotly chart HTML content
+        back_link: Link for the back arrow (default: ../index.html)
+
+    Returns:
+        Complete HTML page with minimal header, chart, and footer
+    """
+    base_css = _get_base_css()
+    header_css = _get_header_css()
+    footer_css = _get_footer_css()
+    header_html = _get_header_html(back_link)
+    footer_html = _get_footer_html()
+
+    chart_css = """
+        .chart-container {
+            width: 100%;
+            padding: 0.75rem;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 0.9rem;
+            }
+            header {
+                padding: 0.4rem 1rem;
+            }
+        }
+    """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} - Halvix</title>
+    <style>
+        {base_css}
+        {header_css}
+        {footer_css}
+        {chart_css}
+    </style>
+</head>
+<body>
+    {header_html}
+
+    <div class="chart-container">
+        {chart_html}
+    </div>
+
+    {footer_html}
 </body>
 </html>
 """
@@ -311,6 +381,9 @@ def create_btc_usd_normalized_chart(
         else:
             halving_price = 0
 
+        # Format dates for hover
+        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df.index]
+
         fig.add_trace(
             go.Scatter(
                 x=cycle_df["days_from_halving"],
@@ -318,9 +391,10 @@ def create_btc_usd_normalized_chart(
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
                 line={"color": BTC_COLORS[i], "width": 2.5},
+                customdata=dates_formatted,
                 hovertemplate=(
-                    f"Cycle {cycle_num}<br>"
-                    "Day: %{x}<br>"
+                    ""
+                    f"Cycle {cycle_num}: %{{customdata}}<br>"
                     "Multiplier: %{y:.2f}x<br>"
                     f"(Halving price: ${halving_price:,.0f})"
                     "<extra></extra>"
@@ -449,6 +523,11 @@ def create_total2_dual_chart(
             total2_usd_df, halving_date, price_col="total2_usd", normalize=True
         )
         if not cycle_usd.empty and "normalized" in cycle_usd.columns:
+            # Build customdata with date and coin_count
+            customdata_usd = [
+                [d.strftime("%Y-%m-%d"), int(total2_usd_df.loc[d, "coin_count"])]
+                for d in cycle_usd.index
+            ]
             fig.add_trace(
                 go.Scatter(
                     x=cycle_usd["days_from_halving"],
@@ -457,10 +536,12 @@ def create_total2_dual_chart(
                     name=f"Cycle {cycle_num} ({halving_date.year})",
                     line={"color": TOTAL2_COLORS[i], "width": 2},
                     legendgroup=f"cycle{cycle_num}",
+                    customdata=customdata_usd,
                     hovertemplate=(
-                        f"Cycle {cycle_num}<br>"
-                        "Day: %{x}<br>"
-                        "Multiplier: %{y:.2f}x"
+                        ""
+                        f"Cycle {cycle_num}: %{{customdata[0]}}<br>"
+                        "Multiplier: %{y:.2f}x<br>"
+                        "Coins: %{customdata[1]}"
                         "<extra></extra>"
                     ),
                 ),
@@ -473,6 +554,11 @@ def create_total2_dual_chart(
             total2_btc_df, halving_date, price_col="total2_price", normalize=True
         )
         if not cycle_btc.empty and "normalized" in cycle_btc.columns:
+            # Build customdata with date and coin_count
+            customdata_btc = [
+                [d.strftime("%Y-%m-%d"), int(total2_btc_df.loc[d, "coin_count"])]
+                for d in cycle_btc.index
+            ]
             fig.add_trace(
                 go.Scatter(
                     x=cycle_btc["days_from_halving"],
@@ -482,10 +568,12 @@ def create_total2_dual_chart(
                     line={"color": TOTAL2_COLORS[i], "width": 2},
                     legendgroup=f"cycle{cycle_num}",
                     showlegend=False,  # Only show in legend once
+                    customdata=customdata_btc,
                     hovertemplate=(
-                        f"Cycle {cycle_num}<br>"
-                        "Day: %{x}<br>"
-                        "Multiplier: %{y:.2f}x"
+                        ""
+                        f"Cycle {cycle_num}: %{{customdata[0]}}<br>"
+                        "Multiplier: %{y:.2f}x<br>"
+                        "Coins: %{customdata[1]}"
                         "<extra></extra>"
                     ),
                 ),
@@ -633,28 +721,34 @@ def create_total2_halving_chart(
             continue
 
         # Prepare hover text with composition info
-        if composition_df is not None:
-            hover_texts = []
-            for idx, row in cycle_df.iterrows():
-                dt = idx.date()
+        hover_texts = []
+        for idx, row in cycle_df.iterrows():
+            dt = idx.date()
+            base_text = f"Cycle {cycle_num}: {dt}"
+
+            if composition_df is not None:
                 comp = composition_df[composition_df["date"] == dt]
                 if not comp.empty:
                     top_coins = comp.nsmallest(10, "rank")["coin_id"].str.upper().tolist()
                     coins_str = ", ".join(top_coins)
                     hover_texts.append(
-                        f"Date: {dt}<br>"
+                        f"{base_text}<br>"
                         f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
                         f"Coins: {row['coin_count']}<br>"
                         f"Top 10: {coins_str}"
                     )
                 else:
                     hover_texts.append(
-                        f"Date: {dt}<br>"
+                        f"{base_text}<br>"
                         f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
                         f"Coins: {row['coin_count']}"
                     )
-        else:
-            hover_texts = None
+            else:
+                hover_texts.append(
+                    f"{base_text}<br>"
+                    f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
+                    f"Coins: {row['coin_count']}"
+                )
 
         fig.add_trace(
             go.Scatter(
@@ -663,7 +757,7 @@ def create_total2_halving_chart(
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
                 line={"color": TOTAL2_COLORS[i], "width": 2},
-                hovertemplate="%{text}<extra></extra>" if hover_texts else None,
+                hovertemplate="%{text}<extra></extra>",
                 text=hover_texts,
             )
         )
@@ -759,6 +853,9 @@ def create_btc_usd_halving_chart(
         if cycle_df.empty:
             continue
 
+        # Format dates for hover
+        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df.index]
+
         fig.add_trace(
             go.Scatter(
                 x=cycle_df["days_from_halving"],
@@ -766,7 +863,13 @@ def create_btc_usd_halving_chart(
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
                 line={"color": BTC_COLORS[i], "width": 2},
-                hovertemplate=("Day: %{x}<br>" "Price: $%{y:,.2f}<br>" "<extra></extra>"),
+                customdata=dates_formatted,
+                hovertemplate=(
+                    ""
+                    f"Cycle {cycle_num}: %{{customdata}}<br>"
+                    "Price: $%{y:,.2f}"
+                    "<extra></extra>"
+                ),
             )
         )
 
@@ -827,6 +930,370 @@ def create_btc_usd_halving_chart(
             fig,
             output_path,
             "Bitcoin (BTC) Price Across Halving Cycles",
+        )
+
+    return fig
+
+
+def create_btc_combined_chart(
+    output_path: Path | None = None,
+) -> go.Figure:
+    """
+    Create combined BTC chart page with normalized and absolute charts stacked vertically.
+
+    Args:
+        output_path: Path to save HTML file
+
+    Returns:
+        Plotly Figure with 2 subplots
+    """
+    from plotly.subplots import make_subplots
+
+    # Load BTC-USD data
+    cache = PriceDataCache()
+    btc_df = cache.get_prices("btc", "USD")
+
+    if btc_df is None or btc_df.empty:
+        raise FileNotFoundError("BTC-USD price data not found. Run fetch-prices first.")
+
+    # Create figure with 2 rows
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        subplot_titles=(
+            "Bitcoin (BTC) Price - Normalized to Halving Day",
+            "Bitcoin (BTC) Price - Absolute (USD)",
+        ),
+        vertical_spacing=0.08,
+        row_heights=[0.5, 0.5],
+    )
+
+    # Add traces for each halving cycle - NORMALIZED (row 1)
+    for i, halving_date in enumerate(HALVING_DATES):
+        cycle_num = i + 1
+        cycle_df = get_cycle_data(btc_df, halving_date, price_col="close", normalize=True)
+
+        if cycle_df.empty or "normalized" not in cycle_df.columns:
+            continue
+
+        # Get actual halving price for hover
+        halving_mask = cycle_df["days_from_halving"] >= 0
+        if halving_mask.any():
+            halving_price = cycle_df[halving_mask].iloc[0]["close"]
+        else:
+            halving_price = 0
+
+        # Format dates for hover
+        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df.index]
+
+        fig.add_trace(
+            go.Scatter(
+                x=cycle_df["days_from_halving"],
+                y=cycle_df["normalized"],
+                mode="lines",
+                name=f"Cycle {cycle_num} ({halving_date.year})",
+                line={"color": BTC_COLORS[i], "width": 2.5},
+                legendgroup=f"cycle{cycle_num}",
+                customdata=dates_formatted,
+                hovertemplate=(
+                    ""
+                    f"Cycle {cycle_num}: %{{customdata}}<br>"
+                    "Multiplier: %{y:.2f}x<br>"
+                    f"(Halving price: ${halving_price:,.0f})"
+                    "<extra></extra>"
+                ),
+            ),
+            row=1,
+            col=1,
+        )
+
+    # Add traces for each halving cycle - ABSOLUTE (row 2)
+    for i, halving_date in enumerate(HALVING_DATES):
+        cycle_num = i + 1
+        cycle_df = get_cycle_data(btc_df, halving_date, price_col="close")
+
+        if cycle_df.empty:
+            continue
+
+        # Format dates for hover
+        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df.index]
+
+        fig.add_trace(
+            go.Scatter(
+                x=cycle_df["days_from_halving"],
+                y=cycle_df["close"],
+                mode="lines",
+                name=f"Cycle {cycle_num} ({halving_date.year})",
+                line={"color": BTC_COLORS[i], "width": 2.5},
+                legendgroup=f"cycle{cycle_num}",
+                showlegend=False,
+                customdata=dates_formatted,
+                hovertemplate=(
+                    ""
+                    f"Cycle {cycle_num}: %{{customdata}}<br>"
+                    "Price: $%{y:,.2f}"
+                    "<extra></extra>"
+                ),
+            ),
+            row=2,
+            col=1,
+        )
+
+    # Update layout
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+        hovermode="x unified",
+        height=1100,
+        legend={
+            "yanchor": "top",
+            "y": 0.99,
+            "xanchor": "left",
+            "x": 0.01,
+            "bgcolor": "rgba(0,0,0,0.5)",
+        },
+        margin={"t": 60, "b": 40},
+    )
+
+    # Update axes
+    fig.update_xaxes(
+        title_text="Days from Halving",
+        tickmode="linear",
+        dtick=100,
+        gridcolor="rgba(128, 128, 128, 0.2)",
+        row=1,
+        col=1,
+    )
+    fig.update_xaxes(
+        title_text="Days from Halving",
+        tickmode="linear",
+        dtick=100,
+        gridcolor="rgba(128, 128, 128, 0.2)",
+        row=2,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Price Multiplier (1.0 = Halving Day)",
+        type="log",
+        gridcolor="rgba(128, 128, 128, 0.2)",
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="BTC Price (USD)",
+        type="log",
+        tickprefix="$",
+        gridcolor="rgba(128, 128, 128, 0.2)",
+        row=2,
+        col=1,
+    )
+
+    # Add vertical lines at halving for both charts
+    for row in [1, 2]:
+        fig.add_shape(
+            type="line",
+            x0=0,
+            x1=0,
+            y0=0,
+            y1=1,
+            xref=f"x{row}" if row > 1 else "x",
+            yref="paper",
+            line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 2},
+        )
+
+    # Add horizontal line at 1.0 for normalized chart
+    fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
+
+    if output_path:
+        _write_chart_with_template(
+            fig,
+            output_path,
+            "Bitcoin (BTC) Charts",
+        )
+
+    return fig
+
+
+def create_total2_combined_chart(
+    output_path: Path | None = None,
+) -> go.Figure:
+    """
+    Create combined TOTAL2 chart page with 2 charts stacked vertically:
+    1. TOTAL2/USD - Normalized to Halving Day
+    2. TOTAL2/BTC - Absolute Values
+
+    Args:
+        output_path: Path to save HTML file
+
+    Returns:
+        Plotly Figure with 2 subplots
+    """
+    from plotly.subplots import make_subplots
+
+    # Load TOTAL2 data (BTC denominated)
+    if not TOTAL2_INDEX_FILE.exists():
+        raise FileNotFoundError("TOTAL2 index not found. Run calculate-total2 first.")
+
+    total2_btc_df = pd.read_parquet(TOTAL2_INDEX_FILE)
+
+    # Load BTC-USD for conversion
+    cache = PriceDataCache()
+    btc_usd_df = cache.get_prices("btc", "USD")
+
+    if btc_usd_df is None or btc_usd_df.empty:
+        raise FileNotFoundError("BTC-USD price data not found. Run fetch-prices first.")
+
+    # Calculate TOTAL2 in USD
+    total2_usd_df = total2_btc_df.copy()
+    btc_usd_aligned = btc_usd_df["close"].reindex(total2_usd_df.index)
+    total2_usd_df["total2_usd"] = total2_usd_df["total2_price"] * btc_usd_aligned
+
+    # Create figure with 2 rows
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        subplot_titles=(
+            "TOTAL2 vs USD - Normalized to Halving Day",
+            "TOTAL2/BTC - Absolute Values",
+        ),
+        vertical_spacing=0.08,
+        row_heights=[0.5, 0.5],
+    )
+
+    # Add traces for each halving cycle (skip cycle 1 - insufficient data)
+    for i, halving_date in enumerate(HALVING_DATES):
+        cycle_num = i + 1
+
+        # Skip cycle 1 (2012) - data too sparse
+        if cycle_num == 1:
+            continue
+
+        # Row 1: USD normalized
+        cycle_usd = get_cycle_data(
+            total2_usd_df, halving_date, price_col="total2_usd", normalize=True
+        )
+        if not cycle_usd.empty and "normalized" in cycle_usd.columns:
+            # Build customdata with date and coin_count
+            customdata_usd = [
+                [d.strftime("%Y-%m-%d"), int(total2_usd_df.loc[d, "coin_count"])]
+                for d in cycle_usd.index
+            ]
+            fig.add_trace(
+                go.Scatter(
+                    x=cycle_usd["days_from_halving"],
+                    y=cycle_usd["normalized"],
+                    mode="lines",
+                    name=f"Cycle {cycle_num} ({halving_date.year})",
+                    line={"color": TOTAL2_COLORS[i], "width": 2.5},
+                    legendgroup=f"cycle{cycle_num}",
+                    customdata=customdata_usd,
+                    hovertemplate=(
+                        ""
+                        f"Cycle {cycle_num}: %{{customdata[0]}}<br>"
+                        "Multiplier: %{y:.2f}x<br>"
+                        "Coins: %{customdata[1]}"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=1,
+                col=1,
+            )
+
+        # Row 2: BTC absolute
+        cycle_abs = get_cycle_data(total2_btc_df, halving_date, price_col="total2_price")
+        if not cycle_abs.empty:
+            # Build customdata with date and coin_count
+            customdata_abs = [
+                [d.strftime("%Y-%m-%d"), int(total2_btc_df.loc[d, "coin_count"])]
+                for d in cycle_abs.index
+            ]
+            fig.add_trace(
+                go.Scatter(
+                    x=cycle_abs["days_from_halving"],
+                    y=cycle_abs["total2_price"],
+                    mode="lines",
+                    name=f"Cycle {cycle_num} ({halving_date.year})",
+                    line={"color": TOTAL2_COLORS[i], "width": 2.5},
+                    legendgroup=f"cycle{cycle_num}",
+                    showlegend=False,
+                    customdata=customdata_abs,
+                    hovertemplate=(
+                        ""
+                        f"Cycle {cycle_num}: %{{customdata[0]}}<br>"
+                        "TOTAL2: %{y:.8f} BTC<br>"
+                        "Coins: %{customdata[1]}"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=2,
+                col=1,
+            )
+
+    # Update layout
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+        hovermode="x unified",
+        height=1000,
+        legend={
+            "yanchor": "top",
+            "y": 0.99,
+            "xanchor": "left",
+            "x": 0.01,
+            "bgcolor": "rgba(0,0,0,0.5)",
+        },
+        margin={"t": 60, "b": 40},
+    )
+
+    # Update axes for both rows
+    for row in [1, 2]:
+        fig.update_xaxes(
+            title_text="Days from Halving",
+            tickmode="linear",
+            dtick=200,
+            gridcolor="rgba(128, 128, 128, 0.2)",
+            row=row,
+            col=1,
+        )
+
+    fig.update_yaxes(
+        title_text="Multiplier (1.0 = Halving)",
+        type="log",
+        gridcolor="rgba(128, 128, 128, 0.2)",
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="TOTAL2 (BTC)",
+        type="log",
+        gridcolor="rgba(128, 128, 128, 0.2)",
+        row=2,
+        col=1,
+    )
+
+    # Add vertical lines at halving for both charts
+    for row in [1, 2]:
+        fig.add_shape(
+            type="line",
+            x0=0,
+            x1=0,
+            y0=0,
+            y1=1,
+            xref=f"x{row}" if row > 1 else "x",
+            yref="paper",
+            line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 2},
+        )
+
+    # Add horizontal line at 1.0 for normalized chart (row 1 only)
+    fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
+
+    if output_path:
+        _write_chart_with_template(
+            fig,
+            output_path,
+            "TOTAL2 Index Charts",
         )
 
     return fig
@@ -1062,53 +1529,45 @@ def create_composition_viewer_html(
 
         header {{
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            padding: 2rem;
+            padding: 0.5rem 2rem;
             text-align: center;
             border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            position: relative;
+        }}
+
+        .back-link {{
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 1.1rem;
+            position: absolute;
+            left: 1.25rem;
+        }}
+
+        .back-link:hover {{
+            color: var(--accent-blue);
+        }}
+
+        .header-content {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }}
 
         .logo {{
-            font-size: 2rem;
-            margin-bottom: 0.25rem;
+            font-size: 1.25rem;
         }}
 
         header h1 {{
-            font-size: 1.75rem;
+            font-size: 1.1rem;
             font-weight: 700;
             background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-        }}
-
-        .subtitle {{
-            color: var(--text-secondary);
-            font-size: 0.95rem;
-            margin-top: 0.25rem;
-        }}
-
-        nav {{
-            background: var(--bg-secondary);
-            padding: 0.75rem 2rem;
-            border-bottom: 1px solid var(--border-color);
-        }}
-
-        nav ul {{
-            list-style: none;
-            display: flex;
-            gap: 2rem;
-            justify-content: center;
-        }}
-
-        nav a {{
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.2s;
-        }}
-
-        nav a:hover {{
-            color: var(--accent-blue);
         }}
 
         .container {{
@@ -1289,11 +1748,11 @@ def create_composition_viewer_html(
 
         footer {{
             text-align: center;
-            padding: 1.5rem;
+            padding: 0.75rem;
             border-top: 1px solid var(--border-color);
             color: var(--text-secondary);
-            font-size: 0.85rem;
-            margin-top: 2rem;
+            font-size: 0.75rem;
+            margin-top: 1.5rem;
         }}
 
         footer a {{
@@ -1307,12 +1766,11 @@ def create_composition_viewer_html(
 
         @media (max-width: 768px) {{
             header h1 {{
-                font-size: 1.5rem;
+                font-size: 0.9rem;
             }}
 
-            nav ul {{
-                flex-wrap: wrap;
-                gap: 1rem;
+            header {{
+                padding: 0.4rem 1rem;
             }}
 
             .stats-row {{
@@ -1334,21 +1792,15 @@ def create_composition_viewer_html(
 </head>
 <body>
     <header>
-        <div class="logo">📊</div>
-        <h1>Halvix Charts</h1>
-        <p class="subtitle">TOTAL2 Composition Viewer - {display_month}</p>
+        <a href="../index.html" class="back-link">← Back</a>
+        <div class="header-content">
+            <div class="logo">📊</div>
+            <h1>Halvix</h1>
+        </div>
     </header>
 
-    <nav>
-        <ul>
-            <li><a href="../index.html">Data Status</a></li>
-            <li><a href="../charts.html">Charts</a></li>
-            <li><a href="https://github.com/yohplala/halvix">GitHub</a></li>
-        </ul>
-    </nav>
-
     <div class="container">
-        <h2 class="page-title">🧩 TOTAL2 Composition Viewer</h2>
+        <h2 class="page-title">🧩 TOTAL2 Composition - {display_month}</h2>
 
         <div class="month-nav">
             <table class="month-nav-table">
@@ -1557,30 +2009,21 @@ def generate_all_charts(output_dir: Path | None = None) -> dict[str, Path]:
 
     paths = {}
 
-    # BTC vs USD normalized chart (main chart)
-    btc_norm_path = output_dir / "btc_usd_normalized.html"
-    create_btc_usd_normalized_chart(btc_norm_path)
-    paths["btc_normalized"] = btc_norm_path
+    # Combined BTC chart (normalized + absolute stacked vertically)
+    btc_combined_path = output_dir / "btc_charts.html"
+    create_btc_combined_chart(btc_combined_path)
+    paths["btc_combined"] = btc_combined_path
 
-    # TOTAL2 dual chart (USD and BTC side by side)
-    total2_dual_path = output_dir / "total2_dual_normalized.html"
-    create_total2_dual_chart(total2_dual_path)
-    paths["total2_dual"] = total2_dual_path
+    # Combined TOTAL2 chart (all 3 stacked vertically)
+    total2_combined_path = output_dir / "total2_charts.html"
+    create_total2_combined_chart(total2_combined_path)
+    paths["total2_combined"] = total2_combined_path
 
-    # Legacy charts (absolute values)
-    total2_path = output_dir / "total2_halving_cycles.html"
-    create_total2_halving_chart(total2_path)
-    paths["total2"] = total2_path
-
-    btc_path = output_dir / "btc_halving_cycles.html"
-    create_btc_usd_halving_chart(btc_path)
-    paths["btc"] = btc_path
-
-    # Composition viewer (split by quarter)
+    # Composition viewer (split by month)
     comp_path = output_dir / "total2_composition.html"
-    quarter_paths = create_composition_viewer_html(comp_path)
+    month_paths = create_composition_viewer_html(comp_path)
     paths["composition"] = comp_path
-    for quarter_key, quarter_path in quarter_paths.items():
-        paths[f"composition_{quarter_key}"] = quarter_path
+    for month_key, month_path in month_paths.items():
+        paths[f"composition_{month_key}"] = month_path
 
     return paths
