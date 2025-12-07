@@ -41,8 +41,7 @@ poetry run python -m main status
 
 ### 📊 Live Data & Charts
 
-- **[Charts Dashboard](https://yohplala.github.io/halvix/charts.html)** - Interactive halving cycle charts (BTC, TOTAL2)
-- **[Data Status](https://yohplala.github.io/halvix/index.html)** - Current coin lists, filtered coins, and price data summary
+- **[Charts Dashboard](https://yohplala.github.io/halvix/index.html)** - Interactive halving cycle charts (BTC, TOTAL2)
 
 ### 📋 References
 - **[Project Context](docs/PROJECT_CONTEXT.md)** - Full project specification for developers
