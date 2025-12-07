@@ -192,7 +192,7 @@ Coins must have price data available before `MIN_DATA_DATE` (2024-01-10) to be i
 
 This filter is applied **after** fetching price data (in `fetch-prices` command), since the actual data start date is only known after fetching.
 
-**Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 because the index must be **immutable** - the value for any given day should not change when recalculated in the future. If we excluded recent coins today but included them next year (when they're no longer "recent"), historical TOTAL2 values would change retroactively. Instead, TOTAL2 captures the actual market composition (top 50 by volume) on each day, ensuring stable and reproducible values.
+**Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 because the index must be **immutable** - the value for any given day should not change when recalculated in the future. If we excluded recent coins today but included them next year (when they're no longer "recent"), historical TOTAL2 values would change retroactively. Instead, TOTAL2 captures the actual market composition (top 30 by volume) on each day, ensuring stable and reproducible values.
 
 ### 4.3 CSV Export
 Skipped coins exported to `data/processed/download_skipped.csv`:
@@ -207,14 +207,18 @@ Skipped coins exported to `data/processed/download_skipped.csv`:
 > **Detailed documentation:** [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md)
 
 ### 5.1 Definition
-Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 50), excluding:
+Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 30), excluding:
 - Bitcoin
 - All wrapped/staked/bridged tokens
 - All stablecoins
 
 ### 5.2 Volume Smoothing
-Volume is smoothed using a 60-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
+Volume is smoothed using a 120-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
 This ensures stable rankings that don't fluctuate wildly from one day to the next.
+
+**Zero-Padding of 24h Volume:** Days before a coin's first trading data are filled with 0 volume, and the SMA is applied with `min_periods=1`. This means when a coin **first starts trading** (has data), its smoothed volume is only `actual_volume / 120`. The weight gradually increases over the 120-day warmup period. This prevents sudden TOTAL2 jumps when a new coin with high volume appears and immediately enters the TOP30.
+
+**Max Weight Change Tracking:** The system calculates the maximum daily weight change for any coin **in the TOTAL2** (only after 2017-11-01 when 30 coins are available). This ensures TOTAL2 curve variations reflect actual price movements rather than sudden composition weight changes. A warning is logged if max change exceeds 0.5%.
 
 ### 5.3 Algorithm (Vectorized)
 ```python
@@ -306,13 +310,22 @@ The `calculate-total2` command **recomputes TOTAL2 from scratch** each time:
 
 1. Loads all cached price data from `data/raw/prices/`
 2. Applies token filters (excludes BTC, stablecoins, wrapped/staked)
-3. Calculates volume-weighted average for each day
-4. Overwrites `data/processed/total2_index.parquet`
+3. **Detects and corrects volume outliers** (vectorized, >20x median & >5000 BTC)
+4. Applies zero-padded 120-day SMA to volume (gradual coin entry)
+5. Calculates volume-weighted average for each day
+6. Tracks max daily weight change (for quality monitoring)
+7. Overwrites output files
+
+**Data Quality Features:**
+- **Volume outlier correction**: Automatically detects impossible volume spikes (e.g., PPC 90M BTC) and interpolates from surrounding days
+- **Zero-padding**: Coins entering TOTAL2 do so gradually over 120 days, preventing sudden weight jumps
+- **Max weight change tracking**: Monitors daily composition changes to ensure curve reflects prices, not weight shuffling
 
 This approach ensures:
 - **Consistency**: All historical values are calculated with the same parameters
 - **New coins included**: Recent coins appear in TOTAL2 for dates they have data
 - **Reproducibility**: Same input data always produces same output
+- **Data integrity**: Bad data points are automatically corrected
 
 When adding new coins (e.g., expanding TOP_N_COINS), run:
 ```bash
@@ -330,13 +343,18 @@ python -m main generate-charts   # Update visualizations
 
 ### 9.2 Generated Charts
 
-The `generate-charts` command creates interactive HTML files in `output/charts/`:
+The `generate-charts` command creates interactive HTML files in `site/charts/`:
 
 | File | Description |
 |------|-------------|
-| `total2_halving_cycles.html` | TOTAL2 across 3 halving cycles (2016, 2020, 2024 - cycle 1 excluded due to sparse data) |
-| `btc_halving_cycles.html` | BTC/USD across 4 halving cycles (lighter→darker orange) |
+| `btc_charts.html` | Combined BTC charts: normalized + absolute, stacked vertically (4 cycles) |
+| `total2_charts.html` | Combined TOTAL2 charts: USD normalized + BTC normalized + BTC absolute, stacked vertically (3 cycles) |
 | `total2_composition.html` | Interactive viewer: select date, see which coins are in TOTAL2 |
+
+The main site structure is:
+- `site/index.html` - Main navigation page with links to all charts and data status
+- `site/data_status.html` - Data status page showing downloaded coins and skipped tokens
+- `site/charts/` - Contains all chart HTML files
 
 ### 9.3 Chart Specifications
 
@@ -410,9 +428,9 @@ REGRESSION_START_DATE = date(2023, 11, 1)
 MIN_DATA_DATE = date(2024, 1, 10)
 
 TOP_N_COINS = 1000  # Increased to include historical coins (e.g., XEM)
-TOP_N_FOR_TOTAL2 = 50
+TOP_N_FOR_TOTAL2 = 30
 TOP_N_SUMMARY = 10
-VOLUME_SMA_WINDOW = 60  # Days for volume smoothing (~2 months)
+VOLUME_SMA_WINDOW = 120  # Days for volume smoothing (~4 months)
 
 # Quote currencies for price data
 QUOTE_CURRENCIES = ["BTC", "USD"]

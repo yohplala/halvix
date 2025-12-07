@@ -244,6 +244,8 @@ class DataFetcher:
 
         Files are stored as {coin_id}-{vs_currency}.parquet (e.g., eth-btc.parquet).
 
+        Note: BTC-BTC pair is skipped as it doesn't make sense (BTC priced in BTC = 1.0).
+
         Args:
             coin_id: Coin ID (lowercase symbol)
             symbol: Coin symbol for CryptoCompare (e.g., "ETH")
@@ -257,6 +259,11 @@ class DataFetcher:
         # Use symbol for CryptoCompare (uppercase)
         symbol = symbol.upper()
         vs_currency = vs_currency.upper()
+
+        # Skip BTC-BTC pair - it doesn't make sense (BTC priced in BTC = 1.0)
+        if coin_id.lower() == "btc" and vs_currency == "BTC":
+            logger.debug("Skipping BTC-BTC pair (doesn't make sense)")
+            return pd.DataFrame()
 
         # Calculate end date (yesterday for complete data)
         yesterday = date.today() - timedelta(days=1)

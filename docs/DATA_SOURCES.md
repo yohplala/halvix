@@ -131,7 +131,7 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 │                              ▼                                  │
 │  Step 4: Calculate Volume-Weighted TOTAL2 (Local)              │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Daily selection of top 50 altcoins by volume             │  │
+│  │ Daily selection of top 30 altcoins by volume             │  │
 │  │ Volume-weighted average price                            │  │
 │  │ Output: data/processed/total2_index.parquet             │  │
 │  └──────────────────────────────────────────────────────────┘  │

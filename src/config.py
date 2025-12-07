@@ -112,15 +112,23 @@ MIN_DATA_DATE = date(2024, 1, 10)
 TOP_N_COINS = 1000
 
 # Number of top coins to use for TOTAL2 calculation
-TOP_N_FOR_TOTAL2 = 50
+TOP_N_FOR_TOTAL2 = 30
 
 # Number of top performers to show in summary chart
 TOP_N_SUMMARY = 10
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
-# 60 days (~2 months) provides more stable ranking for the TOTAL2 index
-VOLUME_SMA_WINDOW = 60
+# 120 days (~4 months) provides stable ranking and reduces max weight change
+VOLUME_SMA_WINDOW = 120
+
+# Price SMA window for first-day price smoothing (days)
+# Uses same zero-padding approach as volume smoothing:
+# - Fill values before first price with 0, then apply rolling SMA with min_periods=1
+# - For N-period SMA: Day 1 = price/N, Day 2 = (prev+price)/N, ..., Day N+ = regular SMA
+# Applied only during warmup period to smooth launch spikes (e.g., ZEC at 27.8 BTC)
+PRICE_SMA_WARMUP_WINDOW = 3  # N-period SMA window
+PRICE_SMA_WARMUP_DAYS = 7  # How many days the warmup smoothing applies
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
@@ -176,6 +184,11 @@ EXCLUDED_STABLECOINS = {
     # Other stablecoins
     "mim",
     "dola",
+    # Algorithmic stablecoins (depegged but originally USD-pegged)
+    "ust",  # TerraUSD (collapsed May 2022)
+    "ustc",  # TerraUSD Classic (post-collapse renamed UST)
+    # Note: LUNA/LUNC are NOT excluded - they are not stablecoins themselves,
+    # they were the mechanism tokens used to maintain UST's peg
 }
 
 # =============================================================================
@@ -374,6 +387,7 @@ REJECTED_COINS_CSV = DOWNLOAD_SKIPPED_CSV
 REGRESSION_RESULTS_CSV = PROCESSED_DIR / "regression_results.csv"
 TOTAL2_INDEX_FILE = PROCESSED_DIR / "total2_index.parquet"
 TOTAL2_COMPOSITION_FILE = PROCESSED_DIR / "total2_daily_composition.parquet"
+TOTAL2_MAX_WEIGHT_CHANGE_FILE = PROCESSED_DIR / "total2_max_weight_change.json"
 
 # =============================================================================
 # Data Fetching Configuration

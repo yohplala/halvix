@@ -92,7 +92,7 @@ poetry run python -m main fetch-prices --limit 10
 Calculate the volume-weighted TOTAL2 index from cached price data:
 
 ```bash
-# Calculate TOTAL2 with default 50 coins
+# Calculate TOTAL2 with default 30 coins
 poetry run python -m main calculate-total2
 
 # Calculate with different number of coins

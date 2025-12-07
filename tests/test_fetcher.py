@@ -370,7 +370,8 @@ class TestDataFetcherPrices:
             price_cache=PriceDataCache(prices_dir=prices_dir),
         )
 
-        df = fetcher.fetch_coin_prices("btc", symbol="BTC", use_cache=False)
+        # Use ETH instead of BTC (BTC-BTC pair is skipped as nonsensical)
+        df = fetcher.fetch_coin_prices("eth", symbol="ETH", use_cache=False)
 
         assert not df.empty
         assert "close" in df.columns
@@ -389,11 +390,12 @@ class TestDataFetcherPrices:
             price_cache=PriceDataCache(prices_dir=prices_dir),
         )
 
+        # Use ETH instead of BTC (BTC-BTC pair is skipped as nonsensical)
         # First call - hits API
-        df1 = fetcher.fetch_coin_prices("btc", symbol="BTC", use_cache=True)
+        df1 = fetcher.fetch_coin_prices("eth", symbol="ETH", use_cache=True)
 
         # Second call - uses cache
-        df2 = fetcher.fetch_coin_prices("btc", symbol="BTC", use_cache=True)
+        df2 = fetcher.fetch_coin_prices("eth", symbol="ETH", use_cache=True)
 
         # API should only be called once
         assert mock_client.get_full_daily_history.call_count == 1
