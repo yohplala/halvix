@@ -1358,6 +1358,8 @@ class Total2Processor:
             "price_outliers_corrected": result.price_outliers_corrected or [],
             "coin_statistics": coin_statistics,
         }
+        # Ensure parent directory exists (may differ from PROCESSED_DIR in tests)
+        TOTAL2_MAX_WEIGHT_CHANGE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(TOTAL2_MAX_WEIGHT_CHANGE_FILE, "w", encoding="utf-8") as f:
             json.dump(max_weight_info, f, indent=2)
 

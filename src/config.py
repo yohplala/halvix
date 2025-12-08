@@ -332,7 +332,7 @@ ALLOWED_TOKENS = {
     # (not wrapped/staked tokens themselves - they have independent price action)
     "bard",  # Bard governance token
     "dbr",  # Debridger governance token
-    "frax",  # Frax governance token (distinct from FRAX stablecoin ticker)
+    "fxs",  # Frax Share - governance token (FRAX is the stablecoin)
     "ldo",  # Lido DAO governance token
     "mnde",  # Marinade Finance governance token
     "rez",  # Renzo governance token

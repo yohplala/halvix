@@ -182,7 +182,7 @@ ALLOWED_TOKENS = {
     "stpt", "wild", "wifi",
     # Governance tokens for staking/bridging/wrapping protocols
     # (not wrapped/staked tokens themselves - independent price action)
-    "bard", "dbr", "frax",  # Various protocol governance tokens
+    "bard", "dbr", "fxs",   # Various protocol governance tokens (FXS = Frax Share)
     "ldo",                   # Lido DAO governance token
     "mnde",                  # Marinade Finance governance token
     "rez",                   # Renzo governance token
