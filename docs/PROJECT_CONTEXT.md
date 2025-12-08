@@ -180,6 +180,15 @@ ALLOWED_TOKENS = {
     "xlm", "stx", "strk",   # Tokens with "st" prefix but not staked
     "storj", "snt", "strax",
     "stpt", "wild", "wifi",
+    # Governance tokens for staking/bridging/wrapping protocols
+    # (not wrapped/staked tokens themselves - independent price action)
+    "bard", "dbr", "frax",  # Various protocol governance tokens
+    "ldo",                   # Lido DAO governance token
+    "mnde",                  # Marinade Finance governance token
+    "rez",                   # Renzo governance token
+    "rpl",                   # Rocket Pool governance token
+    "sd",                    # Stader governance token
+    "swell",                 # Swell Network governance token
 }
 ```
 

@@ -759,7 +759,9 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
         warning_class = "warning" if abs(change) > 0.5 else "ok"
         volume_outliers = max_weight_info.get("volume_outliers_corrected", [])
         price_outliers = max_weight_info.get("price_outliers_corrected", [])
+        coin_statistics = max_weight_info.get("coin_statistics", [])
         total_outliers = len(volume_outliers) + len(price_outliers)
+        total_coins = len(coin_statistics)
 
         max_weight_box = f"""
             <li class="info-box-container">
@@ -777,11 +779,11 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
                 </div>
             </li>
             <li>
-                <a href="volume_outliers.html">
-                    <span class="icon">🔧</span>
+                <a href="total2_statistics.html">
+                    <span class="icon">📊</span>
                     <div class="link-content">
-                        <div>Data Outliers Corrected</div>
-                        <div class="description">{total_outliers} corrections ({len(volume_outliers)} volume, {len(price_outliers)} price)</div>
+                        <div>TOTAL2 Statistics</div>
+                        <div class="description">{total_coins} coins tracked, {total_outliers} outlier corrections</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
@@ -1046,18 +1048,24 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
     return html
 
 
-def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[dict]) -> str:
+def _generate_total2_statistics_html(
+    volume_outliers: list[dict],
+    price_outliers: list[dict],
+    coin_statistics: list[dict],
+) -> str:
     """
-    Generate HTML page listing all outliers (volume and price) that were corrected.
+    Generate HTML page with TOTAL2 statistics including coin rankings.
 
     Uses the shared HTML helpers from visualization.charts for consistent styling.
+    Includes sortable tables with JavaScript.
 
     Args:
         volume_outliers: List of volume outlier dicts
         price_outliers: List of price outlier dicts
+        coin_statistics: List of coin statistics dicts (ranked by days in TOTAL2)
 
     Returns:
-        Complete HTML string for volume_outliers.html
+        Complete HTML string for total2_statistics.html
     """
     from visualization.charts import (
         _get_base_css,
@@ -1066,6 +1074,29 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
         _get_header_css,
         _get_header_html,
     )
+
+    # Build coin statistics table rows
+    coin_rows = ""
+    for stats in coin_statistics:
+        still_present = "✓" if stats["still_present"] else "✗"
+        still_class = "text-ok" if stats["still_present"] else "text-muted"
+        coin_rows += f"""
+            <tr>
+                <td class="number">{stats['rank']}</td>
+                <td><a href="{stats['url']}" target="_blank"><strong>{stats['coin_id']}</strong></a></td>
+                <td class="number">{stats['days_in_total2']:,}</td>
+                <td class="{still_class}">{still_present}</td>
+                <td>{stats['first_date']}</td>
+                <td class="number">{stats['first_price']:.8f}</td>
+                <td class="number">{stats['first_weight']:.2f}%</td>
+                <td>{stats['last_date']}</td>
+                <td class="number">{stats['last_price']:.8f}</td>
+                <td class="number">{stats['last_weight']:.2f}%</td>
+                <td class="number">{stats['min_price']:.8f}</td>
+                <td class="number">{stats['max_price']:.8f}</td>
+                <td class="number">{stats['min_weight']:.2f}%</td>
+                <td class="number">{stats['max_weight']:.2f}%</td>
+            </tr>"""
 
     # Build volume outlier table rows
     volume_rows = ""
@@ -1103,7 +1134,7 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
     # Page-specific CSS for tables
     page_css = """
         main {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 2rem;
         }
@@ -1119,6 +1150,11 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
             line-height: 1.6;
         }
 
+        .table-container {
+            overflow-x: auto;
+            margin-bottom: 2rem;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -1128,22 +1164,41 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
         }
 
         th, td {
-            padding: 0.75rem 1rem;
-            text-align: left;
+            padding: 0.5rem 0.75rem;
+            text-align: center;
             border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
         }
 
         th {
             background: var(--bg-primary);
             font-weight: 600;
             color: var(--text-secondary);
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             text-transform: uppercase;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        th:hover {
+            background: var(--bg-secondary);
+            color: var(--accent-blue);
+        }
+
+        th.sorted-asc::after {
+            content: ' ▲';
+            color: var(--accent-blue);
+        }
+
+        th.sorted-desc::after {
+            content: ' ▼';
+            color: var(--accent-blue);
         }
 
         td.number {
             font-family: 'SF Mono', Consolas, monospace;
-            text-align: right;
+            text-align: center;
+            font-size: 0.85rem;
         }
 
         tr:hover {
@@ -1157,6 +1212,86 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
         .section h2 {
             margin-bottom: 0.5rem;
         }
+
+        .text-ok {
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        .text-muted {
+            color: var(--text-secondary);
+        }
+
+        a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    """
+
+    # JavaScript for sortable tables
+    sort_js = """
+    <script>
+    function sortTable(table, columnIndex, isNumeric, isPercent) {
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const th = table.querySelectorAll('th')[columnIndex];
+        const isAsc = th.classList.contains('sorted-asc');
+
+        // Remove sort classes from all headers
+        table.querySelectorAll('th').forEach(h => {
+            h.classList.remove('sorted-asc', 'sorted-desc');
+        });
+
+        // Sort rows
+        rows.sort((a, b) => {
+            let aVal = a.cells[columnIndex].textContent.trim();
+            let bVal = b.cells[columnIndex].textContent.trim();
+
+            if (isPercent) {
+                aVal = parseFloat(aVal.replace('%', '')) || 0;
+                bVal = parseFloat(bVal.replace('%', '')) || 0;
+            } else if (isNumeric) {
+                aVal = parseFloat(aVal.replace(/,/g, '').replace('x', '')) || 0;
+                bVal = parseFloat(bVal.replace(/,/g, '').replace('x', '')) || 0;
+            } else if (aVal === '✓' || aVal === '✗') {
+                aVal = aVal === '✓' ? 1 : 0;
+                bVal = bVal === '✓' ? 1 : 0;
+            }
+
+            if (isAsc) {
+                return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+            } else {
+                return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+            }
+        });
+
+        // Update sort indicator
+        th.classList.add(isAsc ? 'sorted-desc' : 'sorted-asc');
+
+        // Re-append sorted rows
+        rows.forEach(row => tbody.appendChild(row));
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Make coin statistics table sortable
+        const coinTable = document.getElementById('coin-stats-table');
+        if (coinTable) {
+            coinTable.querySelectorAll('th').forEach((th, index) => {
+                th.addEventListener('click', () => {
+                    const numericCols = [0, 2, 5, 6, 8, 9, 10, 11, 12, 13];
+                    const percentCols = [6, 9, 12, 13];
+                    sortTable(coinTable, index, numericCols.includes(index), percentCols.includes(index));
+                });
+            });
+            // Default sort by days (column 2) descending
+            coinTable.querySelectorAll('th')[2].classList.add('sorted-desc');
+        }
+    });
+    </script>
     """
 
     html = f"""<!DOCTYPE html>
@@ -1164,7 +1299,7 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Data Outliers Corrected - Halvix</title>
+    <title>TOTAL2 Statistics - Halvix</title>
     <style>
         {base_css}
         {header_css}
@@ -1177,59 +1312,100 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
 
     <main>
         <div class="section">
-            <h2>🔧 Volume Outliers Corrected</h2>
+            <h2>📊 Coins in TOTAL2 - Ranking by Days ({len(coin_statistics)} coins)</h2>
             <p class="description">
-                CryptoCompare occasionally has bad data points with impossible volume spikes.
-                These corrupt values are automatically detected and corrected by interpolating
-                from surrounding days. A data point is flagged as an outlier if its volume is
-                &gt;20x the rolling median AND &gt;5,000 BTC.<br><br>
-                <strong>{len(volume_outliers)} corrections</strong> were applied.
+                Ranking of all coins that have appeared in TOTAL2, sorted by number of days present.
+                Click any column header to sort. Links go to CryptoCompare coin pages.
             </p>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Coin</th>
-                        <th>Date</th>
-                        <th>Original Volume (BTC)</th>
-                        <th>Corrected Volume (BTC)</th>
-                        <th>Ratio</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {volume_rows}
-                </tbody>
-            </table>
+            <div class="table-container">
+                <table id="coin-stats-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Coin</th>
+                            <th>Days</th>
+                            <th>Still In</th>
+                            <th>First Date</th>
+                            <th>First Price</th>
+                            <th>First Weight</th>
+                            <th>Last Date</th>
+                            <th>Last Price</th>
+                            <th>Last Weight</th>
+                            <th>Min Price</th>
+                            <th>Max Price</th>
+                            <th>Min Weight</th>
+                            <th>Max Weight</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {coin_rows}
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="section">
-            <h2>📈 Price Outliers Corrected</h2>
+            <h2>🔧 Volume Outliers Corrected</h2>
             <p class="description">
-                Extreme day-over-day price changes (&gt;5x spike or &gt;80% crash) are detected
-                and corrected by interpolating from neighboring days. This typically catches
-                launch day anomalies (e.g., ZEC launched at 27.8 BTC, crashed 90% next day).<br><br>
+                CryptoCompare occasionally has bad data points with impossible volume spikes.
+                These corrupt values are automatically detected using a rolling median of past 7 days,
+                and corrected using a capped average approach. A data point is flagged as an outlier
+                if its volume is &gt;20x the rolling median AND &gt;5,000 BTC.<br><br>
+                <strong>{len(volume_outliers)} corrections</strong> were applied.
+            </p>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Coin</th>
+                            <th>Date</th>
+                            <th>Original Volume (BTC)</th>
+                            <th>Corrected Volume (BTC)</th>
+                            <th>Ratio</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {volume_rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📈 Price Corrections (Outliers + Entry Warmup)</h2>
+            <p class="description">
+                <strong>Day-over-day outliers:</strong> Extreme price changes (&gt;5x spike or &gt;80% crash)
+                are detected and corrected using a capped average approach.<br>
+                <strong>TOTAL2 entry warmup:</strong> When a coin first enters TOTAL2, its price is capped
+                to max +80% gain or -40% loss per day, starting from market level (TOTAL2 value).
+                This prevents artificial spikes from coins like ZEC (27.8 BTC on day 1) or YFI (3.73 BTC after 10x growth).<br><br>
                 <strong>{len(price_outliers)} corrections</strong> were applied.
             </p>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Coin</th>
-                        <th>Date</th>
-                        <th>Original Price (BTC)</th>
-                        <th>Corrected Price (BTC)</th>
-                        <th>Ratio</th>
-                        <th>Type</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {price_rows}
-                </tbody>
-            </table>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Coin</th>
+                            <th>Date</th>
+                            <th>Original Price (BTC)</th>
+                            <th>Corrected Price (BTC)</th>
+                            <th>Ratio</th>
+                            <th>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {price_rows}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </main>
 
     {footer_html}
+    {sort_js}
 </body>
 </html>
 """
@@ -1237,7 +1413,7 @@ def _generate_outliers_html(volume_outliers: list[dict], price_outliers: list[di
 
 
 def generate_index_page() -> Path:
-    """Generate the main index.html page and volume outliers page in the site directory."""
+    """Generate the main index.html page and TOTAL2 statistics page in the site directory."""
     DOCS_SITE_DIR.mkdir(parents=True, exist_ok=True, mode=0o755)
 
     # Load max weight change info if available
@@ -1252,21 +1428,23 @@ def generate_index_page() -> Path:
 
     logger.info("Index page generated: %s", output_file)
 
-    # Generate volume outliers page if we have outlier data
-    # Generate outliers page if we have outlier data
+    # Generate TOTAL2 statistics page if we have data
     volume_outliers = (
         max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
     )
     price_outliers = max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
+    coin_statistics = max_weight_info.get("coin_statistics", []) if max_weight_info else []
 
-    if volume_outliers or price_outliers:
-        outliers_html = _generate_outliers_html(volume_outliers, price_outliers)
-        outliers_file = DOCS_SITE_DIR / "volume_outliers.html"
+    if volume_outliers or price_outliers or coin_statistics:
+        stats_html = _generate_total2_statistics_html(
+            volume_outliers, price_outliers, coin_statistics
+        )
+        stats_file = DOCS_SITE_DIR / "total2_statistics.html"
 
-        with open(outliers_file, "w", encoding="utf-8") as f:
-            f.write(outliers_html)
+        with open(stats_file, "w", encoding="utf-8") as f:
+            f.write(stats_html)
 
-        logger.info("Outliers page generated: %s", outliers_file)
+        logger.info("TOTAL2 statistics page generated: %s", stats_file)
 
     return output_file
 

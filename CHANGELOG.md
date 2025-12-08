@@ -12,6 +12,36 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.7] - 2025-12-08
+
+**TOTAL2 price smoothing overhaul and governance tokens inclusion**
+
+- **Added:** Governance tokens to ALLOWED_TOKENS list (BARD, DBR, FRAX, LDO, MNDE, REZ, RPL, SD, SWELL)
+  - These are governance tokens for staking/bridging protocols, not wrapped tokens themselves
+- **Added:** TOTAL2 entry warmup with iterative price capping
+  - Replaces SMA smoothing with max +80% gain / -40% loss per day capping
+  - Uses corrected TOTAL2 (market level) as baseline before entry
+  - Handles both ZEC-type (extreme launch price) and YFI-type (growth before entry) cases
+  - Configurable via `TOTAL2_ENTRY_MAX_INCREASE`, `TOTAL2_ENTRY_MAX_DECREASE`, `TOTAL2_ENTRY_WARMUP_DAYS`
+- **Added:** TOTAL2 Statistics page with coin ranking table
+  - Sortable table showing all coins that appeared in TOTAL2
+  - Displays rank, days in TOTAL2, first/last/min/max price and weight
+  - Links to CryptoCompare coin pages
+- **Added:** Two-pass TOTAL2 calculation algorithm
+  - Pass 1: Calculate raw TOTAL2, apply outlier detection to series itself
+  - Pass 2: Apply entry warmup capping, recalculate final TOTAL2
+- **Changed:** Renamed "Data Outliers Corrected" to "TOTAL2 Statistics" page
+- **Changed:** Renamed `volume_outliers.html` to `total2_statistics.html`
+- **Changed:** Table columns in statistics page now center-aligned
+- **Fixed:** ZEC launch day spike (27.8 BTC) now properly smoothed via entry warmup
+- **Fixed:** YFI entry spike (3.73 BTC after 10x growth) now properly smoothed
+- **Removed:** SMA-based price warmup (replaced by iterative capping)
+- **Removed:** Listing-based warmup (replaced by TOTAL2 entry-based warmup)
+- **Updated:** TOTAL2_CALCULATION.md with detailed documentation of new algorithm
+- **Updated:** config.py comments with ZEC and YFI case studies
+
+**Categories:** Features, Algorithm, Documentation, Filtering
+
 ### [2025.12.5] - 2025-12-04
 
 **Visualization, dual currency support, expanded coin coverage, and bug fixes**
@@ -28,7 +58,7 @@ format YYYY.MM.patch.
 - **Added:** New badge style for "Insufficient historical data" in HTML documentation
 - **Changed:** `TOP_N_COINS` increased from 300 to 1000 (includes historical coins like XEM)
 - **Changed:** Price files now use pair-based naming: `eth-btc.parquet`, `eth-usd.parquet`
-- **Changed:** 28-day SMA warmup period means coins appear 28 days after their data starts
+- **Changed:** 120-day SMA warmup period means coins gradually enter TOTAL2 over 120 days
 - **Fixed:** BTC is now downloaded (for charts) but excluded from TOTAL2 calculation
 - **Fixed:** Recent coins are included in TOTAL2 but marked as "not for individual analysis"
 - **Fixed:** End date for price fetching now dynamically set to yesterday instead of being capped at analysis end date (2025-10-21)
