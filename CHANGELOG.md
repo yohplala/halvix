@@ -16,8 +16,9 @@ format YYYY.MM.patch.
 
 **TOTAL2 price smoothing overhaul and governance tokens inclusion**
 
-- **Added:** Governance tokens to ALLOWED_TOKENS list (BARD, DBR, FRAX, LDO, MNDE, REZ, RPL, SD, SWELL)
+- **Added:** Governance tokens to ALLOWED_TOKENS list (BARD, DBR, FXS, LDO, MNDE, REZ, RPL, SD, SWELL)
   - These are governance tokens for staking/bridging protocols, not wrapped tokens themselves
+  - Note: FXS (Frax Share) is the governance token; FRAX is the stablecoin
 - **Added:** TOTAL2 entry warmup with iterative price capping
   - Replaces SMA smoothing with max +80% gain / -40% loss per day capping
   - Uses corrected TOTAL2 (market level) as baseline before entry
