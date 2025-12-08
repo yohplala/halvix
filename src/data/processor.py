@@ -3,10 +3,11 @@ Data processor for TOTAL2 index calculation.
 
 Calculates the volume-weighted TOTAL2 index:
 - For each day, identifies top N coins by smoothed 24h trading volume
-- Uses 28-day SMA for volume smoothing (configurable via VOLUME_SMA_WINDOW)
+- Uses 120-day SMA for volume smoothing (configurable via VOLUME_SMA_WINDOW)
 - Excludes BTC, derivatives, and stablecoins
 - Computes volume-weighted average price in BTC
 - Tracks daily composition (which coins were in the index)
+- Two-pass algorithm: calculates raw TOTAL2, then smooths new coin prices
 
 Vectorized implementation for efficient computation across all dates.
 """
@@ -54,6 +55,10 @@ OUTLIER_WINDOW_DAYS = 7  # Days before and after to calculate median
 PRICE_OUTLIER_THRESHOLD = 5  # >5x or <0.2x day-over-day change
 MIN_PRICE_FOR_OUTLIER_CHECK = 0.001  # Only check coins with meaningful price (BTC)
 
+# TOTAL2 series outlier detection parameters
+# Used to detect outliers in the raw TOTAL2 series itself (caused by new coin spikes)
+TOTAL2_OUTLIER_THRESHOLD = 2  # >2x or <0.5x day-over-day change in TOTAL2
+
 
 @dataclass
 class Total2Result:
@@ -80,13 +85,15 @@ class Total2Processor:
 
     The composition changes daily based on smoothed 24h trading volume rankings.
 
-    Algorithm (vectorized):
+    Algorithm (two-pass, vectorized):
     1. Get cached coin IDs, filter out BTC/derivatives/stablecoins (before loading)
     2. Load price data for eligible coins only into aligned DataFrames
-    3. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 28)
-    4. Rank coins by smoothed volume for each day
-    5. Create mask for top N coins
-    6. Calculate: TOTAL2 = Σ(price × smoothed_volume) / Σ(smoothed_volume)
+    3. Apply SMA smoothing to volume data (VOLUME_SMA_WINDOW days, default: 120)
+    4. PASS 1: Calculate raw TOTAL2, apply TOTAL2 outlier detection
+    5. PASS 2: Smooth new coin prices using corrected TOTAL2 as baseline
+    6. Rank coins by smoothed volume for each day
+    7. Create mask for top N coins
+    8. Calculate: TOTAL2 = Σ(price × smoothed_volume) / Σ(smoothed_volume)
 
     Important: TOTAL2 uses ALL cached price data, including recent coins.
     The MIN_DATA_DATE filter only applies to individual coin halving cycle
@@ -167,6 +174,9 @@ class Total2Processor:
 
         Also detects and corrects volume and price outliers from bad data.
 
+        NOTE: TOTAL2 entry warmup smoothing is applied separately after this,
+        in the calculate_total2() method, once we know which coins are in TOTAL2.
+
         Args:
             price_data: Dictionary of price DataFrames per coin
             show_progress: Whether to print progress messages
@@ -204,7 +214,7 @@ class Total2Processor:
             volume_df, show_progress=show_progress
         )
 
-        # Apply price data corrections for outliers (launch spikes, etc.)
+        # Apply price data corrections for day-over-day outliers
         close_df, price_outliers = self._apply_price_corrections(
             close_df, show_progress=show_progress
         )
@@ -341,26 +351,120 @@ class Total2Processor:
 
         return corrected_df, all_corrections
 
+    def _apply_total2_outlier_detection(
+        self,
+        total2_series: pd.Series,
+        show_progress: bool = True,
+    ) -> tuple[pd.Series, list[dict]]:
+        """
+        Detect and correct outliers in the TOTAL2 series itself using only PAST data.
+
+        This catches cases where a new coin with extreme launch price causes
+        TOTAL2 to spike or crash artificially (e.g., ZEC at 27.8 BTC on 2016-10-28).
+
+        Uses a capped average approach similar to price outlier detection:
+        - For spikes: corrected = (prev + min(current, cap)) / 2
+        - For crashes: corrected = (prev + max(current, floor)) / 2
+
+        Args:
+            total2_series: Series with TOTAL2 values (index = dates)
+            show_progress: Whether to print correction messages
+
+        Returns:
+            Tuple of (corrected_series, list_of_corrections)
+        """
+        corrected = total2_series.copy()
+        all_corrections = []
+        max_iterations = 10
+
+        for iteration in range(max_iterations):
+            corrections_made = []
+
+            # Calculate day-over-day ratio
+            ratio = corrected / corrected.shift(1)
+
+            # Find outliers: >2x spike or >50% crash
+            is_spike = (ratio > TOTAL2_OUTLIER_THRESHOLD) & (corrected.shift(1) > 0)
+            is_crash = (ratio < (1 / TOTAL2_OUTLIER_THRESHOLD)) & (corrected.shift(1) > 0)
+            is_outlier = is_spike | is_crash
+
+            outlier_indices = corrected.index[is_outlier]
+
+            if len(outlier_indices) == 0:
+                break
+
+            for idx in outlier_indices:
+                pos = corrected.index.get_loc(idx)
+                if pos == 0:
+                    continue
+
+                original = corrected.iloc[pos]
+                prev = corrected.iloc[pos - 1]
+                r = ratio.iloc[pos]
+
+                if not pd.notna(prev) or prev <= 0:
+                    continue
+                if not pd.notna(original) or original <= 0:
+                    continue
+
+                if r > 1:
+                    # Spike: cap at threshold times previous
+                    cap = prev * TOTAL2_OUTLIER_THRESHOLD
+                    interpolated = (prev + min(original, cap)) / 2
+                    change_type = "spike"
+                else:
+                    # Crash: floor at previous / threshold
+                    floor = prev / TOTAL2_OUTLIER_THRESHOLD
+                    interpolated = (prev + max(original, floor)) / 2
+                    change_type = "crash"
+
+                if interpolated <= 0:
+                    continue
+
+                corrected.iloc[pos] = interpolated
+                corrections_made.append(
+                    {
+                        "date": str(idx.date() if hasattr(idx, "date") else idx),
+                        "original": float(original),
+                        "corrected": float(interpolated),
+                        "ratio": float(r) if np.isfinite(r) else 0.0,
+                        "type": change_type,
+                        "iteration": iteration + 1,
+                    }
+                )
+
+            all_corrections.extend(corrections_made)
+
+            if show_progress and corrections_made:
+                print(
+                    f"  TOTAL2 outlier iteration {iteration + 1}: {len(corrections_made)} corrections"
+                )
+
+        if all_corrections and show_progress:
+            print(f"  TOTAL2 series corrections ({len(all_corrections)} total):")
+            for c in all_corrections[:10]:
+                print(f"    {c['date']}: {c['original']:.8f} → {c['corrected']:.8f} ({c['type']})")
+
+        return corrected, all_corrections
+
     def _apply_price_corrections(
         self,
         close_df: pd.DataFrame,
         show_progress: bool = True,
     ) -> tuple[pd.DataFrame, list[dict]]:
         """
-        Detect and correct extreme price moves using only PAST data.
+        Detect and correct extreme day-over-day price moves using only PAST data.
 
-        Two types of corrections:
-        1. Warmup smoothing: For the first PRICE_SMA_WARMUP_DAYS of each coin,
-           apply zero-padded SMA to smooth out launch day spikes
-        2. Day-over-day outliers: >5x spike or >80% crash using only past data
+        This handles cases where a coin has a sudden >5x spike or >80% crash
+        in a single day. These are typically data errors or extreme anomalies.
 
-        IMPORTANT: This method only uses past data for both detection and correction,
+        NOTE: TOTAL2 entry warmup smoothing is handled separately by
+        _apply_total2_entry_warmup(), which smooths prices when a coin
+        first enters TOTAL2 (handles both ZEC and YFI type cases).
+
+        IMPORTANT: This method only uses past data for detection and correction,
         ensuring the algorithm can run iteratively as new data appears without
         recalculating past values.
-
-        The correction uses a capped approach:
-        - For spikes: cap at PRICE_OUTLIER_THRESHOLD times previous day's price
-        - For crashes: use a capped average between previous price and outlier
 
         Args:
             close_df: DataFrame with close price data (dates × coins)
@@ -369,72 +473,11 @@ class Total2Processor:
         Returns:
             Tuple of (corrected_close_df, list_of_corrections)
         """
-        from config import PRICE_SMA_WARMUP_DAYS, PRICE_SMA_WARMUP_WINDOW
-
         corrected_df = close_df.copy()
         all_corrections = []
         max_iterations = 10  # Prevent infinite loops
 
-        # === Part 1: Warmup smoothing for first days (zero-padded SMA, no forward-looking) ===
-        # Uses the same approach as volume smoothing:
-        # 1. Fill NaN values before first valid price with 0 (zero-padding)
-        # 2. Apply rolling SMA with min_periods=1
-        # 3. Only apply corrections during warmup period (first PRICE_SMA_WARMUP_DAYS)
-        #
-        # For N-period SMA with zero-padding:
-        #   Day 1: (0 + ... + 0 + price) / N = price / N  (N-1 zeros)
-        #   Day 2: (0 + ... + prev + price) / N
-        #   Day N+: regular N-day SMA
-
-        # Create zero-padded price DataFrame for SMA calculation
-        padded_close_df = corrected_df.copy()
-        for coin_id in padded_close_df.columns:
-            first_valid_idx = corrected_df[coin_id].first_valid_index()
-            if first_valid_idx is not None:
-                # Fill all NaN values before the first valid data point with 0
-                mask = padded_close_df.index < first_valid_idx
-                padded_close_df.loc[mask, coin_id] = 0.0
-
-        # Apply SMA with min_periods=1 (same as volume smoothing)
-        smoothed_close_df = padded_close_df.rolling(
-            window=PRICE_SMA_WARMUP_WINDOW, min_periods=1
-        ).mean()
-
-        # Apply corrections only during warmup period for each coin
-        for coin_id in corrected_df.columns:
-            first_valid_idx = corrected_df[coin_id].first_valid_index()
-            if first_valid_idx is None:
-                continue
-
-            first_pos = corrected_df.index.get_loc(first_valid_idx)
-            warmup_end_pos = min(first_pos + PRICE_SMA_WARMUP_DAYS, len(corrected_df))
-
-            for pos in range(first_pos, warmup_end_pos):
-                original_price = corrected_df.iloc[pos][coin_id]
-                smoothed = smoothed_close_df.iloc[pos][coin_id]
-
-                if pd.isna(original_price) or original_price <= 0:
-                    continue
-                if pd.isna(smoothed) or smoothed <= 0:
-                    continue
-
-                # Only apply correction if it significantly changes the price (>threshold)
-                if original_price > MIN_PRICE_FOR_OUTLIER_CHECK:
-                    ratio = original_price / smoothed
-                    if ratio > PRICE_OUTLIER_THRESHOLD:
-                        corrected_df.iloc[pos, corrected_df.columns.get_loc(coin_id)] = smoothed
-                        all_corrections.append(
-                            {
-                                "coin": coin_id.upper(),
-                                "date": str(corrected_df.index[pos].date()),
-                                "original": float(original_price),
-                                "corrected": float(smoothed),
-                                "ratio": float(ratio),
-                                "type": "warmup-sma",
-                            }
-                        )
-
-        # === Part 2: Day-over-day outliers (iterative, using only past data) ===
+        # === Day-over-day outliers (iterative, using only past data) ===
         for iteration in range(max_iterations):
             corrections_made = []
 
@@ -468,13 +511,6 @@ class Total2Processor:
                 original_price = corrected_df.iloc[idx, col_idx]
                 prev_price = corrected_df.iloc[idx - 1, col_idx] if idx > 0 else np.nan
                 ratio = price_ratio.iloc[idx, col_idx]
-
-                # Skip if already corrected as warmup-sma
-                coin_first_valid = corrected_df[coin_id].first_valid_index()
-                if coin_first_valid is not None:
-                    first_pos = corrected_df.index.get_loc(coin_first_valid)
-                    if idx < first_pos + PRICE_SMA_WARMUP_DAYS:
-                        continue  # Already handled in Part 1
 
                 if not pd.notna(prev_price) or prev_price <= 0:
                     continue  # Cannot correct without valid past data
@@ -547,6 +583,156 @@ class Total2Processor:
 
         return corrected_df, all_corrections
 
+    def _apply_total2_entry_warmup(
+        self,
+        close_df: pd.DataFrame,
+        mask_df: pd.DataFrame,
+        total2_fill_values: pd.Series,
+        show_progress: bool = True,
+    ) -> tuple[pd.DataFrame, list[dict]]:
+        """
+        Apply warmup price capping when a coin first ENTERS TOTAL2.
+
+        Instead of SMA smoothing, this uses iterative capping:
+        - Day 0 (before entry): Use corrected TOTAL2 value as baseline (market level)
+        - Day 1+: Cap price at MAX_INCREASE times previous day's capped price
+        - If actual price is below cap, use actual price
+        - For crashes: cap at MAX_DECREASE times previous day's capped price
+
+        This handles TWO types of cases:
+
+        CASE 1 - ZEC (2016-10-28): Listed AND entered TOTAL2 on same day
+          - Day 0: Use corrected TOTAL2 (~0.01 BTC) as baseline
+          - Day 1: Actual 27.8 BTC → Cap at 1.8x = 0.018 BTC
+          - Day 2: Actual 2.79 BTC → Cap at 1.8x = 0.032 BTC
+          - ... converges to actual (~1-2 BTC) in ~9 days
+
+        CASE 2 - YFI (2020-09-14): Entered TOTAL2 45 days after listing
+          - Day 0: Use corrected TOTAL2 (~0.012 BTC) as baseline
+          - Day 1: Actual 3.73 BTC → Cap at 1.8x = 0.022 BTC
+          - ... converges to actual (~3.7 BTC) in ~10 days
+
+        Args:
+            close_df: DataFrame with close prices
+            mask_df: Boolean DataFrame indicating which coins are in TOTAL2 each day
+            total2_fill_values: Corrected TOTAL2 series to use as baseline
+            show_progress: Whether to print progress messages
+
+        Returns:
+            Tuple of (capped_close_df, list_of_corrections)
+        """
+        from config import (
+            TOTAL2_ENTRY_MAX_DECREASE,
+            TOTAL2_ENTRY_MAX_INCREASE,
+            TOTAL2_ENTRY_WARMUP_DAYS,
+        )
+
+        corrected_df = close_df.copy()
+        all_corrections = []
+
+        # Find first TOTAL2 entry date for each coin
+        entry_dates = {}
+        for coin_id in mask_df.columns:
+            coin_mask = mask_df[coin_id]
+            if coin_mask.any():
+                first_entry_idx = coin_mask.idxmax()  # First True value
+                if coin_mask.loc[first_entry_idx]:  # Verify it's actually True
+                    entry_dates[coin_id] = first_entry_idx
+
+        if show_progress and entry_dates:
+            print(f"  Applying TOTAL2 entry warmup (capping) for {len(entry_dates)} coins...")
+
+        # For each coin with a TOTAL2 entry date, apply warmup capping
+        for coin_id, entry_date in entry_dates.items():
+            entry_pos = corrected_df.index.get_loc(entry_date)
+
+            # Get the baseline price: corrected TOTAL2 value from the day before entry
+            if entry_pos > 0:
+                baseline_date = corrected_df.index[entry_pos - 1]
+                if baseline_date in total2_fill_values.index:
+                    prev_capped_price = total2_fill_values.loc[baseline_date]
+                else:
+                    # Fallback: use the entry date's TOTAL2 value
+                    prev_capped_price = (
+                        total2_fill_values.loc[entry_date]
+                        if entry_date in total2_fill_values.index
+                        else None
+                    )
+            else:
+                prev_capped_price = (
+                    total2_fill_values.loc[entry_date]
+                    if entry_date in total2_fill_values.index
+                    else None
+                )
+
+            if prev_capped_price is None or pd.isna(prev_capped_price) or prev_capped_price <= 0:
+                continue  # Skip if no valid baseline
+
+            # Apply capping iteratively during warmup period
+            warmup_end_pos = min(entry_pos + TOTAL2_ENTRY_WARMUP_DAYS, len(corrected_df))
+
+            for pos in range(entry_pos, warmup_end_pos):
+                original_price = corrected_df.iloc[pos][coin_id]
+
+                if pd.isna(original_price) or original_price <= 0:
+                    continue
+
+                # Calculate caps based on previous capped price
+                max_price = prev_capped_price * TOTAL2_ENTRY_MAX_INCREASE
+                min_price = prev_capped_price * TOTAL2_ENTRY_MAX_DECREASE
+
+                # Apply capping
+                if original_price > max_price:
+                    # Spike: cap at max increase
+                    capped_price = max_price
+                    change_type = "spike-cap"
+                elif original_price < min_price:
+                    # Crash: cap at max decrease
+                    capped_price = min_price
+                    change_type = "crash-cap"
+                else:
+                    # Within bounds: use actual price
+                    capped_price = original_price
+                    change_type = None
+
+                # Apply correction if capped
+                if change_type is not None:
+                    corrected_df.iloc[pos, corrected_df.columns.get_loc(coin_id)] = capped_price
+                    ratio = original_price / capped_price if capped_price > 0 else float("inf")
+                    all_corrections.append(
+                        {
+                            "coin": coin_id.upper(),
+                            "date": str(corrected_df.index[pos].date()),
+                            "original": float(original_price),
+                            "corrected": float(capped_price),
+                            "ratio": float(ratio) if np.isfinite(ratio) else 0.0,
+                            "type": change_type,
+                        }
+                    )
+
+                # Update previous capped price for next iteration
+                # Use the capped price (whether corrected or original)
+                prev_capped_price = capped_price if change_type else original_price
+
+        # Report corrections
+        if all_corrections and show_progress:
+            print(f"  TOTAL2 entry warmup corrections ({len(all_corrections)} total):")
+            # Group by coin for summary
+            coins_affected = {c["coin"] for c in all_corrections}
+            for coin in sorted(coins_affected)[:10]:
+                coin_corrections = [c for c in all_corrections if c["coin"] == coin]
+                first_c = coin_corrections[0]
+                last_c = coin_corrections[-1]
+                print(
+                    f"    {coin}: {len(coin_corrections)} days capped, "
+                    f"{first_c['original']:.6f} → {first_c['corrected']:.6f} BTC (day 1), "
+                    f"→ {last_c['corrected']:.6f} BTC (day {len(coin_corrections)})"
+                )
+            if len(coins_affected) > 10:
+                print(f"    ... and {len(coins_affected) - 10} more coins")
+
+        return corrected_df, all_corrections
+
     def filter_coins_for_total2(
         self,
         coin_ids: list[str],
@@ -613,10 +799,21 @@ class Total2Processor:
         show_progress: bool = True,
     ) -> Total2Result:
         """
-        Calculate the volume-weighted TOTAL2 index using vectorized operations.
+        Calculate the volume-weighted TOTAL2 index using a two-pass approach.
 
-        Uses SMA-smoothed volume for ranking and weighting. The first
-        (volume_sma_window - 1) days will have NaN values due to warmup.
+        TWO-PASS ALGORITHM:
+        1. Pass 1: Calculate raw TOTAL2 without price warmup smoothing
+           - Apply volume outlier detection and correction
+           - Calculate raw TOTAL2 (may have spikes from new coin launches)
+        2. Apply TOTAL2 outlier detection to the raw series
+           - Detect and correct spikes/crashes in TOTAL2 itself
+        3. Pass 2: Use corrected TOTAL2 to smooth new coin prices
+           - Fill pre-listing prices with corrected TOTAL2 values (market level)
+           - Apply SMA warmup smoothing for 14 days
+           - Recalculate final TOTAL2 with smoothed prices
+
+        This approach prevents artificial spikes (like ZEC at 27.8 BTC) by using
+        the market level as a baseline for smoothing new coin prices.
 
         Args:
             coin_ids: Optional list of coin IDs (default: all cached, filtered)
@@ -628,10 +825,6 @@ class Total2Processor:
             Total2Result with index and composition DataFrames
         """
         # Load all price data from cache
-        # Note: This includes ALL cached coins (including recent ones).
-        # The MIN_DATA_DATE filter does not apply to TOTAL2 calculation.
-        # This ensures index immutability: the value for any day D won't change
-        # when recalculated in the future (no retroactive changes).
         all_cached = self.price_cache.list_cached_coins(self.quote_currency)
 
         if not all_cached:
@@ -654,60 +847,81 @@ class Total2Processor:
         if not price_data:
             raise ProcessorError("Failed to load price data for eligible coins")
 
+        # =====================================================================
+        # PASS 1: Calculate raw TOTAL2 without price entry warmup smoothing
+        # =====================================================================
         if show_progress:
-            print(f"Building aligned DataFrames for {len(price_data)} coins...")
+            print(f"PASS 1: Building aligned DataFrames for {len(price_data)} coins...")
 
-        # Build aligned DataFrames (includes outlier detection)
-        close_df, volume_df, volume_outliers, price_outliers = self.build_aligned_dataframes(
-            price_data, show_progress
+        # Build aligned DataFrames with volume and day-over-day price corrections
+        # (TOTAL2 entry warmup is applied in PASS 2 after we know which coins are in TOTAL2)
+        close_df_raw, volume_df, volume_outliers, price_outliers = self.build_aligned_dataframes(
+            price_data, show_progress=show_progress
         )
 
         if show_progress:
             print(f"Applying {self.volume_sma_window}-day SMA to volume (zero-padded)...")
 
         # Apply SMA to volume with zero-padding for warmup
-        # Instead of removing the first VOLUME_SMA_WINDOW-1 points, we pad with zeros
-        # This ensures coins entering the TOP50 do so gradually, preventing sudden jumps
-        #
-        # How it works: for each coin, we fill NaN values before its first data point with 0
-        # This way, when a coin appears (e.g., YFI on 2020-09-19), its smoothed volume is:
-        #   Day 1: volume / SMA_WINDOW (averaged with SMA_WINDOW-1 zeros)
-        #   Day 2: (vol1 + vol2) / SMA_WINDOW
-        #   ...
-        #   Day SMA_WINDOW: actual SMA
-        # This prevents sudden jumps when a coin enters the TOP50 with significant volume
-
         padded_volume_df = volume_df.copy()
         for coin_id in padded_volume_df.columns:
             first_valid_idx = volume_df[coin_id].first_valid_index()
             if first_valid_idx is not None:
-                # Fill all NaN values before the first valid data point with 0
-                # This creates the zero-padding effect for the SMA warmup
                 mask = padded_volume_df.index < first_valid_idx
                 padded_volume_df.loc[mask, coin_id] = 0.0
 
-        # Apply SMA with min_periods=1 so we get values from day 1
-        # The zero-padding ensures gradual weight increase for new coins
         smoothed_volume_df = padded_volume_df.rolling(
             window=self.volume_sma_window, min_periods=1
         ).mean()
 
         if show_progress:
-            print("Calculating daily rankings and TOTAL2...")
+            print("Calculating raw TOTAL2 (Pass 1)...")
 
         # Rank by smoothed volume (highest = 1)
         rank_df = smoothed_volume_df.rank(axis=1, ascending=False, method="first")
-
-        # Create mask for top N
         mask_df = rank_df <= self.top_n
 
-        # Apply mask
-        masked_close = close_df.where(mask_df)
+        # Calculate raw TOTAL2
+        masked_close_raw = close_df_raw.where(mask_df)
         masked_volume = smoothed_volume_df.where(mask_df)
-
-        # Calculate TOTAL2 = Σ(price × volume) / Σ(volume)
-        numerator = (masked_close * masked_volume).sum(axis=1)
+        numerator_raw = (masked_close_raw * masked_volume).sum(axis=1)
         denominator = masked_volume.sum(axis=1)
+        raw_total2_series = numerator_raw / denominator
+
+        # =====================================================================
+        # Apply TOTAL2 outlier detection to the raw series
+        # =====================================================================
+        if show_progress:
+            print("Detecting and correcting TOTAL2 outliers...")
+
+        corrected_total2, total2_corrections = self._apply_total2_outlier_detection(
+            raw_total2_series, show_progress=show_progress
+        )
+
+        # =====================================================================
+        # PASS 2: Apply TOTAL2 entry warmup for all coins entering TOTAL2
+        # =====================================================================
+        if show_progress:
+            print("PASS 2: Applying TOTAL2 entry warmup smoothing...")
+
+        # Apply TOTAL2 entry warmup - this handles both:
+        # - ZEC-type: coin enters TOTAL2 on listing day with extreme price (27.8 BTC)
+        # - YFI-type: coin enters TOTAL2 after growing for weeks/months (3.73 BTC)
+        # Both are smoothed from market level (corrected TOTAL2) to actual price
+        close_df_smoothed, entry_warmup_corrections = self._apply_total2_entry_warmup(
+            close_df_raw, mask_df, corrected_total2, show_progress=show_progress
+        )
+
+        # Add entry warmup corrections to the price outliers list
+        if entry_warmup_corrections:
+            price_outliers = (price_outliers or []) + entry_warmup_corrections
+
+        if show_progress:
+            print("Calculating final TOTAL2 (Pass 2)...")
+
+        # Recalculate TOTAL2 with smoothed prices
+        masked_close = close_df_smoothed.where(mask_df)
+        numerator = (masked_close * masked_volume).sum(axis=1)
         total2_series = numerator / denominator
 
         # Count coins included per day
@@ -750,7 +964,7 @@ class Total2Processor:
             print("Building composition records...")
 
         composition_records = self._build_composition_records(
-            close_df, smoothed_volume_df, rank_df, mask_df, total2_series.index
+            close_df_smoothed, smoothed_volume_df, rank_df, mask_df, total2_series.index
         )
 
         composition_df = pd.DataFrame(composition_records)
@@ -1007,6 +1221,97 @@ class Total2Processor:
 
         return index_record, composition_records
 
+    def calculate_coin_statistics(
+        self,
+        composition_df: pd.DataFrame,
+    ) -> list[dict]:
+        """
+        Calculate statistics for each coin's participation in TOTAL2.
+
+        Returns ranking of coins by number of days they appear in TOTAL2, with:
+        - First/last appearance dates, prices, and weights
+        - Min/max prices and weights while in TOTAL2
+        - Total days in TOTAL2
+        - Whether still present in latest composition
+
+        Args:
+            composition_df: DataFrame with daily composition records
+
+        Returns:
+            List of coin statistics dictionaries, sorted by days_in_total2 descending
+        """
+        from config import CRYPTOCOMPARE_COIN_URL
+
+        if composition_df.empty:
+            return []
+
+        # Get the latest date in the composition
+        latest_date = composition_df["date"].max()
+
+        # Get coins in the latest composition
+        latest_coins = set(
+            composition_df[composition_df["date"] == latest_date]["coin_id"].tolist()
+        )
+
+        # Group by coin_id and calculate statistics
+        coin_stats = []
+        for coin_id, group in composition_df.groupby("coin_id"):
+            group_sorted = group.sort_values("date")
+
+            # First appearance
+            first_row = group_sorted.iloc[0]
+            first_date = first_row["date"]
+            first_price = first_row["price_btc"]
+            first_weight = first_row["weight"] * 100  # Convert to percentage
+
+            # Last appearance
+            last_row = group_sorted.iloc[-1]
+            last_date = last_row["date"]
+            last_price = last_row["price_btc"]
+            last_weight = last_row["weight"] * 100  # Convert to percentage
+
+            # Min/max while in TOTAL2
+            min_price = group["price_btc"].min()
+            max_price = group["price_btc"].max()
+            min_weight = group["weight"].min() * 100  # Convert to percentage
+            max_weight = group["weight"].max() * 100  # Convert to percentage
+
+            # Days in TOTAL2
+            days_in_total2 = len(group)
+
+            # Still present?
+            still_present = coin_id in latest_coins
+
+            coin_stats.append(
+                {
+                    "coin_id": coin_id.upper(),
+                    "url": f"{CRYPTOCOMPARE_COIN_URL}/{coin_id.upper()}/overview",
+                    "days_in_total2": days_in_total2,
+                    "still_present": still_present,
+                    "first_date": str(
+                        first_date.date() if hasattr(first_date, "date") else first_date
+                    ),
+                    "first_price": float(first_price),
+                    "first_weight": float(first_weight),
+                    "last_date": str(last_date.date() if hasattr(last_date, "date") else last_date),
+                    "last_price": float(last_price),
+                    "last_weight": float(last_weight),
+                    "min_price": float(min_price),
+                    "max_price": float(max_price),
+                    "min_weight": float(min_weight),
+                    "max_weight": float(max_weight),
+                }
+            )
+
+        # Sort by days_in_total2 descending
+        coin_stats.sort(key=lambda x: x["days_in_total2"], reverse=True)
+
+        # Add rank
+        for i, stats in enumerate(coin_stats, 1):
+            stats["rank"] = i
+
+        return coin_stats
+
     def save_results(
         self,
         result: Total2Result,
@@ -1014,7 +1319,7 @@ class Total2Processor:
         composition_path: Path | None = None,
     ) -> tuple[Path, Path]:
         """
-        Save TOTAL2 results to parquet files and max weight change to JSON.
+        Save TOTAL2 results to parquet files and statistics to JSON.
 
         Args:
             result: Total2Result from calculate_total2
@@ -1039,7 +1344,10 @@ class Total2Processor:
         if not result.composition_df.empty:
             result.composition_df.to_parquet(composition_path, index=False)
 
-        # Save max weight change info and outliers to JSON (for index.html display)
+        # Calculate coin statistics for the new TOTAL2 Statistics page
+        coin_statistics = self.calculate_coin_statistics(result.composition_df)
+
+        # Save max weight change info, outliers, and coin statistics to JSON
         max_weight_info = {
             "max_weight_change": result.max_weight_change,
             "coin": (
@@ -1048,6 +1356,7 @@ class Total2Processor:
             "date": str(result.max_weight_change_date) if result.max_weight_change_date else None,
             "volume_outliers_corrected": result.volume_outliers_corrected or [],
             "price_outliers_corrected": result.price_outliers_corrected or [],
+            "coin_statistics": coin_statistics,
         }
         with open(TOTAL2_MAX_WEIGHT_CHANGE_FILE, "w", encoding="utf-8") as f:
             json.dump(max_weight_info, f, indent=2)

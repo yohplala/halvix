@@ -122,13 +122,32 @@ TOP_N_SUMMARY = 10
 # 120 days (~4 months) provides stable ranking and reduces max weight change
 VOLUME_SMA_WINDOW = 120
 
-# Price SMA window for first-day price smoothing (days)
-# Uses same zero-padding approach as volume smoothing:
-# - Fill values before first price with 0, then apply rolling SMA with min_periods=1
-# - For N-period SMA: Day 1 = price/N, Day 2 = (prev+price)/N, ..., Day N+ = regular SMA
-# Applied only during warmup period to smooth launch spikes (e.g., ZEC at 27.8 BTC)
-PRICE_SMA_WARMUP_WINDOW = 3  # N-period SMA window
-PRICE_SMA_WARMUP_DAYS = 7  # How many days the warmup smoothing applies
+# TOTAL2 Entry Warmup: Price capping when a coin first enters TOTAL2
+#
+# When a coin first enters TOTAL2 (TOP30 by volume), its price may cause
+# artificial spikes in the index. This warmup capping prevents that by:
+# 1. Using corrected TOTAL2 value as the baseline price before entry (market level)
+# 2. Capping daily price changes to MAX_INCREASE / MAX_DECREASE during warmup period
+# 3. Iteratively applying caps so each day uses the previous day's capped price
+#
+# This handles TWO types of cases:
+#
+# CASE 1 - ZEC (2016-10-28): Listed AND entered TOTAL2 on same day
+#   - Day 0 (before): Use corrected TOTAL2 (~0.01 BTC) as baseline
+#   - Day 1: Actual 27.8 BTC → Cap at 1.8x = 0.018 BTC
+#   - Day 2: Actual 2.79 BTC → Cap at 1.8x = 0.032 BTC
+#   - ... converges to actual price (~1-2 BTC) in ~9 days
+#
+# CASE 2 - YFI (2020-09-14): Entered TOTAL2 45 days after listing
+#   - Day 0 (before): Use corrected TOTAL2 (~0.012 BTC) as baseline
+#   - Day 1: Actual 3.73 BTC → Cap at 1.8x = 0.022 BTC
+#   - Day 2: Actual 3.27 BTC → Cap at 1.8x = 0.039 BTC
+#   - ... converges to actual price (~3.7 BTC) in ~10 days
+#
+# Both cases gradually ramp up from market level, preventing artificial TOTAL2 spikes.
+TOTAL2_ENTRY_MAX_INCREASE = 1.8  # Max 1.8x (80% gain) per day during warmup
+TOTAL2_ENTRY_MAX_DECREASE = 0.6  # Min 0.6x (40% loss) per day during warmup
+TOTAL2_ENTRY_WARMUP_DAYS = 14  # How many days entry warmup applies (2 weeks)
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
@@ -309,6 +328,17 @@ ALLOWED_TOKENS = {
     "strk",  # Starknet
     "wild",  # Wilder World
     "wifi",  # WIFI token
+    # Governance tokens for staking/bridging/wrapping protocols
+    # (not wrapped/staked tokens themselves - they have independent price action)
+    "bard",  # Bard governance token
+    "dbr",  # Debridger governance token
+    "frax",  # Frax governance token (distinct from FRAX stablecoin ticker)
+    "ldo",  # Lido DAO governance token
+    "mnde",  # Marinade Finance governance token
+    "rez",  # Renzo governance token
+    "rpl",  # Rocket Pool governance token
+    "sd",  # Stader governance token
+    "swell",  # Swell Network governance token
 }
 
 # =============================================================================
