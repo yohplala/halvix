@@ -34,7 +34,7 @@ BTC_COLORS = [
     "rgba(255, 245, 157, 0.9)",  # Cycle 1 (2012) - pale yellow
     "rgba(255, 200, 87, 0.92)",  # Cycle 2 (2016) - light orange
     "rgba(255, 145, 50, 0.95)",  # Cycle 3 (2020) - bright orange
-    "rgba(255, 87, 34, 1.0)",  # Cycle 4 (2024) - deep orange-red
+    "rgba(255, 140, 90, 1.0)",  # Cycle 4 (2024) - lighter coral orange (better contrast)
 ]
 
 # TOTAL2: Cyan to blue progression (3 cycles - skip cycle 1)
@@ -43,7 +43,16 @@ TOTAL2_COLORS = [
     "rgba(200, 230, 255, 0.85)",  # Cycle 1 (unused) - placeholder
     "rgba(144, 224, 239, 0.9)",  # Cycle 2 (2016) - pale cyan
     "rgba(56, 189, 248, 0.95)",  # Cycle 3 (2020) - bright cyan-blue
-    "rgba(37, 99, 235, 1.0)",  # Cycle 4 (2024) - vivid blue
+    "rgba(100, 160, 255, 1.0)",  # Cycle 4 (2024) - lighter sky blue (better contrast)
+]
+
+# Line styles per cycle (solid or dotted)
+# Cycle 2 uses dotted lines to distinguish from more recent cycles
+LINE_DASH_STYLES = [
+    "solid",  # Cycle 1 (2012)
+    "dot",  # Cycle 2 (2016) - dotted
+    "solid",  # Cycle 3 (2020)
+    "solid",  # Cycle 4 (2024)
 ]
 
 
@@ -390,7 +399,7 @@ def create_btc_usd_normalized_chart(
                 y=cycle_df["normalized"],
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": BTC_COLORS[i], "width": 2.5},
+                line={"color": BTC_COLORS[i], "width": 2.5, "dash": LINE_DASH_STYLES[i]},
                 customdata=dates_formatted,
                 hovertemplate=(
                     ""
@@ -534,7 +543,7 @@ def create_total2_dual_chart(
                     y=cycle_usd["normalized"],
                     mode="lines",
                     name=f"Cycle {cycle_num} ({halving_date.year})",
-                    line={"color": TOTAL2_COLORS[i], "width": 2},
+                    line={"color": TOTAL2_COLORS[i], "width": 2, "dash": LINE_DASH_STYLES[i]},
                     legendgroup=f"cycle{cycle_num}",
                     customdata=customdata_usd,
                     hovertemplate=(
@@ -565,7 +574,7 @@ def create_total2_dual_chart(
                     y=cycle_btc["normalized"],
                     mode="lines",
                     name=f"Cycle {cycle_num} ({halving_date.year})",
-                    line={"color": TOTAL2_COLORS[i], "width": 2},
+                    line={"color": TOTAL2_COLORS[i], "width": 2, "dash": LINE_DASH_STYLES[i]},
                     legendgroup=f"cycle{cycle_num}",
                     showlegend=False,  # Only show in legend once
                     customdata=customdata_btc,
@@ -756,7 +765,7 @@ def create_total2_halving_chart(
                 y=cycle_df["total2_price"],
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": TOTAL2_COLORS[i], "width": 2},
+                line={"color": TOTAL2_COLORS[i], "width": 2, "dash": LINE_DASH_STYLES[i]},
                 hovertemplate="%{text}<extra></extra>",
                 text=hover_texts,
             )
@@ -862,7 +871,7 @@ def create_btc_usd_halving_chart(
                 y=cycle_df["close"],
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": BTC_COLORS[i], "width": 2},
+                line={"color": BTC_COLORS[i], "width": 2, "dash": LINE_DASH_STYLES[i]},
                 customdata=dates_formatted,
                 hovertemplate=(
                     ""
@@ -992,7 +1001,7 @@ def create_btc_combined_chart(
                 y=cycle_df["normalized"],
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": BTC_COLORS[i], "width": 2.5},
+                line={"color": BTC_COLORS[i], "width": 2.5, "dash": LINE_DASH_STYLES[i]},
                 legendgroup=f"cycle{cycle_num}",
                 customdata=dates_formatted,
                 hovertemplate=(
@@ -1024,7 +1033,7 @@ def create_btc_combined_chart(
                 y=cycle_df["close"],
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": BTC_COLORS[i], "width": 2.5},
+                line={"color": BTC_COLORS[i], "width": 2.5, "dash": LINE_DASH_STYLES[i]},
                 legendgroup=f"cycle{cycle_num}",
                 showlegend=False,
                 customdata=dates_formatted,
@@ -1185,7 +1194,7 @@ def create_total2_combined_chart(
                     y=cycle_usd["normalized"],
                     mode="lines",
                     name=f"Cycle {cycle_num} ({halving_date.year})",
-                    line={"color": TOTAL2_COLORS[i], "width": 2.5},
+                    line={"color": TOTAL2_COLORS[i], "width": 2.5, "dash": LINE_DASH_STYLES[i]},
                     legendgroup=f"cycle{cycle_num}",
                     customdata=customdata_usd,
                     hovertemplate=(
@@ -1214,7 +1223,7 @@ def create_total2_combined_chart(
                     y=cycle_abs["total2_price"],
                     mode="lines",
                     name=f"Cycle {cycle_num} ({halving_date.year})",
-                    line={"color": TOTAL2_COLORS[i], "width": 2.5},
+                    line={"color": TOTAL2_COLORS[i], "width": 2.5, "dash": LINE_DASH_STYLES[i]},
                     legendgroup=f"cycle{cycle_num}",
                     showlegend=False,
                     customdata=customdata_abs,

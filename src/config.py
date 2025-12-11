@@ -145,9 +145,9 @@ VOLUME_SMA_WINDOW = 120
 #   - ... converges to actual price (~3.7 BTC) in ~10 days
 #
 # Both cases gradually ramp up from market level, preventing artificial TOTAL2 spikes.
-TOTAL2_ENTRY_MAX_INCREASE = 1.8  # Max 1.8x (80% gain) per day during warmup
-TOTAL2_ENTRY_MAX_DECREASE = 0.6  # Min 0.6x (40% loss) per day during warmup
-TOTAL2_ENTRY_WARMUP_DAYS = 14  # How many days entry warmup applies (2 weeks)
+TOTAL2_ENTRY_MAX_INCREASE = 1.7  # Max 1.7x (70% gain) per day during warmup
+TOTAL2_ENTRY_MAX_DECREASE = 0.5  # Min 0.5x (50% loss) per day during warmup
+TOTAL2_ENTRY_WARMUP_DAYS = 21  # How many days entry warmup applies (3 weeks)
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
@@ -332,6 +332,7 @@ ALLOWED_TOKENS = {
     # (not wrapped/staked tokens themselves - they have independent price action)
     "bard",  # Bard governance token
     "dbr",  # Debridger governance token
+    "ethfi",  # Ether.fi governance token
     "fxs",  # Frax Share - governance token (FRAX is the stablecoin)
     "ldo",  # Lido DAO governance token
     "mnde",  # Marinade Finance governance token

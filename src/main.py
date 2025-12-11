@@ -560,7 +560,7 @@ def _generate_html(
             </div>
             <div class="stat-card">
                 <div class="stat-value green">{coins_with_data}</div>
-                <div class="stat-label">Downloaded Price Data</div>
+                <div class="stat-label">Downloaded BTC-pairs Data</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value red">{len(skipped_coins)}</div>
@@ -573,9 +573,9 @@ def _generate_html(
         </div>
 
         <section id="downloaded">
-            <h2>📊 Downloaded Price Data ({coins_with_data} coins)</h2>
+            <h2>📊 Downloaded BTC-pairs Data ({coins_with_data} coins)</h2>
             <p class="section-description">
-                Price data downloaded from CryptoCompare. Excludes wrapped, staked, bridged tokens, stablecoins and Bitcoin.
+                Coins with BTC-pair data downloaded from CryptoCompare. Excludes wrapped, staked, bridged tokens, and stablecoins. BTC itself uses USD pair.
                 Data spans from before the first Bitcoin halving to yesterday.
                 Click coin name to view on CryptoCompare.
             </p>
@@ -595,13 +595,16 @@ def _generate_html(
                     <tbody>
 """
 
-    for i, coin in enumerate(coins_to_download, 1):
+    # Sort coins by market cap (descending) for consistent ranking
+    coins_sorted = sorted(
+        [c for c in coins_to_download if c.get("id", "").lower() in price_summaries],
+        key=lambda c: c.get("market_cap", 0),
+        reverse=True,
+    )
+
+    for i, coin in enumerate(coins_sorted, 1):
         coin_id = coin.get("id", "").lower()
         price_info = price_summaries.get(coin_id, {})
-
-        # Skip coins without price data in downloaded section
-        if not price_info:
-            continue
 
         market_cap = coin.get("market_cap", 0)
         if market_cap >= 1_000_000_000:
@@ -749,46 +752,14 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
     footer_css = _get_footer_css()
     footer_html = _get_footer_html()
 
-    # Build max weight change info box (simple display, not a link)
-    # and data outliers link
-    max_weight_box = ""
-    if max_weight_info and max_weight_info.get("max_weight_change") is not None:
-        change = max_weight_info["max_weight_change"]
-        coin = max_weight_info.get("coin", "N/A")
-        change_date = max_weight_info.get("date", "N/A")
-        warning_class = "warning" if abs(change) > 0.5 else "ok"
-        volume_outliers = max_weight_info.get("volume_outliers_corrected", [])
-        price_outliers = max_weight_info.get("price_outliers_corrected", [])
-        coin_statistics = max_weight_info.get("coin_statistics", [])
-        total_outliers = len(volume_outliers) + len(price_outliers)
-        total_coins = len(coin_statistics)
-
-        max_weight_box = f"""
-            <li class="info-box-container">
-                <div class="info-box {warning_class}-box">
-                    <span class="icon">📊</span>
-                    <div class="info-content">
-                        <div class="info-title">TOTAL2 Quality Analysis</div>
-                        <div class="info-description">
-                            <strong>Max Weight Change:</strong> {change:.4f}% for <strong>{coin}</strong> on {change_date}<br>
-                            <span class="{'text-warning' if abs(change) > 0.5 else 'text-ok'}">
-                                {'⚠️ Exceeds 0.5% threshold' if abs(change) > 0.5 else '✓ Within acceptable range'}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </li>
-            <li>
-                <a href="total2_statistics.html">
-                    <span class="icon">📊</span>
-                    <div class="link-content">
-                        <div>TOTAL2 Statistics</div>
-                        <div class="description">{total_coins} coins tracked, {total_outliers} outlier corrections</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-        """
+    # Extract stats for display in TOTAL2 buttons row
+    volume_outliers = (
+        max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
+    )
+    price_outliers = max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
+    coin_statistics = max_weight_info.get("coin_statistics", []) if max_weight_info else []
+    total_outliers = len(volume_outliers) + len(price_outliers)
+    total_coins = len(coin_statistics)
 
     html = (
         """<!DOCTYPE html>
@@ -807,6 +778,7 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
             --accent-blue: #58a6ff;
             --accent-green: #3fb950;
             --border-color: #30363d;
+            --button-height: 5.5rem;
         }
 
         * {
@@ -868,6 +840,7 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
             align-items: center;
             gap: 1rem;
             padding: 1.25rem 1.5rem;
+            min-height: var(--button-height);
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: 12px;
@@ -902,8 +875,7 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
         }
 
         .nav-list li a .arrow {
-            color: var(--accent-blue);
-            font-size: 1.25rem;
+            display: none;
         }
 
         .warning-box {
@@ -967,6 +939,68 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
             font-weight: 400;
         }
 
+        /* Horizontal button row for TOTAL2 buttons */
+        .total2-row {
+            display: flex;
+            gap: 1rem;
+            width: 100%;
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .total2-row > li {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .total2-row li a {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem 1.25rem;
+            min-height: var(--button-height);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .total2-row li a:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-primary);
+        }
+
+        .total2-row li a .icon {
+            font-size: 1.25rem;
+            flex-shrink: 0;
+        }
+
+        .total2-row li a .link-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .total2-row li a .link-content > div:first-child {
+            font-size: 0.95rem;
+        }
+
+        .total2-row li a .description {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            margin-top: 0.2rem;
+            line-height: 1.3;
+        }
+
+        .total2-row li a .arrow {
+            display: none;
+        }
+
         """
         + footer_css
         + """
@@ -979,6 +1013,10 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
             .nav-list li a {
                 padding: 1rem;
                 font-size: 1rem;
+            }
+
+            .total2-row {
+                flex-direction: column;
             }
         }
     </style>
@@ -1012,12 +1050,16 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
                     <span class="arrow">→</span>
                 </a>
             </li>
+        </ul>
+"""
+        + f"""
+        <ul class="total2-row">
             <li>
                 <a href="charts/total2_charts.html">
                     <span class="icon">📈</span>
                     <div class="link-content">
                         <div>TOTAL2 Charts</div>
-                        <div class="description">TOTAL2 index vs USD and BTC across 3 halving cycles (2016, 2020, 2024)</div>
+                        <div class="description">TOTAL2 index vs USD and BTC across 3 halving cycles</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
@@ -1027,14 +1069,21 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
                     <span class="icon">🧩</span>
                     <div class="link-content">
                         <div>TOTAL2 Composition</div>
-                        <div class="description">Interactive viewer: explore which coins make up TOTAL2 on any date</div>
+                        <div class="description">Explore which coins make up TOTAL2 on any date</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
             </li>
-"""
-        + max_weight_box
-        + """
+            <li>
+                <a href="total2_statistics.html">
+                    <span class="icon">📊</span>
+                    <div class="link-content">
+                        <div>TOTAL2 Statistics</div>
+                        <div class="description">{total_coins} coins tracked, {total_outliers} outlier corrections</div>
+                    </div>
+                    <span class="arrow">→</span>
+                </a>
+            </li>
         </ul>
     </main>
 
@@ -1052,6 +1101,9 @@ def _generate_total2_statistics_html(
     volume_outliers: list[dict],
     price_outliers: list[dict],
     coin_statistics: list[dict],
+    max_weight_change: float | None = None,
+    max_weight_change_coin: str | None = None,
+    max_weight_change_date: str | None = None,
 ) -> str:
     """
     Generate HTML page with TOTAL2 statistics including coin rankings.
@@ -1063,6 +1115,9 @@ def _generate_total2_statistics_html(
         volume_outliers: List of volume outlier dicts
         price_outliers: List of price outlier dicts
         coin_statistics: List of coin statistics dicts (ranked by days in TOTAL2)
+        max_weight_change: Maximum weight change percentage
+        max_weight_change_coin: Coin with maximum weight change
+        max_weight_change_date: Date of maximum weight change
 
     Returns:
         Complete HTML string for total2_statistics.html
@@ -1222,6 +1277,10 @@ def _generate_total2_statistics_html(
             color: var(--text-secondary);
         }
 
+        .text-warning {
+            color: #f59e0b;
+        }
+
         a {
             color: var(--accent-blue);
             text-decoration: none;
@@ -1229,6 +1288,47 @@ def _generate_total2_statistics_html(
 
         a:hover {
             text-decoration: underline;
+        }
+
+        /* Warning/Info box at top */
+        .quality-box {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.25rem 1.5rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 2rem;
+        }
+
+        .quality-box.warning-box {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .quality-box.ok-box {
+            border-color: var(--accent-green);
+            background: rgba(63, 185, 80, 0.1);
+        }
+
+        .quality-box .icon {
+            font-size: 1.5rem;
+        }
+
+        .quality-box .info-content {
+            flex: 1;
+        }
+
+        .quality-box .info-title {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .quality-box .info-description {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
         }
     """
 
@@ -1294,6 +1394,29 @@ def _generate_total2_statistics_html(
     </script>
     """
 
+    # Build quality analysis box
+    quality_box_html = ""
+    if max_weight_change is not None:
+        warning_class = "warning-box" if abs(max_weight_change) > 0.5 else "ok-box"
+        status_class = "text-warning" if abs(max_weight_change) > 0.5 else "text-ok"
+        status_text = (
+            "⚠️ Exceeds 0.5% threshold"
+            if abs(max_weight_change) > 0.5
+            else "✓ Within acceptable range"
+        )
+        quality_box_html = f"""
+        <div class="quality-box {warning_class}">
+            <span class="icon">📊</span>
+            <div class="info-content">
+                <div class="info-title">TOTAL2 Quality Analysis</div>
+                <div class="info-description">
+                    <strong>Max Weight Change:</strong> {max_weight_change:.4f}% for <strong>{max_weight_change_coin or 'N/A'}</strong> on {max_weight_change_date or 'N/A'}<br>
+                    <span class="{status_class}">{status_text}</span>
+                </div>
+            </div>
+        </div>
+        """
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1311,6 +1434,8 @@ def _generate_total2_statistics_html(
     {header_html}
 
     <main>
+        {quality_box_html}
+
         <div class="section">
             <h2>📊 Coins in TOTAL2 - Ranking by Days ({len(coin_statistics)} coins)</h2>
             <p class="description">
@@ -1437,7 +1562,12 @@ def generate_index_page() -> Path:
 
     if volume_outliers or price_outliers or coin_statistics:
         stats_html = _generate_total2_statistics_html(
-            volume_outliers, price_outliers, coin_statistics
+            volume_outliers,
+            price_outliers,
+            coin_statistics,
+            max_weight_change=max_weight_info.get("max_weight_change") if max_weight_info else None,
+            max_weight_change_coin=max_weight_info.get("coin") if max_weight_info else None,
+            max_weight_change_date=max_weight_info.get("date") if max_weight_info else None,
         )
         stats_file = DOCS_SITE_DIR / "total2_statistics.html"
 
@@ -1534,7 +1664,17 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         return 1
 
     logger.info("Found %d coins to fetch prices for", len(coins))
-    logger.info("Quote currencies: %s", ", ".join(QUOTE_CURRENCIES))
+
+    # Determine which pairs to fetch
+    # Default: BTC pairs for altcoins, USD for BTC only
+    # --all-pairs: fetch all currency pairs
+    if args.all_pairs:
+        currencies_to_fetch = QUOTE_CURRENCIES
+        logger.info("Quote currencies: %s (all pairs)", ", ".join(currencies_to_fetch))
+    else:
+        currencies_to_fetch = ["BTC"]  # Default: only BTC pairs
+        logger.info("Quote currencies: BTC (default, use --all-pairs for BTC and USD)")
+
     logger.info("Date range: %s to %s", fetcher.history_start_date, fetcher.history_end_date)
     logger.info(
         "  (covers all 4 halving cycles with %s span)",
@@ -1554,23 +1694,38 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     logger.info("Fetching historical price data from CryptoCompare...")
 
-    # Fetch prices for all quote currencies
+    # Fetch prices for selected quote currencies
     results = fetcher.fetch_all_prices(
         coins=coins,
-        vs_currencies=QUOTE_CURRENCIES,
+        vs_currencies=currencies_to_fetch,
         use_cache=not args.no_cache,
         incremental=incremental,
         show_progress=not args.quiet,
     )
 
+    # Always fetch BTC-USD (even in default mode) since BTC-BTC doesn't exist
+    if not args.all_pairs:
+        btc_coins = [c for c in coins if c.get("id", "").lower() == "btc"]
+        if btc_coins:
+            logger.info("Fetching BTC-USD (required since BTC-BTC doesn't exist)...")
+            fetcher.fetch_all_prices(
+                coins=btc_coins,
+                vs_currencies=["USD"],
+                use_cache=not args.no_cache,
+                incremental=incremental,
+                show_progress=False,
+            )
+
     logger.info("-" * 60)
     logger.info("RESULTS")
     logger.info("-" * 60)
-    logger.info("  Prices fetched: %d coins × %d currencies", len(results), len(QUOTE_CURRENCIES))
+    logger.info(
+        "  Prices fetched: %d coins × %d currencies", len(results), len(currencies_to_fetch)
+    )
 
     # Show cache stats per currency
     price_cache = PriceDataCache()
-    for currency in QUOTE_CURRENCIES:
+    for currency in currencies_to_fetch:
         cached_coins = price_cache.list_cached_coins(currency)
         logger.info("  Cached (%s):    %d coins", currency, len(cached_coins))
 
@@ -1904,6 +2059,11 @@ def main() -> int:
         "--full-refresh",
         action="store_true",
         help="Fetch complete history instead of incremental update",
+    )
+    fetch_parser.add_argument(
+        "--all-pairs",
+        action="store_true",
+        help="Fetch all currency pairs (BTC and USD). Default: only BTC pairs for altcoins, USD for BTC",
     )
 
     # calculate-total2 command

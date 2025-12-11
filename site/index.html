@@ -14,6 +14,7 @@
             --accent-blue: #58a6ff;
             --accent-green: #3fb950;
             --border-color: #30363d;
+            --button-height: 5.5rem;
         }
 
         * {
@@ -75,6 +76,7 @@
             align-items: center;
             gap: 1rem;
             padding: 1.25rem 1.5rem;
+            min-height: var(--button-height);
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: 12px;
@@ -109,8 +111,7 @@
         }
 
         .nav-list li a .arrow {
-            color: var(--accent-blue);
-            font-size: 1.25rem;
+            display: none;
         }
 
         .warning-box {
@@ -174,6 +175,68 @@
             font-weight: 400;
         }
 
+        /* Horizontal button row for TOTAL2 buttons */
+        .total2-row {
+            display: flex;
+            gap: 1rem;
+            width: 100%;
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .total2-row > li {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .total2-row li a {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem 1.25rem;
+            min-height: var(--button-height);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .total2-row li a:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-primary);
+        }
+
+        .total2-row li a .icon {
+            font-size: 1.25rem;
+            flex-shrink: 0;
+        }
+
+        .total2-row li a .link-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .total2-row li a .link-content > div:first-child {
+            font-size: 0.95rem;
+        }
+
+        .total2-row li a .description {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            margin-top: 0.2rem;
+            line-height: 1.3;
+        }
+
+        .total2-row li a .arrow {
+            display: none;
+        }
+
 
         footer {
             text-align: center;
@@ -201,6 +264,10 @@
             .nav-list li a {
                 padding: 1rem;
                 font-size: 1rem;
+            }
+
+            .total2-row {
+                flex-direction: column;
             }
         }
     </style>
@@ -234,12 +301,15 @@
                     <span class="arrow">→</span>
                 </a>
             </li>
+        </ul>
+
+        <ul class="total2-row">
             <li>
                 <a href="charts/total2_charts.html">
                     <span class="icon">📈</span>
                     <div class="link-content">
                         <div>TOTAL2 Charts</div>
-                        <div class="description">TOTAL2 index vs USD and BTC across 3 halving cycles (2016, 2020, 2024)</div>
+                        <div class="description">TOTAL2 index vs USD and BTC across 3 halving cycles</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
@@ -249,37 +319,21 @@
                     <span class="icon">🧩</span>
                     <div class="link-content">
                         <div>TOTAL2 Composition</div>
-                        <div class="description">Interactive viewer: explore which coins make up TOTAL2 on any date</div>
+                        <div class="description">Explore which coins make up TOTAL2 on any date</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
-            </li>
-
-            <li class="info-box-container">
-                <div class="info-box warning-box">
-                    <span class="icon">📊</span>
-                    <div class="info-content">
-                        <div class="info-title">TOTAL2 Quality Analysis</div>
-                        <div class="info-description">
-                            <strong>Max Weight Change:</strong> 2.9769% for <strong>TRUMP</strong> on 2025-01-21<br>
-                            <span class="text-warning">
-                                ⚠️ Exceeds 0.5% threshold
-                            </span>
-                        </div>
-                    </div>
-                </div>
             </li>
             <li>
                 <a href="total2_statistics.html">
                     <span class="icon">📊</span>
                     <div class="link-content">
                         <div>TOTAL2 Statistics</div>
-                        <div class="description">244 coins tracked, 2745 outlier corrections</div>
+                        <div class="description">246 coins tracked, 2382 outlier corrections</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
             </li>
-
         </ul>
     </main>
 
