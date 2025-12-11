@@ -65,14 +65,13 @@ smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day
 
 **Problem:** When a coin starts trading (first day of data), it could immediately have high volume and jump into the TOP30 with significant weight. This creates a sudden change in TOTAL2 composition that doesn't reflect actual market price movements.
 
-**Example:** YFI appeared on 2020-09-19 with >2.5% weight, causing a sudden leg up/down in the TOTAL2 curve unrelated to actual market performance.
+**Example:** YFI appeared on 2020-09-19 with >2.5% weight, causing a sudden leg up in the TOTAL2 curve unrelated to actual market performance.
 
-**Solution - Zero-Padding:** Instead of excluding the first 119 days of data (warmup period), we prepend zeros:
+**Solution - Zero-Padding:** Instead of excluding the first 119 days of data (120-day SMA warmup period), we prepend zeros:
 
 1. For each coin, all days **before its first trading data** are filled with 0 volume
-2. The SMA is applied with `min_periods=1`
-3. On a coin's first trading day, its smoothed volume = `actual_volume / 120`
-4. The weight gradually increases over the 120-day warmup period as more actual data enters the SMA
+2. On a coin's first trading day, its smoothed volume = `actual_volume / 120`
+3. The weight gradually increases over the 120-day warmup period as more actual data enters the SMA
 
 **Result:** When a coin first has trade data and potentially enters the TOP30, it does so gradually. Its weight starts at ~0.83% of what it would be without smoothing (1/120) and increases linearly over the SMA window.
 
@@ -85,7 +84,7 @@ smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day
 **Implementation:**
 - Calculate daily weight change for each coin in TOTAL2
 - Track the maximum absolute change (positive or negative)
-- Only track after **2017-11-01** when TOTAL2 has 30 coins (avoids early noise)
+- Only track after **2016-07-04** when TOTAL2 first has 30 coins (avoids early noise)
 - Log a warning if max change exceeds 0.5%
 
 **Tuning:** If the max weight change is too high, consider increasing `VOLUME_SMA_WINDOW` to smooth more aggressively. The goal is to keep max daily weight changes below 0.5-0.6%.
@@ -101,10 +100,10 @@ All outlier detection and correction uses **only past data** (data available at 
 2. Past TOTAL2 values are never recalculated
 3. Index immutability is maintained
 
-There are **no exceptions** - all corrections use only past data:
+Corrections rely on past data only:
 - **Volume outliers:** detected using rolling median of past 7 days
 - **Price outliers (day-over-day):** detected using previous day's price
-- **Price warmup smoothing:** uses corrected TOTAL2 values (market level from past) to fill pre-listing prices
+- **Price warmup capping:** uses corrected TOTAL2 values (market level from past) as baseline
 
 #### Volume Outlier Detection
 
@@ -141,13 +140,11 @@ Detected outliers are replaced using a **capped average** approach that only use
 
 1. Skip if `previous_day <= 0` or `past_median <= 0` (cannot correct without valid past data)
 2. Cap the outlier value at `OUTLIER_THRESHOLD × past_median`
-3. Compute capped average: `(previous_day + min(outlier, cap)) / 2`
-4. Skip if corrected value would be <= 0
+3. Compute capped average: `(previous_day + cap) / 2`
 
 This approach:
 - Smooths out spikes while preserving trend direction
 - Never uses future data for correction
-- Never produces zero or negative corrections
 - Skips correction for new coins (e.g., UNI on launch day) that have no valid past data
 
 **Known Bad Data Examples:**
@@ -210,14 +207,14 @@ When a coin first enters TOTAL2 (TOP30 by volume), its price may cause artificia
 | Parameter | Value | Description |
 |-----------|-------|-------------|
 | **Trigger** | First day in TOTAL2 | Applied when coin enters TOP30 |
-| **Max Increase** | 1.8x (80% gain) | Price can't increase more than 80% per day |
-| **Max Decrease** | 0.6x (40% loss) | Price can't decrease more than 40% per day |
-| **Duration** | 14 days | Warmup capping lasts 2 weeks |
+| **Max Increase** | 1.7x (70% gain) | Price can't increase more than 70% per day |
+| **Max Decrease** | 0.5x (50% loss) | Price can't decrease more than 50% per day |
+| **Duration** | 21 days | Warmup capping lasts 3 weeks |
 | **Baseline** | Corrected TOTAL2 | Market level from day before entry |
 
 **How Capping Works:**
 
-Instead of SMA smoothing, we use iterative capping:
+We use iterative capping (not SMA smoothing):
 1. Day 0 (before entry): Use corrected TOTAL2 as baseline (market level)
 2. Day 1+: Cap price at MAX_INCREASE × previous day's capped price
 3. If actual price is below cap, use actual price (converged)
@@ -225,18 +222,18 @@ Instead of SMA smoothing, we use iterative capping:
 
 **CASE 1 - ZEC (2016-10-28): Listed AND entered TOTAL2 on the same day**
 - Day 0: baseline = ~0.01 BTC (corrected TOTAL2)
-- Day 1: Actual 27.8 BTC → Cap at 1.8x = **0.018 BTC**
-- Day 2: Actual 2.79 BTC → Cap at 1.8x = **0.032 BTC**
-- Day 3: Actual 0.77 BTC → Cap at 1.8x = **0.058 BTC**
-- ... price doubles each day until cap ≥ actual
-- **Converges in ~9 days** when cap catches up to ZEC's crashed price (~1-2 BTC)
+- Day 1: Actual 27.8 BTC → Cap at 1.7x = **0.017 BTC**
+- Day 2: Actual 2.79 BTC → Cap at 1.7x = **0.029 BTC**
+- Day 3: Actual 0.77 BTC → Cap at 1.7x = **0.049 BTC**
+- ... price increases 70% each day until cap ≥ actual
+- **Converges in ~10 days** when cap catches up to ZEC's crashed price (~1-2 BTC)
 
 **CASE 2 - YFI (2020-09-14): Entered TOTAL2 45 days after listing**
 - Day 0: baseline = ~0.012 BTC (corrected TOTAL2)
-- Day 1: Actual 3.73 BTC → Cap at 1.8x = **0.022 BTC**
-- Day 2: Actual 3.27 BTC → Cap at 1.8x = **0.039 BTC**
-- ... price grows 80% each day until cap ≥ actual
-- **Converges in ~10 days** when cap catches up to YFI's price (~3.7 BTC)
+- Day 1: Actual 3.73 BTC → Cap at 1.7x = **0.020 BTC**
+- Day 2: Actual 3.27 BTC → Cap at 1.7x = **0.034 BTC**
+- ... price grows 70% each day until cap ≥ actual
+- **Converges in ~11 days** when cap catches up to YFI's price (~3.7 BTC)
 
 Both cases gradually ramp up from market level, preventing artificial TOTAL2 spikes.
 
@@ -250,8 +247,8 @@ Both cases gradually ramp up from market level, preventing artificial TOTAL2 spi
 
 2. **Pass 2: Apply TOTAL2 Entry Warmup**
    - For each coin entering TOTAL2: fill pre-entry prices with corrected TOTAL2 values
-   - Apply 7-day SMA warmup smoothing for first 14 days after entry
-   - Recalculate final TOTAL2 with smoothed prices
+   - Apply iterative price capping for first 21 days after entry
+   - Recalculate final TOTAL2 with capped prices
 
 **Why TOTAL2-Based Filling (Not Zero-Padding):**
 
@@ -269,10 +266,10 @@ raw_total2 = calculate_raw_total2(close_df_raw, volume_df)
 # Apply TOTAL2 outlier detection
 corrected_total2 = apply_total2_outlier_detection(raw_total2)
 
-# Pass 2: TOTAL2 entry warmup (7-day SMA, first 14 days after entering TOTAL2)
+# Pass 2: TOTAL2 entry warmup (iterative capping for 21 days after entering TOTAL2)
 close_df_smoothed = apply_total2_entry_warmup(close_df_raw, mask_df, corrected_total2)
 
-# Final TOTAL2 with smoothed prices
+# Final TOTAL2 with capped prices
 final_total2 = calculate_total2(close_df_smoothed, volume_df)
 ```
 
@@ -281,39 +278,19 @@ final_total2 = calculate_total2(close_df_smoothed, volume_df)
 For price spikes (>5x increase):
 ```python
 max_allowed = previous_price * PRICE_OUTLIER_THRESHOLD
-corrected = (previous_price + min(original_price, max_allowed)) / 2
+corrected = (previous_price + max_allowed) / 2
 ```
 
 For price crashes (>80% drop):
 ```python
 min_allowed = previous_price / PRICE_OUTLIER_THRESHOLD
-corrected = (previous_price + max(original_price, min_allowed)) / 2
+corrected = (previous_price + min_allowed) / 2
 ```
 
 **Edge case handling:**
 - Skip if `previous_price <= 0` (cannot correct without valid past data)
-- Skip if `original_price <= 0` (cannot correct zero prices meaningfully)
-- Skip if corrected value would be <= 0
+- Skip if `original_price <= 0` (coin not yet listed, no correction needed)
 - Require both current AND previous price > `MIN_PRICE_FOR_OUTLIER_CHECK`
-
-**Examples of corrections:**
-
-| Coin | Date | Original | Corrected | Type |
-|------|------|----------|-----------|------|
-| ZEC | 2016-10-28 | 27.8 BTC | ~market level | warmup-sma |
-| MLN | 2017-02-16 | 0.13 BTC | ~market level | warmup-sma |
-
-**Why this approach is important (ZEC example):**
-
-ZEC launched on 2016-10-28 at 27.8 BTC due to extreme scarcity and hype. Without correction:
-- ZEC enters TOP30 with crazy price
-- TOTAL2 spikes artificially on launch day
-
-With the two-pass TOTAL2-based smoothing:
-1. Raw TOTAL2 spike is detected and corrected
-2. ZEC's pre-listing prices are filled with corrected TOTAL2 (~market level)
-3. 14-day SMA smooths ZEC from market level to actual price
-4. Final TOTAL2 has no artificial spike
 
 **Configuration:**
 
@@ -326,9 +303,9 @@ MIN_PRICE_FOR_OUTLIER_CHECK = 0.001  # Only check meaningful prices (BTC)
 TOTAL2_OUTLIER_THRESHOLD = 2  # >2x or <0.5x triggers TOTAL2 series correction
 
 # TOTAL2 entry warmup (price capping for coins entering TOTAL2)
-TOTAL2_ENTRY_MAX_INCREASE = 1.8  # Max 1.8x (80% gain) per day
-TOTAL2_ENTRY_MAX_DECREASE = 0.6  # Min 0.6x (40% loss) per day
-TOTAL2_ENTRY_WARMUP_DAYS = 14  # Apply capping for first 14 days after entry
+TOTAL2_ENTRY_MAX_INCREASE = 1.7  # Max 1.7x (70% gain) per day
+TOTAL2_ENTRY_MAX_DECREASE = 0.5  # Min 0.5x (50% loss) per day
+TOTAL2_ENTRY_WARMUP_DAYS = 21  # Apply capping for first 21 days after entry
 ```
 
 #### Iterative Correction
@@ -373,7 +350,7 @@ eligible_coins = filter_coins_for_total2(all_cached_coins)
 close_df_raw, volume_df, volume_outliers, price_outliers = build_aligned_dataframes(price_data)
 
 # 3. Apply SMA to volume (zero-padded for gradual entry)
-smoothed_volume_df = volume_df.rolling(window=VOLUME_SMA_WINDOW, min_periods=1).mean()
+smoothed_volume_df = volume_df.rolling(window=VOLUME_SMA_WINDOW).mean()
 
 # 4. Rank by smoothed volume (highest = rank 1)
 rank_df = smoothed_volume_df.rank(axis=1, ascending=False)
@@ -387,10 +364,10 @@ raw_total2 = (close_df_raw.where(mask_df) * smoothed_volume_df.where(mask_df)).s
 corrected_total2 = apply_total2_outlier_detection(raw_total2)
 
 # 7. PASS 2: Apply TOTAL2 entry warmup (handles ZEC and YFI cases)
-# For each coin: fill pre-entry prices with market level, apply 7-day SMA for 14 days
+# For each coin: fill pre-entry prices with market level, apply iterative capping for 21 days
 close_df_smoothed = apply_total2_entry_warmup(close_df_raw, mask_df, corrected_total2)
 
-# 8. Calculate final TOTAL2 with smoothed prices
+# 8. Calculate final TOTAL2 with capped prices
 masked_close = close_df_smoothed.where(mask_df)
 masked_volume = smoothed_volume_df.where(mask_df)
 total2 = (masked_close * masked_volume).sum(axis=1) / masked_volume.sum(axis=1)
@@ -423,31 +400,12 @@ total2 = (masked_close * masked_volume).sum(axis=1) / masked_volume.sum(axis=1)
 5. PASS 2: Apply TOTAL2 entry warmup
    - For each coin entering TOTAL2: identify first entry date
    - Fill pre-entry prices with corrected TOTAL2 values (market level)
-   - Apply 7-day SMA warmup smoothing for first 14 days after entry
+   - Apply iterative price capping for first 21 days after entry
    - Handles both ZEC-type (entry on listing day) and YFI-type (entry weeks later)
 
-6. CALCULATE final TOTAL2 with smoothed prices (vectorized)
+6. CALCULATE final TOTAL2 with capped prices (vectorized)
 
 7. BUILD composition records (which coins made top N each day)
-```
-
-### Example Calculation
-
-For a given day with these top 3 coins (simplified example):
-
-| Coin | Price (BTC) | 24h Volume (BTC) |
-|------|-------------|------------------|
-| ETH  | 0.050       | 50,000           |
-| SOL  | 0.003       | 30,000           |
-| XRP  | 0.00002     | 20,000           |
-
-```
-Total Volume = 50,000 + 30,000 + 20,000 = 100,000 BTC
-
-TOTAL2 = (0.050 × 50,000 + 0.003 × 30,000 + 0.00002 × 20,000) / 100,000
-       = (2,500 + 90 + 0.4) / 100,000
-       = 2,590.4 / 100,000
-       = 0.02590 BTC
 ```
 
 ## Dynamic Composition
@@ -494,29 +452,7 @@ Stablecoins are excluded because they don't track the crypto market - they're pe
 
 ### NOT Excluded from TOTAL2: Recent Coins
 
-**Important:** Recent coins (those without data before `MIN_DATA_DATE`) are **included** in TOTAL2 calculation. The `MIN_DATA_DATE` filter only applies to individual coin halving cycle analysis, not to TOTAL2.
-
-#### Why Include Recent Coins?
-
-TOTAL2 is designed to capture the cryptocurrency market trend, and its value for any given day **must remain immutable** once calculated. This immutability requirement is why we include all coins that qualify by volume, regardless of how recently they appeared.
-
-**The problem with excluding recent coins:**
-
-Consider a coin that launched in 2024 and quickly reached top 30 by trading volume. If we excluded it because it's "recent":
-
-1. Today, calculating TOTAL2 for day D would exclude this coin
-2. One year from now, this coin is no longer "recent" (it now has sufficient history)
-3. Recalculating TOTAL2 for the same day D would now include this coin
-4. **The TOTAL2 value for day D would change** - this breaks our immutability requirement
-
-**Our intended behavior:**
-
-- TOTAL2 for any day D should reflect the **actual market composition on that day**
-- The value should be calculated once and remain stable forever
-- The index must include all coins that were in the top 30 by 24h trading volume on that specific day
-- No retroactive changes should occur when recalculating historical values
-
-By including recent coins, we ensure that TOTAL2 accurately represents the full cryptocurrency market (restricted to top 30 by volume) on each day, and that this representation is permanent and reproducible.
+**Important:** Recent coins (those without data before `MIN_DATA_DATE`) are **included** in TOTAL2 calculation. The `MIN_DATA_DATE` filter only applies to individual coin halving cycle analysis, not to TOTAL2. This ensures TOTAL2 accurately represents the full cryptocurrency market on each day.
 
 ### Never Excluded (Allowed List)
 
@@ -570,24 +506,6 @@ Volume-weighted TOTAL2 has advantages over market-cap-weighted:
 3. **Filters out dormant coins** - Low volume coins don't distort the index
 4. **Single data source** - No need for separate market cap data
 
-## Price Data Storage
-
-Price data is stored in pair-based parquet files:
-
-```
-data/raw/prices/
-├── eth-btc.parquet    # ETH priced in BTC
-├── eth-usd.parquet    # ETH priced in USD
-├── sol-btc.parquet    # SOL priced in BTC
-├── sol-usd.parquet    # SOL priced in USD
-└── ...
-```
-
-Each file contains OHLCV data:
-- `open`, `high`, `low`, `close` - Price data
-- `volume_from` - Volume in base currency (e.g., ETH)
-- `volume_to` - Volume in quote currency (e.g., BTC or USD)
-
 ## Command Line Usage
 
 ```bash
@@ -602,8 +520,9 @@ python -m main generate-charts
 ```
 
 This generates:
-- `output/charts/total2_halving_cycles.html` - TOTAL2 across 3 halving cycles (2016, 2020, 2024)
-- `output/charts/total2_composition.html` - Interactive date picker to view TOTAL2 composition
+- `site/charts/total2_charts.html` - TOTAL2 across 3 halving cycles (2016, 2020, 2024)
+- `site/charts/total2_composition.html` - Interactive date picker to view TOTAL2 composition
+- `site/total2_statistics.html` - Coin statistics and outlier corrections
 
 ## Related Configuration
 
@@ -613,6 +532,11 @@ From `src/config.py`:
 # TOTAL2 calculation
 TOP_N_FOR_TOTAL2 = 30              # Number of coins in index
 VOLUME_SMA_WINDOW = 120            # Days for volume SMA smoothing (~4 months)
+
+# TOTAL2 entry warmup (price capping for coins entering TOTAL2)
+TOTAL2_ENTRY_MAX_INCREASE = 1.7    # Max 1.7x (70% gain) per day
+TOTAL2_ENTRY_MAX_DECREASE = 0.5    # Min 0.5x (50% loss) per day
+TOTAL2_ENTRY_WARMUP_DAYS = 21      # Apply capping for first 21 days after entry
 
 # Quote currencies
 QUOTE_CURRENCIES = ["BTC", "USD"]

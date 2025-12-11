@@ -225,9 +225,9 @@ Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 30), exc
 Volume is smoothed using a 120-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
 This ensures stable rankings that don't fluctuate wildly from one day to the next.
 
-**Zero-Padding of 24h Volume:** Days before a coin's first trading data are filled with 0 volume, and the SMA is applied with `min_periods=1`. This means when a coin **first starts trading** (has data), its smoothed volume is only `actual_volume / 120`. The weight gradually increases over the 120-day warmup period. This prevents sudden TOTAL2 jumps when a new coin with high volume appears and immediately enters the TOP30.
+**Zero-Padding of 24h Volume:** Days before a coin's first trading data are filled with 0 volume. This means when a coin **first starts trading** (has data), its smoothed volume is only `actual_volume / 120`. The weight gradually increases over the 120-day warmup period. This prevents sudden TOTAL2 jumps when a new coin with high volume appears and immediately enters the TOP30.
 
-**Max Weight Change Tracking:** The system calculates the maximum daily weight change for any coin **in the TOTAL2** (only after 2017-11-01 when 30 coins are available). This ensures TOTAL2 curve variations reflect actual price movements rather than sudden composition weight changes. A warning is logged if max change exceeds 0.5%.
+**Max Weight Change Tracking:** The system calculates the maximum daily weight change for any coin **in the TOTAL2** (only after 2016-07-04 when 30 coins are available). This ensures TOTAL2 curve variations reflect actual price movements rather than sudden composition weight changes. A warning is logged if max change exceeds 0.5%.
 
 ### 5.3 Algorithm (Vectorized)
 ```python

@@ -870,9 +870,7 @@ class Total2Processor:
                 mask = padded_volume_df.index < first_valid_idx
                 padded_volume_df.loc[mask, coin_id] = 0.0
 
-        smoothed_volume_df = padded_volume_df.rolling(
-            window=self.volume_sma_window, min_periods=1
-        ).mean()
+        smoothed_volume_df = padded_volume_df.rolling(window=self.volume_sma_window).mean()
 
         if show_progress:
             print("Calculating raw TOTAL2 (Pass 1)...")
@@ -1078,13 +1076,13 @@ class Total2Processor:
         weight change indicates a coin's weight changed abruptly, which could
         cause artificial jumps in the TOTAL2 value unrelated to market movements.
 
-        We only track this after TOTAL2 has 50 coins (default: after 2017-11-01)
+        We only track this after TOTAL2 has 30 coins (default: after 2016-07-04)
         to avoid noise from the early period when the index was still being
         populated and weight variations were naturally high.
 
         Args:
             composition_df: DataFrame with columns: date, rank, coin_id, weight, ...
-            min_date: Only consider dates >= this date (default: 2017-11-01)
+            min_date: Only consider dates >= this date (default: 2016-07-04)
 
         Returns:
             Tuple of (max_change_pct, coin_id, date) or (None, None, None) if insufficient data
@@ -1092,9 +1090,9 @@ class Total2Processor:
         if composition_df.empty:
             return None, None, None
 
-        # Default to 2017-11-01 when TOTAL2 typically has 50 coins
+        # Default to 2016-07-04 when TOTAL2 first has 30 coins (start of cycle 2)
         if min_date is None:
-            min_date = date(2017, 11, 1)
+            min_date = date(2016, 7, 4)
 
         # Filter to only dates after min_date
         filtered_df = composition_df[composition_df["date"] >= pd.Timestamp(min_date)]
