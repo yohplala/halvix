@@ -134,17 +134,14 @@ jobs:
           fi
 
           # Update README with timestamp
-          cat > README.md << 'HEREDOC'
-# Halvix Data Cache
-
-This branch contains cached price data (parquet files).
-It is automatically updated by CI and has no history (orphan branch).
-
-**Do not manually edit files in this branch.**
-
-HEREDOC
-
+          echo "# Halvix Data Cache" > README.md
+          echo "" >> README.md
+          echo "This branch contains cached price data (parquet files)." >> README.md
+          echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
+          echo "" >> README.md
           echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
+          echo "" >> README.md
+          echo "**Do not manually edit files in this branch.**" >> README.md
           echo "" >> README.md
           echo "## Contents" >> README.md
           echo "" >> README.md
@@ -187,8 +184,8 @@ HEREDOC
           fi
 
           # Force push to keep orphan branch with single commit
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git 2>/dev/null || \
-            git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git 2>/dev/null || true
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || \
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
 
           echo "Pushing to data branch..."
           git push --force origin data
