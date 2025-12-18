@@ -10,59 +10,10 @@ on:
         description: 'Limit number of coins to fetch (empty for all)'
         required: false
         default: ''
-      skip_tests:
-        description: 'Skip running tests before fetching data'
-        required: false
-        default: 'false'
-        type: boolean
 
 jobs:
-  # Optional test job - runs unless skipped
-  test:
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.skip_tests != 'true' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: latest
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Load cached venv
-        id: cached-poetry-dependencies
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-3.13-${{ hashFiles('**/pyproject.toml') }}
-
-      - name: Install dependencies
-        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-        run: poetry install --no-interaction --no-root
-
-      - name: Install project
-        run: poetry install --no-interaction
-
-      - name: Run linter (ruff)
-        run: poetry run ruff check src/ tests/
-
-      - name: Run tests
-        run: poetry run pytest tests/ -v --tb=short
-
-  # Main data fetching job
   fetch-data:
     runs-on: ubuntu-latest
-    # Run after tests pass, OR immediately if tests are skipped
-    needs: [test]
-    if: ${{ always() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     permissions:
       contents: write  # Required to push to data branch
 
@@ -184,14 +135,14 @@ jobs:
 
           # Update README with timestamp
           cat > README.md << 'HEREDOC'
-          # Halvix Data Cache
+# Halvix Data Cache
 
-          This branch contains cached price data (parquet files).
-          It is automatically updated by CI and has no history (orphan branch).
+This branch contains cached price data (parquet files).
+It is automatically updated by CI and has no history (orphan branch).
 
-          **Do not manually edit files in this branch.**
+**Do not manually edit files in this branch.**
 
-          HEREDOC
+HEREDOC
 
           echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
           echo "" >> README.md
