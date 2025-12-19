@@ -122,13 +122,13 @@ TOP_N_SUMMARY = 10
 # 120 days (~4 months) provides stable ranking and reduces max weight change
 VOLUME_SMA_WINDOW = 120
 
-# TOTAL2 Entry Warmup: Price capping when a coin first enters TOTAL2
+# TOTAL2 Entry Warmup: Actual price capping when a coin first enters TOTAL2
 #
 # When a coin first enters TOTAL2 (TOP30 by volume), its price may cause
-# artificial spikes in the index. This warmup capping prevents that by:
-# 1. Using corrected TOTAL2 value as the baseline price before entry (market level)
-# 2. Capping daily price changes to MAX_INCREASE / MAX_DECREASE during warmup period
-# 3. Iteratively applying caps so each day uses the previous day's capped price
+# artificial spikes in the index. This warmup CAPS prices (not just monitors) by:
+# 1. Using raw TOTAL2 value as the baseline price at entry (market level)
+# 2. CAPPING daily price changes to MAX_INCREASE / MAX_DECREASE during warmup
+# 3. Each day uses the previous day's CAPPED price as reference
 #
 # This handles TWO types of cases:
 #

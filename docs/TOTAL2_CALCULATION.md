@@ -25,7 +25,7 @@ Halvix supports two methodologies for calculating the index:
 | **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
 | **Volume outlier correction** | ✓ Yes | ✓ Yes |
 | **New coin integration** | 21-day entry warmup (post-entry) | 21-day freeze period (pre-entry) |
-| **Price adjustment** | Monitor price swings during warmup | Scale by 1/TOTAL2b_d-1 at entry |
+| **Price adjustment** | Cap price changes during warmup | Scale by 1/TOTAL2b_d-1 at entry |
 | **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
 
 ### Entry Timing Comparison
@@ -35,9 +35,9 @@ Both methodologies use a **21-day period** but apply it differently:
 | Aspect | TOTAL2 (Legacy) | TOTAL2b (New) |
 |--------|-----------------|---------------|
 | **When** | After coin enters TOP30 | Before coin can enter TOP30 |
-| **Mechanism** | Entry warmup: monitor price swings | Freeze period: wait before eligibility |
+| **Mechanism** | Entry warmup: cap price changes | Freeze period: wait before eligibility |
 | **Duration** | `TOTAL2_ENTRY_WARMUP_PERIOD_DAYS` (21 days) | `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` (21 days) |
-| **Effect** | Track large movements for reporting | Ensure stable data before inclusion |
+| **Effect** | Prevent index spikes from extreme prices | Ensure stable data before inclusion |
 
 ### When to Use Each
 
@@ -175,17 +175,28 @@ for each day:
 
 ## TOTAL2 Algorithm (Legacy)
 
-TOTAL2 (legacy) uses entry warmup and TOTAL2 series smoothing:
+TOTAL2 (legacy) uses entry warmup price capping and TOTAL2 series smoothing:
 
-### 1. Entry Warmup
+### 1. Entry Warmup (Price Capping)
 
-When a new coin enters the TOP30, its price changes are monitored during a **21-day warmup period**. Large price swings are tracked to understand their impact on the index.
+When a new coin enters the TOP30, its price is **capped** during a **21-day warmup period** to prevent artificial spikes in the index.
+
+**Mechanism:**
+1. On entry day: Baseline is set to the **TOTAL2 value from the previous day** (market level)
+2. Each subsequent day: Cap price changes relative to the previous day's **capped price**
+3. The coin's price contribution gradually converges to its actual price over the warmup period
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| **Max Increase** | 1.7x (70% gain) | Threshold for tracking large increases |
-| **Max Decrease** | 0.5x (50% loss) | Threshold for tracking large decreases |
-| **Duration** | 21 days | Warmup monitoring period |
+| **Max Increase** | 1.7x (70% gain) | Cap price increases at this factor |
+| **Max Decrease** | 0.5x (50% loss) | Cap price decreases at this factor |
+| **Duration** | 21 days | Warmup capping period |
+
+**Example - ZEC entering on 2016-10-28:**
+- Day 0 (before): Baseline = TOTAL2 value (~0.01 BTC)
+- Day 1: Actual 27.8 BTC → **Capped at** 1.7x = 0.017 BTC
+- Day 2: Actual 2.79 BTC → **Capped at** 1.7x = 0.029 BTC
+- ... converges to actual price (~1-2 BTC) in ~9 days
 
 ### 2. TOTAL2 Series Smoothing
 
@@ -200,14 +211,17 @@ This prevents the index from having extreme jumps when coins with unusual prices
 ### 3. Two-Pass Algorithm
 
 ```python
-# Pass 1: Calculate Raw TOTAL2
+# Pass 1: Calculate Raw TOTAL2 (to get baseline for entry capping)
 raw_total2 = calculate_weighted_average(close_df, smoothed_volume_df, mask_df)
 
-# Apply TOTAL2 series smoothing (cap extreme day-over-day movements)
-smoothed_total2 = apply_series_smoothing(raw_total2)
+# Apply entry warmup: CAP prices for coins during warmup period
+capped_close_df, warmup_events = apply_entry_warmup_capping(close_df, raw_total2, mask_df)
 
-# Track entry warmup events for reporting
-warmup_events = track_entry_warmup(smoothed_total2, mask_df)
+# Pass 2: Recalculate TOTAL2 with capped prices
+total2_series = calculate_weighted_average(capped_close_df, smoothed_volume_df, mask_df)
+
+# Apply TOTAL2 series smoothing (cap extreme day-over-day movements in aggregate)
+smoothed_total2 = apply_series_smoothing(total2_series)
 ```
 
 ---
