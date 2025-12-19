@@ -687,7 +687,6 @@ class BaseTotal2Processor(ABC):
 
         Kept for backward compatibility with tests.
         """
-        from datetime import datetime
 
         daily_data = []
         target_date_normalized = pd.Timestamp(target_date).normalize()
