@@ -58,7 +58,7 @@ from config import (
 )
 from data.cache import FileCache, PriceDataCache
 from data.fetcher import DataFetcher
-from data.processor import Total2Processor
+from data.processor import get_processor
 from utils.logging import get_logger, setup_logging
 
 # Module logger
@@ -1777,18 +1777,22 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
 
 def cmd_calculate_total2(args: argparse.Namespace) -> int:
-    """Calculate volume-weighted TOTAL2 market index."""
+    """Calculate volume-weighted TOTAL2/TOTAL2b market index."""
     from config import DEFAULT_QUOTE_CURRENCY, VOLUME_SMA_WINDOW
 
+    # Determine index type (default: total2b)
+    index_type = getattr(args, "index_type", "total2b")
+
     logger.info("=" * 60)
-    logger.info("HALVIX - Calculate TOTAL2 Index (Volume-Weighted)")
+    logger.info("HALVIX - Calculate %s Index (Volume-Weighted)", index_type.upper())
     logger.info("=" * 60)
 
     # Use config defaults if not provided via command line
     quote_currency = args.quote_currency if args.quote_currency else DEFAULT_QUOTE_CURRENCY
     volume_sma = args.volume_sma if args.volume_sma else VOLUME_SMA_WINDOW
 
-    processor = Total2Processor(
+    processor = get_processor(
+        index_type=index_type,
         top_n=args.top_n,
         volume_sma_window=volume_sma,
         quote_currency=quote_currency,
@@ -2069,7 +2073,15 @@ def main() -> int:
     # calculate-total2 command
     total2_parser = subparsers.add_parser(
         "calculate-total2",
-        help="Calculate TOTAL2 market index from cached price data",
+        help="Calculate TOTAL2/TOTAL2b market index from cached price data",
+    )
+    total2_parser.add_argument(
+        "--index-type",
+        "-t",
+        type=str,
+        choices=["total2", "total2b"],
+        default="total2b",
+        help="Index type: 'total2' (legacy with price capping) or 'total2b' (new with freeze period and scaling). Default: total2b",
     )
     total2_parser.add_argument(
         "--top-n",
