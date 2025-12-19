@@ -17,6 +17,8 @@ from analysis.filters import TokenFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
     TOP_N_FOR_TOTAL2,
+    TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
+    TOTAL2B_MIN_COINS_FOR_SCALING,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -26,9 +28,9 @@ from data.processor_base import (
     Total2Result,
 )
 
-# TOTAL2b-specific parameters
-FREEZE_PERIOD_DAYS = 21  # 3-week freeze period before coin can join index
-MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
+# Re-export for backward compatibility
+FREEZE_PERIOD_DAYS = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
+MIN_COINS_FOR_SCALING = TOTAL2B_MIN_COINS_FOR_SCALING
 
 
 class Total2bProcessor(BaseTotal2Processor):
@@ -52,8 +54,8 @@ class Total2bProcessor(BaseTotal2Processor):
         top_n: int = TOP_N_FOR_TOTAL2,
         volume_sma_window: int = VOLUME_SMA_WINDOW,
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
-        freeze_period_days: int = FREEZE_PERIOD_DAYS,
-        min_coins_for_scaling: int = MIN_COINS_FOR_SCALING,
+        freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
+        min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING,
     ):
         """
         Initialize the TOTAL2b processor.

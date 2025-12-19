@@ -87,8 +87,9 @@ result = processor.calculate_total2()
 
 | Processor | Description |
 |-----------|-------------|
-| `Total2bProcessor` | **Default**. 21-day freeze period + price scaling |
-| `Total2Processor` | Legacy. Iterative price capping |
+| `Total2bProcessor` | **Default**. 21-day freeze period + price scaling at entry |
+| `Total2Processor` | Legacy. Entry warmup price capping + TOTAL2 series smoothing |
+
 
 ### Token Filtering
 
