@@ -17,7 +17,7 @@ from analysis.filters import TokenFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
     TOP_N_FOR_TOTAL2,
-    TOTAL2B_FREEZE_PERIOD_DAYS,
+    TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
     VOLUME_SMA_WINDOW,
 )
@@ -29,7 +29,7 @@ from data.processor_base import (
 )
 
 # Re-export for backward compatibility
-FREEZE_PERIOD_DAYS = TOTAL2B_FREEZE_PERIOD_DAYS
+FREEZE_PERIOD_DAYS = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
 MIN_COINS_FOR_SCALING = TOTAL2B_MIN_COINS_FOR_SCALING
 
 
@@ -54,7 +54,7 @@ class Total2bProcessor(BaseTotal2Processor):
         top_n: int = TOP_N_FOR_TOTAL2,
         volume_sma_window: int = VOLUME_SMA_WINDOW,
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
-        freeze_period_days: int = TOTAL2B_FREEZE_PERIOD_DAYS,
+        freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
         min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING,
     ):
         """

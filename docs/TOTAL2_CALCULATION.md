@@ -36,7 +36,7 @@ Both methodologies use a **21-day period** but apply it differently:
 |--------|-----------------|---------------|
 | **When** | After coin enters TOP30 | Before coin can enter TOP30 |
 | **Mechanism** | Entry warmup: monitor price swings | Freeze period: wait before eligibility |
-| **Duration** | `TOTAL2_ENTRY_WARMUP_DAYS` (21 days) | `TOTAL2B_FREEZE_PERIOD_DAYS` (21 days) |
+| **Duration** | `TOTAL2_ENTRY_WARMUP_PERIOD_DAYS` (21 days) | `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` (21 days) |
 | **Effect** | Track large movements for reporting | Ensure stable data before inclusion |
 
 ### When to Use Each
@@ -70,14 +70,14 @@ Additional configuration for **TOTAL2 (legacy)** in `src/config.py`:
 # TOTAL2 entry warmup settings (post-entry monitoring)
 TOTAL2_ENTRY_MAX_INCREASE = 1.7    # Threshold for tracking large increases (70% gain)
 TOTAL2_ENTRY_MAX_DECREASE = 0.5    # Threshold for tracking large decreases (50% loss)
-TOTAL2_ENTRY_WARMUP_DAYS = 21      # Monitor for first 21 days after entry
+TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # Monitor for first 21 days after entry
 ```
 
 Additional configuration for **TOTAL2b** in `src/config.py`:
 
 ```python
 # TOTAL2b new coin entry settings (pre-entry freeze + scaling)
-TOTAL2B_FREEZE_PERIOD_DAYS = 21       # Days to wait before coin can join (3 weeks)
+TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21   # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30    # Only apply scaling after index has this many coins
 ```
 
