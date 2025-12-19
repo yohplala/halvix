@@ -8,11 +8,11 @@ Step-by-step guide to using Halvix for cryptocurrency halving cycle analysis.
 
 ## Prerequisites
 
-Ensure you have Python 3.11+ and Poetry installed:
+Ensure you have Python 3.13+ and Poetry installed:
 
 ```bash
 # Check Python version
-python --version  # Should be 3.11 or higher
+python --version  # Should be 3.13 or higher
 
 # Install Poetry (if not already installed)
 # Windows (PowerShell)
@@ -59,8 +59,8 @@ poetry run python -m main list-coins --no-cache
 ```
 
 **Output files:**
-- `data/processed/accepted_coins.json` - Coins accepted for analysis
-- `data/processed/rejected_coins.csv` - Coins rejected with reasons
+- `data/processed/coins_to_download.json` - Coins to download
+- `data/processed/download_skipped.csv` - Download skipped with reasons
 - `site/index.html` - Auto-generated documentation page
 
 ### Step 2: Fetch Price Data
