@@ -1,25 +1,37 @@
-# Halvix - Cryptocurrency Halving Cycle Analysis
+# Halvix - AI Agent Context
 
 **[← Back to README](README.md)**
 
 ---
 
-> **Purpose**: This document provides complete project context for AI agents to implement, debug, and extend this cryptocurrency analysis tool.
+> **Purpose**: Quick reference for AI agents to understand and work on this cryptocurrency analysis tool.
 
-## 1. Project Overview
+## Documentation Index
 
-### 1.1 Project Name
-**Halvix** - A portmanteau of "halving" and "index", representing the core functionality of analyzing cryptocurrency performance relative to Bitcoin halving cycles.
+| Topic | Document |
+|-------|----------|
+| **Tutorial & CLI usage** | [docs/TUTORIAL.md](docs/TUTORIAL.md) |
+| **CryptoCompare API details** | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) |
+| **TOTAL2/TOTAL2b calculation** | [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md) |
+| **Edge cases & solutions** | [docs/EDGE_CASES.md](docs/EDGE_CASES.md) |
+| **Deployment (GitHub Pages)** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
-### 1.2 Objective
-Analyze cryptocurrency price performance relative to Bitcoin halving cycles. Compare each coin's performance against BTC and a computed TOTAL2 market index, with filtering based on positive trend indicators.
+---
 
-### 1.3 Key Outputs
-- Individual charts per cryptocurrency (stacked by halving cycle)
-- Top 10 performers summary chart
-- Cached price data repository
-- Regression analysis results
-- CSV export of filtered tokens for review
+## 1. Development Environment
+
+**This project uses Poetry** for dependency management.
+
+```bash
+# Install dependencies
+poetry install
+
+# Run commands (always use poetry run)
+poetry run python -m main <command>
+poetry run pytest
+poetry run ruff check src/ tests/
+poetry run black src/ tests/
+```
 
 ---
 
@@ -27,496 +39,118 @@ Analyze cryptocurrency price performance relative to Bitcoin halving cycles. Com
 
 ```
 halvix/
-├── pyproject.toml              # Poetry dependency management
-├── poetry.lock
+├── pyproject.toml              # Poetry config (Python 3.13+)
+├── AGENTS.md                   # This file
 ├── README.md
-├── CHANGELOG.md                # Version history
-├── docs/
-├── AGENTS.md                   # This file (AI agent context)
-│   ├── DATA_SOURCES.md         # CryptoCompare API documentation
-│   ├── EDGE_CASES.md           # Edge cases and solutions
-│   └── TOTAL2_CALCULATION.md   # TOTAL2 index methodology
-├── .vscode/
-│   └── settings.json           # VS Code pytest configuration
+├── docs/                       # Detailed documentation
 │
-├── src/                        # Source code (modules directly in src/)
-│   ├── __init__.py
-│   ├── config.py               # Constants, halving dates, API settings
+├── src/                        # Source code
+│   ├── config.py               # Constants, halving dates, settings
 │   ├── main.py                 # CLI entry point
 │   ├── api/
-│   │   ├── __init__.py
 │   │   └── cryptocompare.py    # CryptoCompare API client
 │   ├── data/
-│   │   ├── __init__.py
-│   │   ├── fetcher.py          # Data retrieval
 │   │   ├── cache.py            # File-based caching
+│   │   ├── fetcher.py          # Data retrieval
 │   │   ├── processor.py        # Re-exports and factory function
-│   │   ├── processor_base.py   # BaseTotal2Processor (shared algorithms)
+│   │   ├── processor_base.py   # BaseTotal2Processor (shared)
 │   │   ├── processor_total2.py # Total2Processor (legacy)
-│   │   └── processor_total2b.py # Total2bProcessor (new, default)
+│   │   └── processor_total2b.py # Total2bProcessor (default)
 │   ├── analysis/
-│   │   ├── __init__.py
 │   │   └── filters.py          # Token filtering
 │   ├── utils/
-│   │   ├── __init__.py
-│   │   └── logging.py          # Logging configuration
+│   │   └── logging.py
 │   └── visualization/
-│       └── __init__.py         # Charts to implement
+│       └── charts.py
 │
-├── tests/                      # Test suite
-│   ├── __init__.py
-│   └── conftest.py             # Pytest configuration
-│
+├── tests/                      # Pytest tests
 ├── data/
-│   ├── raw/prices/             # Raw price data (parquet files)
-│   ├── processed/              # Processed data & results
-│   │   ├── coins_to_download.json  # Coins that will be downloaded
-│   │   ├── download_skipped.csv    # Skipped coins with reason and URLs
-│   │   ├── regression_results.csv
-│   │   └── total2_index.parquet
+│   ├── raw/prices/             # Parquet price files
+│   ├── processed/              # Output files
 │   └── cache/                  # API cache
-│
-└── output/
-    ├── charts/individual/      # Per-coin charts
-    └── reports/                # Analysis reports
+└── site/                       # Generated HTML (GitHub Pages)
 ```
 
 ---
 
-## 3. Data Specifications
+## 3. Key Architecture
 
-### 3.1 BTC Halving Dates
-
-| Halving | Date | Cycle Window Start | Cycle Window End |
-|---------|------|-------------------|------------------|
-| 1st | 2012-11-28 | 2011-06-02 | 2015-04-27 |
-| 2nd | 2016-07-09 | 2015-01-02 | 2018-11-05 |
-| 3rd | 2020-05-11 | 2018-11-08 | 2022-09-07 |
-| 4th | 2024-04-19 | 2022-10-16 | 2026-08-16 |
-| 5th (projected) | ~2028-03-XX | - | - |
-
-### 3.2 Time Windows
-- **Days before halving**: 550
-- **Days after halving**: 880 (extended to capture bear market phase following bull run)
-- **Total window**: 1430 days
-
-### 3.3 Data Source
-
-**CryptoCompare API** (single source of truth):
-- **Base URL**: `https://min-api.cryptocompare.com`
-- **Rate limit**: 10 calls/second (free tier)
-- **Used for**:
-  - Top coins by market cap (`/data/top/mktcapfull`)
-  - Historical daily prices (`/data/v2/histoday`)
-  - Volume data for TOTAL2 weighting
-- **Advantage**: **No time limit** on free tier - can fetch full history
-
-### 3.4 Price Data Caching
-
-Price data is stored in parquet format (one file per coin-pair) in `data/raw/prices/`.
-
-**File naming convention:**
-```
-{coin_id}-{quote_currency}.parquet
-```
-
-Examples: `eth-btc.parquet`, `eth-usd.parquet`, `sol-btc.parquet`
-
-**Quote currencies configured in `config.py`:**
-```python
-QUOTE_CURRENCIES = ["BTC", "USD"]
-```
-
-**Incremental update behavior:**
-1. Load existing parquet file for the coin-pair
-2. Fetch only new data from `last_cached_date + 1` to yesterday
-3. Merge using `pd.concat([cached, new_data])`
-4. Deduplicate (keep newest if overlap)
-5. **Overwrite the same parquet file** with combined data
-
-This approach is preferred because:
-- Dataset is small (~5000 rows per coin-pair)
-- Daily updates add only a few rows
-- Simpler than append-only storage
-- Ensures data consistency
-
----
-
-## 4. Token Filtering
-
-### 4.1 Filter Implementation
-Located in `src/analysis/filters.py`
-
-### 4.2 Exclusion Categories
-
-All categories below are excluded from **all analysis** (halving cycles and TOTAL2):
-
-#### Bitcoin (base currency):
-- Bitcoin is excluded as it's the base currency for price analysis
-
-#### Stablecoins (stable vs fiat, not representative of crypto market trends):
-
-Defined in `config.py` as `EXCLUDED_STABLECOINS`:
-- **USD**: USDT, USDC, DAI, USDS, USDE, FDUSD, TUSD, FRAX, GHO, USD1, RLUSD, etc.
-- **Euro**: EURS, EURT, EURC, AGEUR
-
-#### Wrapped/Staked/Bridged:
-
-Defined in `config.py` as `EXCLUDED_WRAPPED_STAKED_IDS` and `EXCLUDED_PATTERNS`:
-- **Wrapped BTC**: WBTC, TBTC, FBTC, LBTC, SOLVBTC, CBBTC, etc.
-- **Staked ETH**: STETH, WSTETH, RETH, CBETH, etc.
-- **Wrapped ETH**: WETH, WBETH, WEETH
-- **Aave wrapped**: AETHWETH, AWETH, AUSDC, etc.
-- **Staked SOL**: JITOSOL, MSOL, BNSOL
-- **Bridged**: Various bridged tokens
-
-Plus pattern-based filtering for tokens matching: `^wrapped-`, `^staked-`, `^bridged-`, `^aeth`, `lido`, `rocket.?pool`, etc.
-
-#### Allowed Tokens (never filtered):
-
-Defined in `config.py` as `ALLOWED_TOKENS` - these override pattern-based exclusions:
-```python
-ALLOWED_TOKENS = {
-    "sui", "sei",           # L1 blockchains (not "staked" tokens)
-    "stk", "sand",          # Legitimate tokens
-    "wif",                  # Meme tokens with "wif" prefix
-    "xlm", "stx", "strk",   # Tokens with "st" prefix but not staked
-    "storj", "snt", "strax",
-    "stpt", "wild", "wifi",
-    # Governance tokens for staking/bridging/wrapping protocols
-    # (not wrapped/staked tokens themselves - independent price action)
-    "bard", "dbr", "fxs",   # Various protocol governance tokens (FXS = Frax Share)
-    "ldo",                   # Lido DAO governance token
-    "mnde",                  # Marinade Finance governance token
-    "rez",                   # Renzo governance token
-    "rpl",                   # Rocket Pool governance token
-    "sd",                    # Stader governance token
-    "swell",                 # Swell Network governance token
-}
-```
-
-#### Insufficient Historical Data:
-
-Coins must have price data available before `MIN_DATA_DATE` (2024-01-10) to be included in **halving cycle analysis**. This ensures:
-- Sufficient data for meaningful halving cycle comparisons
-- Coins have enough history to calculate trends and patterns
-- New/recent coins don't skew individual analysis with incomplete data
-
-This filter is applied **after** fetching price data (in `fetch-prices` command), since the actual data start date is only known after fetching.
-
-**Note:** This filter does NOT apply to TOTAL2 calculation. Recent coins are included in TOTAL2 because the index must be **immutable** - the value for any given day should not change when recalculated in the future. If we excluded recent coins today but included them next year (when they're no longer "recent"), historical TOTAL2 values would change retroactively. Instead, TOTAL2 captures the actual market composition (top 30 by volume) on each day, ensuring stable and reproducible values.
-
-### 4.3 CSV Export
-Skipped coins exported to `data/processed/download_skipped.csv`:
-- Semicolon delimiter (Excel compatible)
-- Columns: Coin ID, Name, Symbol, Reason, URL
-- Includes all skip reasons: stablecoins, wrapped/staked/bridged tokens, BTC derivatives, and insufficient historical data
-
----
-
-## 5. TOTAL2 Index Calculation
-
-> **Detailed documentation:** [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md)
-
-### 5.1 Definition
-Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 30), excluding:
-- Bitcoin
-- All wrapped/staked/bridged tokens
-- All stablecoins
-
-### 5.2 Two Methodologies: TOTAL2 vs TOTAL2b
-
-| Feature | TOTAL2 (Legacy) | TOTAL2b (New, Default) |
-|---------|-----------------|------------------------|
-| **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
-| **Volume outlier correction** | ✓ Yes | ✓ Yes |
-| **New coin entry** | Price capping (iterative) | Freeze period + price scaling |
-| **Price outlier correction** | ✓ Yes (day-over-day) | ✗ No |
-| **Entry delay** | None (immediate) | 21-day freeze period |
-| **Price adjustment** | Cap at ±70%/50% per day | Scale by 1/TOTAL2b_d-1 |
-
-**CLI usage:**
-```bash
-# TOTAL2b (default, recommended)
-poetry run python -m main calculate-total2
-
-# Legacy TOTAL2
-poetry run python -m main calculate-total2 --index-type total2
-```
-
-### 5.3 Processor Architecture
+### TOTAL2 Processor (see [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md))
 
 ```python
-from data.processor import get_processor, Total2Processor, Total2bProcessor
+from data.processor import get_processor
 
-# Factory function (recommended)
-processor = get_processor("total2b")  # or "total2"
+# Factory function - returns Total2Processor or Total2bProcessor
+processor = get_processor("total2b")  # or "total2" for legacy
 result = processor.calculate_total2()
-
-# Direct instantiation
-processor = Total2bProcessor(top_n=30, freeze_period_days=21)
 ```
 
-**Modules:**
-- `processor_base.py` - `BaseTotal2Processor` with shared algorithms
-- `processor_total2.py` - `Total2Processor` (legacy with price capping)
-- `processor_total2b.py` - `Total2bProcessor` (new with freeze period + scaling)
-- `processor.py` - Re-exports and `get_processor()` factory
+| Processor | Description |
+|-----------|-------------|
+| `Total2bProcessor` | **Default**. 21-day freeze period + price scaling |
+| `Total2Processor` | Legacy. Iterative price capping |
 
-### 5.4 Volume Smoothing (Shared)
-Volume is smoothed using a 120-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
+### Token Filtering
 
-**Zero-Padding:** Days before a coin's first trading data are filled with 0 volume. The weight gradually increases over the 120-day warmup period.
+Located in `src/analysis/filters.py`. Exclusions defined in `src/config.py`:
+- `EXCLUDED_STABLECOINS` - USDT, USDC, DAI, etc.
+- `EXCLUDED_WRAPPED_STAKED_IDS` - WBTC, STETH, etc.
+- `EXCLUDED_PATTERNS` - regex patterns
+- `ALLOWED_TOKENS` - overrides (SUI, SEI, STX, etc.)
 
-**Max Weight Change Tracking:** Monitors daily composition changes to ensure curve reflects prices, not weight shuffling. Warning logged if max change exceeds 0.5%.
+---
 
-### 5.5 TOTAL2b: Freeze Period and Scaling
+## 4. CLI Commands
 
-**Freeze Period (21 days):** Coins must wait 21 days after first appearing in CryptoCompare before they can join the index.
+```bash
+poetry run python -m main list-coins        # Fetch top coins
+poetry run python -m main fetch-prices      # Fetch price data
+poetry run python -m main calculate-total2  # Calculate index (--index-type total2|total2b)
+poetry run python -m main generate-charts   # Generate HTML charts
+poetry run python -m main status            # Show data status
+```
 
-**Price Scaling:** When a coin enters TOTAL2b (after freeze period + reaching TOP30):
+See [docs/TUTORIAL.md](docs/TUTORIAL.md) for detailed usage.
+
+---
+
+## 5. Testing
+
+```bash
+poetry run pytest                           # All tests
+poetry run pytest tests/test_processor.py   # Specific file
+poetry run pytest -v --tb=short             # Verbose
+```
+
+---
+
+## 6. Code Patterns
+
+### Import Pattern
+Modules are in `src/`, added to PYTHONPATH via `pyproject.toml`:
 ```python
-scaling_factor = 1.0 / TOTAL2b_d-1  # Previous day's index value
-# Applied to ALL future prices for this coin
-scaled_price = raw_price * scaling_factor
+# In src/data/processor.py
+from config import TOP_N_FOR_TOTAL2
+
+# In tests/
+from data.processor import Total2bProcessor
 ```
 
-The scaling is computed **once at entry** and applied to all subsequent days. This is **iterative** (not vectorized) because each day's TOTAL2b depends on the previous day's value.
-
----
-
-## 6. Data Backfilling
-
-### 6.1 Cutoff Date
-- Only process coins with data before **2024-01-10**
-
-### 6.2 Backfill Strategy
-For coins missing early data:
-1. Find first date with available data
-2. Calculate scaling factor: `coin_price / total2_price` at that date
-3. Apply scaling factor to TOTAL2 for all prior dates
-4. Prepend scaled values to coin data
-
-### 6.3 Normalization
-After backfilling, normalize all series to start at 1.0.
-
----
-
-## 7. Linear Regression
-
-### 7.1 Configuration
-- **Start date**: 2023-11-01
-- **End date**: Current date
-- **Minimum data points**: 30
-
-### 7.2 Formula
-`y = a*x + b` where:
-- `x`: days since start
-- `y`: normalized price (vs BTC)
-- `a`: slope (trend strength)
-- `b`: intercept
-
-### 7.3 Filter Criterion
-Keep only coins with `a > 0` (positive trend)
-
----
-
-## 8. CLI Commands
-
-### 8.1 Available Commands
-
-```bash
-# Fetch and filter top coins by market cap
-python -m main list-coins [--top-n N] [--skip-ping]
-
-# Fetch price data for filtered coins
-python -m main fetch-prices [--limit N] [--no-incremental]
-
-# Calculate TOTAL2 index (TOTAL2b by default)
-python -m main calculate-total2 [--index-type total2|total2b] [--top-n N] [--volume-sma N] [--quote-currency BTC|USD]
-
-# Generate interactive charts
-python -m main generate-charts [--output-dir PATH]
-
-# Show current data status
-python -m main status
-
-# Clear cached data
-python -m main clear-cache [--prices] [--api]
-```
-
-### 8.2 TOTAL2 Recalculation
-
-The `calculate-total2` command **recomputes TOTAL2 from scratch** each time:
-
-1. Loads all cached price data from `data/raw/prices/`
-2. Applies token filters (excludes BTC, stablecoins, wrapped/staked)
-3. **Detects and corrects volume outliers** (vectorized, >20x median & >5000 BTC)
-4. Applies zero-padded 120-day SMA to volume (gradual coin entry)
-5. Calculates volume-weighted average for each day
-6. Tracks max daily weight change (for quality monitoring)
-7. Overwrites output files
-
-**Data Quality Features:**
-- **Volume outlier correction**: Automatically detects impossible volume spikes (e.g., PPC 90M BTC) and interpolates from surrounding days
-- **Zero-padding**: Coins entering TOTAL2 do so gradually over 120 days, preventing sudden weight jumps
-- **Max weight change tracking**: Monitors daily composition changes to ensure curve reflects prices, not weight shuffling
-
-This approach ensures:
-- **Consistency**: All historical values are calculated with the same parameters
-- **New coins included**: Recent coins appear in TOTAL2 for dates they have data
-- **Reproducibility**: Same input data always produces same output
-- **Data integrity**: Bad data points are automatically corrected
-
-When adding new coins (e.g., expanding TOP_N_COINS), run:
-```bash
-python -m main list-coins      # Update coin list
-python -m main fetch-prices    # Download new coin data
-python -m main calculate-total2  # Recompute TOTAL2 with all coins
-python -m main generate-charts   # Update visualizations
-```
-
----
-
-## 9. Visualization
-
-### 9.1 Library: Plotly
-
-### 9.2 Generated Charts
-
-The `generate-charts` command creates interactive HTML files in `site/charts/`:
-
-| File | Description |
-|------|-------------|
-| `btc_charts.html` | Combined BTC charts: normalized + absolute, stacked vertically (4 cycles) |
-| `total2_charts.html` | Combined TOTAL2 charts: USD normalized + BTC normalized + BTC absolute, stacked vertically (3 cycles) |
-| `total2_composition.html` | Interactive viewer: select date, see which coins are in TOTAL2 |
-
-The main site structure is:
-- `site/index.html` - Main navigation page with links to all charts and data status
-- `site/data_status.html` - Data status page showing downloaded coins and skipped tokens
-- `site/charts/` - Contains all chart HTML files
-
-### 9.3 Chart Specifications
-
-#### Halving Cycle Charts:
-- **X-axis**: Days from halving (0 = halving day)
-- **Y-axis**: Log scale for price
-- **Vertical line**: Marks halving event
-- **Hover**: Shows date, price, coin count, top 10 coins (for TOTAL2)
-
-#### Individual Coin Charts:
-- **Candlesticks**: Dark orange (#E67E22 up, #D35400 down)
-- **TOTAL2 overlay**: Light grey (#CCCCCC)
-- **Regression line**: Dotted dark blue (#1B4F72) - last cycle only
-- **Aggregation**: Half-monthly (SMS frequency)
-
-#### Layout:
-- Stack all cycles vertically (latest on top)
-- Formula displayed on last cycle chart
-- Skip cycles without data
-
-#### Top 10 Summary:
-- Single chart with 10 lines
-- Last cycle only
-- Ranked by `a` coefficient
-
----
-
-## 10. Development Commands
-
-```bash
-# Install dependencies
-poetry install
-
-# Activate virtual environment
-poetry shell
-
-# Run all tests
-poetry run pytest tests/ -v
-
-# Run specific test file
-poetry run pytest tests/test_filters.py -v
-
-# Run with coverage
-poetry run pytest tests/ --cov=src --cov-report=html
-
-# Format code
-poetry run black src/ tests/
-
-# Lint code
-poetry run ruff src/ tests/
-```
-
----
-
-## 11. Key Configuration Values
-
+### Key Config Values (from `src/config.py`)
 ```python
-# From src/config.py
-
-HALVING_DATES = [
-    date(2012, 11, 28),
-    date(2016, 7, 9),
-    date(2020, 5, 11),
-    date(2024, 4, 19),
-]
-
-DAYS_BEFORE_HALVING = 550
-DAYS_AFTER_HALVING = 880
-
-REGRESSION_START_DATE = date(2023, 11, 1)
-MIN_DATA_DATE = date(2024, 1, 10)
-
-TOP_N_COINS = 1000  # Increased to include historical coins (e.g., XEM)
-TOP_N_FOR_TOTAL2 = 30
-TOP_N_SUMMARY = 10
-VOLUME_SMA_WINDOW = 120  # Days for volume smoothing (~4 months)
-
-# Quote currencies for price data
-QUOTE_CURRENCIES = ["BTC", "USD"]
+TOP_N_COINS = 1000              # Coins to fetch
+TOP_N_FOR_TOTAL2 = 30           # Coins in index
+VOLUME_SMA_WINDOW = 120         # Days for volume smoothing
 DEFAULT_QUOTE_CURRENCY = "BTC"
-
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
-CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
-HALF_MONTHLY_FREQ = "SMS"
 ```
 
----
-
-## 12. Notes for AI Agents
-
-### 11.1 Import Pattern
-Modules are directly in `src/`, not in a package subfolder:
-```python
-# In src/analysis/filters.py
-from config import ALLOWED_TOKENS, ...
-
-# In tests/test_filters.py
-from analysis.filters import TokenFilter
-```
-
-### 11.2 Path Configuration
-- `pyproject.toml` has `pythonpath = ["src"]`
-- `conftest.py` adds `src` to `sys.path`
-- VS Code settings have `python.analysis.extraPaths`
-
-### 11.3 Testing
-- Use `token_filter` as fixture name (not `filter` - reserved keyword)
-- Tests use parametrization for extensive coverage
-- CSV export uses semicolon for Excel compatibility
-
-### 11.4 Common Pitfalls
-1. Always check `ALLOWED_TOKENS` before filtering
-2. Rate limit API calls (30/minute for CryptoCompare)
-3. Handle missing data with backfilling
+### Common Pitfalls
+1. Always use `poetry run` for commands
+2. Check `ALLOWED_TOKENS` before filtering tokens
+3. API rate limit: 30 calls/minute (CryptoCompare)
 
 ---
 
 *Last updated: 2025-12-19*
-*Document version: 7.0*
-*Project name: Halvix*
-
----
 
 **[← Back to README](README.md)**
