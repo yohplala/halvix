@@ -1,4 +1,4 @@
-# Halvix - AI Agent Context
+# AI Agent Context
 
 **[← Back to README](README.md)**
 
@@ -131,7 +131,7 @@ poetry run pytest -v --tb=short             # Verbose
 Modules are in `src/`, added to PYTHONPATH via `pyproject.toml`:
 ```python
 # In src/data/processor.py
-from config import TOP_N_FOR_TOTAL2
+from config import TOP_N_BY_VOLUME_FOR_TOTAL2
 
 # In tests/
 from data.processor import Total2bProcessor
@@ -139,9 +139,9 @@ from data.processor import Total2bProcessor
 
 ### Key Config Values (from `src/config.py`)
 ```python
-TOP_N_COINS = 1000              # Coins to fetch
-TOP_N_FOR_TOTAL2 = 30           # Coins in index
-VOLUME_SMA_WINDOW = 120         # Days for volume smoothing
+TOP_N_BY_MARKETCAP_TO_FETCH = 1000     # Coins to fetch (among those, downloads of some can be skipped)
+TOP_N_BY_VOLUME_FOR_TOTAL2 = 30        # Coins in index
+VOLUME_SMA_WINDOW = 120                # Days for volume smoothing
 DEFAULT_QUOTE_CURRENCY = "BTC"
 ```
 
