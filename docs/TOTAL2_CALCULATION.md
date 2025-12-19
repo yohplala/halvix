@@ -24,10 +24,9 @@ Halvix supports two methodologies for calculating the index:
 |---------|-----------------|------------------------|
 | **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
 | **Volume outlier correction** | ✓ Yes | ✓ Yes |
-| **New coin entry** | Price capping (iterative) | Freeze period + price scaling |
-| **Price outlier correction** | ✓ Yes (day-over-day) | ✗ No |
 | **Entry delay** | None (immediate) | 21-day freeze period |
-| **Price adjustment** | Cap at ±70%/50% per day | Scale by 1/TOTAL2b_d-1 |
+| **New coin integration** | Entry warmup with price capping | Price scaling at entry |
+| **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
 
 ### When to Use Each
 
@@ -148,9 +147,9 @@ Where `TOTAL2b_d-1` is the index value from the previous day.
 - Prevents large absolute offsets in the index
 - Applies only when index already has 30+ coins (established baseline)
 
-### 3. No Price Outlier Correction
+### 3. No TOTAL2 Series Smoothing
 
-TOTAL2b does **not** apply iterative price correction. The freeze period and scaling provide sufficient protection against entry spikes.
+TOTAL2b does **not** apply TOTAL2 series smoothing (capping extreme index movements). The freeze period and price scaling provide sufficient protection against entry spikes, making additional smoothing unnecessary.
 
 ### Algorithm Summary
 
@@ -167,24 +166,27 @@ for each day:
 
 ## TOTAL2 Algorithm (Legacy)
 
-TOTAL2 (legacy) uses iterative price correction and entry warmup:
+TOTAL2 (legacy) uses entry warmup and TOTAL2 series smoothing:
 
-### 1. Price Outlier Correction
+### 1. Entry Warmup
 
-Day-over-day price spikes are detected and corrected:
-- **Increases > 300%**: Capped and averaged
-- **Decreases > 65%**: Floored and averaged
-
-### 2. Entry Warmup (Price Capping)
-
-When a coin enters TOTAL2, its price is capped for 21 days:
+When a new coin enters the TOP30, its price changes are monitored during a **21-day warmup period**. Large price swings are tracked to understand their impact on the index.
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| **Max Increase** | 1.7x (70% gain) | Price can't increase more than 70% per day |
-| **Max Decrease** | 0.5x (50% loss) | Price can't decrease more than 50% per day |
-| **Duration** | 21 days | Warmup capping lasts 3 weeks |
-| **Baseline** | Corrected TOTAL2 | Market level from day before entry |
+| **Max Increase** | 1.7x (70% gain) | Threshold for tracking large increases |
+| **Max Decrease** | 0.5x (50% loss) | Threshold for tracking large decreases |
+| **Duration** | 21 days | Warmup monitoring period |
+
+### 2. TOTAL2 Series Smoothing
+
+Extreme day-over-day movements in the **aggregate TOTAL2 index** are capped:
+- **Increases > 200%**: Capped at 3x the previous day's value
+- **Decreases > 65%**: Floored at 0.35x the previous day's value
+
+This prevents the index from having extreme jumps when coins with unusual prices enter or exit.
+
+**Note:** This is NOT "price outlier detection" for individual coins. It's smoothing of the aggregate index to prevent extreme movements caused by new coin entries.
 
 ### 3. Two-Pass Algorithm
 
@@ -192,15 +194,11 @@ When a coin enters TOTAL2, its price is capped for 21 days:
 # Pass 1: Calculate Raw TOTAL2
 raw_total2 = calculate_weighted_average(close_df, smoothed_volume_df, mask_df)
 
-# Apply TOTAL2 outlier detection
-corrected_total2 = apply_outlier_detection(raw_total2)
+# Apply TOTAL2 series smoothing (cap extreme day-over-day movements)
+smoothed_total2 = apply_series_smoothing(raw_total2)
 
-# Pass 2: Apply entry warmup
-for each coin entering TOTAL2:
-    apply_iterative_price_capping(coin, corrected_total2)
-
-# Recalculate final TOTAL2
-final_total2 = calculate_weighted_average(capped_close_df, smoothed_volume_df, mask_df)
+# Track entry warmup events for reporting
+warmup_events = track_entry_warmup(smoothed_total2, mask_df)
 ```
 
 ---

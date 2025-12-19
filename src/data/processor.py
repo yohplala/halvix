@@ -19,7 +19,6 @@ from data.processor_base import (
 from data.processor_total2 import (
     MAX_DOD_DECREASE,
     MAX_DOD_INCREASE,
-    PRICE_OUTLIER_WINDOW_DAYS,
     Total2Processor,
 )
 from data.processor_total2b import (
@@ -68,10 +67,9 @@ __all__ = [
     "VOLUME_OUTLIER_THRESHOLD",
     "MIN_VOLUME_FOR_OUTLIER_CHECK",
     "OUTLIER_WINDOW_DAYS",
-    # Constants (TOTAL2 specific)
+    # Constants (TOTAL2 series smoothing)
     "MAX_DOD_INCREASE",
     "MAX_DOD_DECREASE",
-    "PRICE_OUTLIER_WINDOW_DAYS",
     # Constants (TOTAL2b specific)
     "FREEZE_PERIOD_DAYS",
     "MIN_COINS_FOR_SCALING",
