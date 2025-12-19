@@ -7,8 +7,8 @@ from .fetcher import DataFetcher, FetcherError, FetchResult
 from .processor import (
     BaseTotal2Processor,
     ProcessorError,
-    Total2Processor,
     Total2bProcessor,
+    Total2Processor,
     Total2Result,
     get_processor,
 )
