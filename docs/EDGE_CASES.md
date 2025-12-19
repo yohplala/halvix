@@ -28,38 +28,6 @@ def get_daily_history(
 
 ---
 
-## 2. Single Data Source (No Symbol Mapping)
-
-### Status: ✅ Implemented
-
-By using CryptoCompare as the single data source for both coin discovery and historical data:
-
-- **No symbol mapping required** - we use CryptoCompare symbols throughout
-- **No validation needed** - data comes from same source
-- **Simpler architecture** - fewer moving parts
-
-### Implementation
-
-```python
-# src/api/cryptocompare.py
-
-def get_top_coins_by_market_cap(self, n: int = 300) -> list[Coin]:
-    """
-    Get top N coins by market capitalization.
-    Returns Coin objects with symbol, name, market_cap, price, volume.
-    """
-    ...
-
-def get_full_daily_history(self, symbol: str, ...) -> pd.DataFrame:
-    """
-    Use the same symbol from get_top_coins_by_market_cap directly.
-    No mapping needed!
-    """
-    ...
-```
-
----
-
 ## 3. Incremental Data Fetching
 
 ### Status: ✅ Implemented
