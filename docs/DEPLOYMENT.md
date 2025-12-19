@@ -64,12 +64,8 @@ This approach ensures:
 
 | File | Description |
 |------|-------------|
-| `btc_charts.html` | BTC charts index page |
-| `btc_usd_normalized.html` | BTC/USD normalized to halving day |
-| `btc_halving_cycles.html` | BTC/USD absolute values |
-| `total2_charts.html` | TOTAL2 charts index page |
-| `total2_dual_normalized.html` | TOTAL2/USD and TOTAL2/BTC side-by-side |
-| `total2_halving_cycles.html` | TOTAL2/BTC absolute values |
+| `btc_charts.html` | Combined BTC chart with normalized and absolute prices stacked vertically |
+| `total2_charts.html` | Combined TOTAL2 chart with TOTAL2/USD normalized and TOTAL2/BTC absolute stacked vertically |
 | `total2_composition.html` | Redirect to latest month |
 | `total2_composition_YYYY_MM.html` | Monthly composition pages |
 
