@@ -49,8 +49,11 @@ halvix/
 │   ├── data/
 │   │   ├── __init__.py
 │   │   ├── fetcher.py          # Data retrieval
-│   │   ├── processor.py        # TOTAL2 calculation
-│   │   └── cache.py            # File-based caching
+│   │   ├── cache.py            # File-based caching
+│   │   ├── processor.py        # Re-exports and factory function
+│   │   ├── processor_base.py   # BaseTotal2Processor (shared algorithms)
+│   │   ├── processor_total2.py # Total2Processor (legacy)
+│   │   └── processor_total2b.py # Total2bProcessor (new, default)
 │   ├── analysis/
 │   │   ├── __init__.py
 │   │   └── filters.py          # Token filtering
@@ -213,7 +216,7 @@ Skipped coins exported to `data/processed/download_skipped.csv`:
 
 ## 5. TOTAL2 Index Calculation
 
-> **Detailed documentation:** [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md)
+> **Detailed documentation:** [TOTAL2_CALCULATION.md](TOTAL2_CALCULATION.md)
 
 ### 5.1 Definition
 Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 30), excluding:
@@ -221,35 +224,64 @@ Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 30), exc
 - All wrapped/staked/bridged tokens
 - All stablecoins
 
-### 5.2 Volume Smoothing
-Volume is smoothed using a 120-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
-This ensures stable rankings that don't fluctuate wildly from one day to the next.
+### 5.2 Two Methodologies: TOTAL2 vs TOTAL2b
 
-**Zero-Padding of 24h Volume:** Days before a coin's first trading data are filled with 0 volume. This means when a coin **first starts trading** (has data), its smoothed volume is only `actual_volume / 120`. The weight gradually increases over the 120-day warmup period. This prevents sudden TOTAL2 jumps when a new coin with high volume appears and immediately enters the TOP30.
+| Feature | TOTAL2 (Legacy) | TOTAL2b (New, Default) |
+|---------|-----------------|------------------------|
+| **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
+| **Volume outlier correction** | ✓ Yes | ✓ Yes |
+| **New coin entry** | Price capping (iterative) | Freeze period + price scaling |
+| **Price outlier correction** | ✓ Yes (day-over-day) | ✗ No |
+| **Entry delay** | None (immediate) | 21-day freeze period |
+| **Price adjustment** | Cap at ±70%/50% per day | Scale by 1/TOTAL2b_d-1 |
 
-**Max Weight Change Tracking:** The system calculates the maximum daily weight change for any coin **in the TOTAL2** (only after 2016-07-04 when 30 coins are available). This ensures TOTAL2 curve variations reflect actual price movements rather than sudden composition weight changes. A warning is logged if max change exceeds 0.5%.
+**CLI usage:**
+```bash
+# TOTAL2b (default, recommended)
+poetry run python -m main calculate-total2
 
-### 5.3 Algorithm (Vectorized)
-```python
-# 1. Filter coin IDs BEFORE loading (BTC, derivatives, stablecoins are excluded)
-eligible_coins = filter_coins_for_total2(all_cached_coins)
-
-# 2. Load price data for eligible coins only
-close_df = load_prices(eligible_coins)  # (dates × coins)
-volume_df = load_volumes(eligible_coins)
-
-# 3. Apply SMA smoothing
-smoothed_volume = volume_df.rolling(window=VOLUME_SMA_WINDOW).mean()
-
-# 4. Rank by smoothed volume per day
-rank_df = smoothed_volume.rank(axis=1, ascending=False)
-mask = rank_df <= TOP_N_FOR_TOTAL2
-
-# 5. Calculate weighted average
-numerator = (close_df.where(mask) * smoothed_volume.where(mask)).sum(axis=1)
-denominator = smoothed_volume.where(mask).sum(axis=1)
-total2 = numerator / denominator
+# Legacy TOTAL2
+poetry run python -m main calculate-total2 --index-type total2
 ```
+
+### 5.3 Processor Architecture
+
+```python
+from data.processor import get_processor, Total2Processor, Total2bProcessor
+
+# Factory function (recommended)
+processor = get_processor("total2b")  # or "total2"
+result = processor.calculate_total2()
+
+# Direct instantiation
+processor = Total2bProcessor(top_n=30, freeze_period_days=21)
+```
+
+**Modules:**
+- `processor_base.py` - `BaseTotal2Processor` with shared algorithms
+- `processor_total2.py` - `Total2Processor` (legacy with price capping)
+- `processor_total2b.py` - `Total2bProcessor` (new with freeze period + scaling)
+- `processor.py` - Re-exports and `get_processor()` factory
+
+### 5.4 Volume Smoothing (Shared)
+Volume is smoothed using a 120-day Simple Moving Average (`VOLUME_SMA_WINDOW`) to reduce daily volatility.
+
+**Zero-Padding:** Days before a coin's first trading data are filled with 0 volume. The weight gradually increases over the 120-day warmup period.
+
+**Max Weight Change Tracking:** Monitors daily composition changes to ensure curve reflects prices, not weight shuffling. Warning logged if max change exceeds 0.5%.
+
+### 5.5 TOTAL2b: Freeze Period and Scaling
+
+**Freeze Period (21 days):** Coins must wait 21 days after first appearing in CryptoCompare before they can join the index.
+
+**Price Scaling:** When a coin enters TOTAL2b (after freeze period + reaching TOP30):
+```python
+scaling_factor = 1.0 / TOTAL2b_d-1  # Previous day's index value
+# Applied to ALL future prices for this coin
+scaled_price = raw_price * scaling_factor
+```
+
+The scaling is computed **once at entry** and applied to all subsequent days. This is **iterative** (not vectorized) because each day's TOTAL2b depends on the previous day's value.
 
 ---
 
@@ -300,8 +332,8 @@ python -m main list-coins [--top-n N] [--skip-ping]
 # Fetch price data for filtered coins
 python -m main fetch-prices [--limit N] [--no-incremental]
 
-# Calculate TOTAL2 index
-python -m main calculate-total2 [--top-n N] [--volume-sma N] [--quote-currency BTC|USD]
+# Calculate TOTAL2 index (TOTAL2b by default)
+python -m main calculate-total2 [--index-type total2|total2b] [--top-n N] [--volume-sma N] [--quote-currency BTC|USD]
 
 # Generate interactive charts
 python -m main generate-charts [--output-dir PATH]
@@ -481,8 +513,8 @@ from analysis.filters import TokenFilter
 
 ---
 
-*Last updated: 2025-12-05*
-*Document version: 6.0*
+*Last updated: 2025-12-19*
+*Document version: 7.0*
 *Project name: Halvix*
 
 ---
