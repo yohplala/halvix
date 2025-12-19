@@ -2,45 +2,32 @@
 
 ## Development Environment
 
-This project uses **Poetry** for dependency management and virtual environments.
-
-### Running Commands
-- Install dependencies: `poetry install`
-- Run tests: `poetry run pytest`
-- Run linter: `poetry run ruff check src/ tests/`
-- Run formatter: `poetry run black src/ tests/`
-- Run CLI: `poetry run python -m main <command>`
-
-### Key Commands
-```bash
-poetry run python -m main list-coins
-poetry run python -m main fetch-prices
-poetry run python -m main calculate-total2
-poetry run python -m main generate-charts
-```
-
-## Project Structure
-
-- `src/` - Main source code (added to PYTHONPATH via pyproject.toml)
-- `tests/` - Pytest test files
-- `docs/` - Markdown documentation
-- `site/` - Generated HTML for GitHub Pages
-
-## Python Version
-
-This project requires Python 3.13+ (see pyproject.toml).
-
-## Code Style
-
-- Line length: 100 characters
-- Formatter: Black
-- Linter: Ruff
-- Import sorting: isort (via Ruff)
-
-## Testing
+This project uses **Poetry** for dependency management.
 
 ```bash
-poetry run pytest                    # Run all tests
-poetry run pytest tests/test_processor.py  # Run specific file
-poetry run pytest -v --tb=short      # Verbose with short traceback
+# Install dependencies
+poetry install
+
+# Run commands (always use poetry run)
+poetry run python -m main <command>
+poetry run pytest
+poetry run ruff check src/ tests/
+poetry run black src/ tests/
 ```
+
+## Full Documentation
+
+See **[docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)** for complete project context including:
+- Project structure and architecture
+- TOTAL2/TOTAL2b processor details
+- CLI commands and options
+- Testing patterns
+- Configuration values
+
+## Quick Reference
+
+- **Python**: 3.13+ (see pyproject.toml)
+- **Source code**: `src/` (added to PYTHONPATH)
+- **Tests**: `tests/` with pytest
+- **Formatter**: Black (line-length: 100)
+- **Linter**: Ruff
