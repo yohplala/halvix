@@ -17,7 +17,7 @@ from config import (
     TOP_N_FOR_TOTAL2,
     TOTAL2_ENTRY_MAX_DECREASE,
     TOTAL2_ENTRY_MAX_INCREASE,
-    TOTAL2_ENTRY_WARMUP_DAYS,
+    TOTAL2_ENTRY_WARMUP_PERIOD_DAYS,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -54,7 +54,7 @@ class Total2Processor(BaseTotal2Processor):
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
         entry_max_increase: float = TOTAL2_ENTRY_MAX_INCREASE,
         entry_max_decrease: float = TOTAL2_ENTRY_MAX_DECREASE,
-        entry_warmup_days: int = TOTAL2_ENTRY_WARMUP_DAYS,
+        entry_warmup_days: int = TOTAL2_ENTRY_WARMUP_PERIOD_DAYS,
     ):
         """
         Initialize the TOTAL2 processor.
