@@ -1,10 +1,11 @@
 """
-Tests for TOTAL2 processor.
+Tests for TOTAL2 and TOTAL2b processors.
 
 Tests cover:
-- Volume-weighted TOTAL2 calculation logic
+- Volume-weighted TOTAL2/TOTAL2b calculation logic
 - Daily composition tracking
 - Filtering for TOTAL2 eligibility
+- TOTAL2b freeze period and price scaling
 - Edge cases
 """
 
@@ -17,11 +18,41 @@ import pandas as pd
 import pytest
 
 from data.cache import PriceDataCache
-from data.processor import ProcessorError, Total2Processor, Total2Result
+from data.processor import (
+    ProcessorError,
+    Total2bProcessor,
+    Total2Processor,
+    Total2Result,
+    get_processor,
+)
+
+
+class TestProcessorFactory:
+    """Tests for the get_processor factory function."""
+
+    def test_get_total2_processor(self):
+        """Test factory returns Total2Processor for 'total2'."""
+        processor = get_processor("total2")
+        assert isinstance(processor, Total2Processor)
+
+    def test_get_total2b_processor(self):
+        """Test factory returns Total2bProcessor for 'total2b'."""
+        processor = get_processor("total2b")
+        assert isinstance(processor, Total2bProcessor)
+
+    def test_default_is_total2b(self):
+        """Test factory defaults to Total2bProcessor."""
+        processor = get_processor()
+        assert isinstance(processor, Total2bProcessor)
+
+    def test_invalid_index_type_raises(self):
+        """Test factory raises ValueError for unknown type."""
+        with pytest.raises(ValueError, match="Unknown index type"):
+            get_processor("invalid")
 
 
 class TestTotal2ProcessorInit:
-    """Tests for processor initialization."""
+    """Tests for Total2Processor initialization."""
 
     def test_default_initialization(self):
         """Test processor initializes with defaults."""
@@ -31,16 +62,48 @@ class TestTotal2ProcessorInit:
 
         assert processor.price_cache is not None
         assert processor.token_filter is not None
-        assert processor.top_n == TOP_N_FOR_TOTAL2  # Default from config
+        assert processor.top_n == TOP_N_FOR_TOTAL2
 
     def test_custom_top_n(self):
         """Test processor with custom top_n."""
         processor = Total2Processor(top_n=25)
         assert processor.top_n == 25
 
+    def test_index_type(self):
+        """Test processor has correct index type."""
+        processor = Total2Processor()
+        assert processor.INDEX_TYPE == "total2"
+
+
+class TestTotal2bProcessorInit:
+    """Tests for Total2bProcessor initialization."""
+
+    def test_default_initialization(self):
+        """Test processor initializes with defaults."""
+        from config import TOP_N_FOR_TOTAL2
+        from data.processor import FREEZE_PERIOD_DAYS, MIN_COINS_FOR_SCALING
+
+        processor = Total2bProcessor()
+
+        assert processor.price_cache is not None
+        assert processor.token_filter is not None
+        assert processor.top_n == TOP_N_FOR_TOTAL2
+        assert processor.freeze_period_days == FREEZE_PERIOD_DAYS
+        assert processor.min_coins_for_scaling == MIN_COINS_FOR_SCALING
+
+    def test_custom_freeze_period(self):
+        """Test processor with custom freeze period."""
+        processor = Total2bProcessor(freeze_period_days=14)
+        assert processor.freeze_period_days == 14
+
+    def test_index_type(self):
+        """Test processor has correct index type."""
+        processor = Total2bProcessor()
+        assert processor.INDEX_TYPE == "total2b"
+
 
 class TestTotal2FilterCoins:
-    """Tests for coin filtering for TOTAL2."""
+    """Tests for coin filtering for TOTAL2 (shared by both processors)."""
 
     @pytest.fixture
     def processor(self):
@@ -93,7 +156,7 @@ class TestTotal2Calculation:
         eth_data = pd.DataFrame(
             {
                 "close": [0.05, 0.052, 0.051, 0.053, 0.054],
-                "volume_to": [10000, 11000, 10500, 12000, 11500],  # Volume in BTC
+                "volume_to": [10000, 11000, 10500, 12000, 11500],
             },
             index=dates,
         )
@@ -122,29 +185,24 @@ class TestTotal2Calculation:
 
     def test_calculate_daily_total2(self, temp_dir, sample_price_data):
         """Test daily volume-weighted TOTAL2 calculation."""
-        # Create price cache and save sample data
         cache = PriceDataCache(prices_dir=temp_dir)
         for coin_id, df in sample_price_data.items():
             cache.set_prices(coin_id, df)
 
         processor = Total2Processor(price_cache=cache, top_n=3)
 
-        # Calculate for a specific date
         target_date = datetime(2024, 1, 1)
         result = processor._calculate_daily_total2(sample_price_data, target_date)
 
         assert result is not None
         index_record, composition = result
 
-        # Check index record
         assert "total2_price" in index_record
         assert "total_volume" in index_record
         assert "coin_count" in index_record
         assert index_record["coin_count"] == 3
 
-        # Check composition
         assert len(composition) == 3
-        # ETH should be rank 1 (highest volume)
         eth_entry = [c for c in composition if c["coin_id"] == "eth"][0]
         assert eth_entry["rank"] == 1
 
@@ -165,8 +223,6 @@ class TestTotal2Calculation:
         # ETH: close=0.05, volume=10000
         # SOL: close=0.003, volume=2000
         # ADA: close=0.00002, volume=500
-        # Total volume = 12500
-        # Weighted = (0.05*10000 + 0.003*2000 + 0.00002*500) / 12500
         expected_weighted = (0.05 * 10000 + 0.003 * 2000 + 0.00002 * 500) / 12500
 
         assert abs(index_record["total2_price"] - expected_weighted) < 1e-10
@@ -177,21 +233,134 @@ class TestTotal2Calculation:
         for coin_id, df in sample_price_data.items():
             cache.set_prices(coin_id, df)
 
-        # Use small SMA window for test data (5 days of data)
         processor = Total2Processor(price_cache=cache, top_n=3, volume_sma_window=2)
 
         result = processor.calculate_total2(show_progress=False)
 
         assert isinstance(result, Total2Result)
         assert result.coins_processed == 3
-        # With SMA window of 2, we lose 1 day (warmup), so 4 days
+        assert result.index_type == "total2"
         assert len(result.index_df) >= 3
         assert not result.composition_df.empty
 
-        # Check all expected columns
         assert "total2_price" in result.index_df.columns
         assert "total_volume" in result.index_df.columns
         assert "coin_count" in result.index_df.columns
+
+
+class TestTotal2bCalculation:
+    """Tests for TOTAL2b calculation with freeze period and scaling."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create temporary directory for price cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    @pytest.fixture
+    def sample_price_data_with_freeze(self):
+        """Create sample price data that spans freeze period."""
+        # 30 days of data to test freeze period (21 days)
+        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+
+        eth_data = pd.DataFrame(
+            {
+                "close": [0.05 + i * 0.001 for i in range(30)],
+                "volume_to": [10000 + i * 100 for i in range(30)],
+            },
+            index=dates,
+        )
+
+        sol_data = pd.DataFrame(
+            {
+                "close": [0.003 + i * 0.0001 for i in range(30)],
+                "volume_to": [2000 + i * 50 for i in range(30)],
+            },
+            index=dates,
+        )
+
+        ada_data = pd.DataFrame(
+            {
+                "close": [0.00002 + i * 0.000001 for i in range(30)],
+                "volume_to": [500 + i * 20 for i in range(30)],
+            },
+            index=dates,
+        )
+
+        return {
+            "eth": eth_data,
+            "sol": sol_data,
+            "ada": ada_data,
+        }
+
+    def test_freeze_period_enforced(self, temp_dir, sample_price_data_with_freeze):
+        """Test that coins must wait freeze period before joining index."""
+        cache = PriceDataCache(prices_dir=temp_dir)
+        for coin_id, df in sample_price_data_with_freeze.items():
+            cache.set_prices(coin_id, df)
+
+        # Use short freeze period for testing
+        processor = Total2bProcessor(
+            price_cache=cache,
+            top_n=3,
+            volume_sma_window=2,
+            freeze_period_days=5,  # Short freeze for testing
+        )
+
+        result = processor.calculate_total2(show_progress=False)
+
+        assert isinstance(result, Total2Result)
+        assert result.index_type == "total2b"
+        # First valid index should be after freeze period + SMA warmup
+        assert len(result.index_df) > 0
+
+    def test_full_calculation_pipeline(self, temp_dir, sample_price_data_with_freeze):
+        """Test full TOTAL2b calculation."""
+        cache = PriceDataCache(prices_dir=temp_dir)
+        for coin_id, df in sample_price_data_with_freeze.items():
+            cache.set_prices(coin_id, df)
+
+        processor = Total2bProcessor(
+            price_cache=cache,
+            top_n=3,
+            volume_sma_window=2,
+            freeze_period_days=5,
+        )
+
+        result = processor.calculate_total2(show_progress=False)
+
+        assert isinstance(result, Total2Result)
+        assert result.coins_processed == 3
+        assert result.index_type == "total2b"
+        assert not result.composition_df.empty
+
+        assert "total2_price" in result.index_df.columns
+        assert "total_volume" in result.index_df.columns
+        assert "coin_count" in result.index_df.columns
+
+    def test_get_freeze_period_status(self, temp_dir, sample_price_data_with_freeze):
+        """Test freeze period status reporting."""
+        cache = PriceDataCache(prices_dir=temp_dir)
+        for coin_id, df in sample_price_data_with_freeze.items():
+            cache.set_prices(coin_id, df)
+
+        processor = Total2bProcessor(
+            price_cache=cache,
+            freeze_period_days=21,
+        )
+
+        # Check status on a date during the freeze period
+        status = processor.get_freeze_period_status(
+            sample_price_data_with_freeze,
+            target_date=date(2024, 1, 10),
+        )
+
+        assert len(status) == 3
+        for s in status:
+            assert "coin_id" in s
+            assert "first_seen" in s
+            assert "days_remaining" in s
+            assert "eligible" in s
 
 
 class TestTotal2SaveLoad:
@@ -234,6 +403,7 @@ class TestTotal2SaveLoad:
             coins_processed=2,
             date_range=(date(2024, 1, 1), date(2024, 1, 3)),
             avg_coins_per_day=50.0,
+            index_type="total2",
         )
 
     def test_save_and_load_index(self, temp_dir, sample_result):
@@ -244,16 +414,15 @@ class TestTotal2SaveLoad:
         comp_path = temp_dir / "total2_composition.parquet"
 
         with (
-            patch("data.processor.PROCESSED_DIR", temp_dir),
-            patch("data.processor.TOTAL2_INDEX_FILE", index_path),
-            patch("data.processor.TOTAL2_COMPOSITION_FILE", comp_path),
+            patch("data.processor_base.PROCESSED_DIR", temp_dir),
+            patch("data.processor_base.TOTAL2_INDEX_FILE", index_path),
+            patch("data.processor_base.TOTAL2_COMPOSITION_FILE", comp_path),
         ):
             processor.save_results(sample_result, index_path, comp_path)
 
             assert index_path.exists()
             assert comp_path.exists()
 
-            # Load and verify
             loaded = processor.load_total2_index(index_path)
             pd.testing.assert_frame_equal(
                 loaded.reset_index(drop=True), sample_result.index_df.reset_index(drop=True)
@@ -273,14 +442,13 @@ class TestTotal2EdgeCases:
         cache = PriceDataCache(prices_dir=temp_dir)
         processor = Total2Processor(price_cache=cache)
 
-        with pytest.raises(ProcessorError, match="No cached price data"):
+        with pytest.raises(ProcessorError, match="No price data available"):
             processor.calculate_total2(show_progress=False)
 
     def test_all_filtered_raises_error(self, temp_dir):
         """Test error when all coins are filtered out."""
         cache = PriceDataCache(prices_dir=temp_dir)
 
-        # Only save wrapped tokens
         dates = pd.date_range("2024-01-01", periods=3, freq="D")
         wbtc_data = pd.DataFrame(
             {
@@ -300,7 +468,6 @@ class TestTotal2EdgeCases:
         """Test calculation when fewer coins than top_n are available."""
         cache = PriceDataCache(prices_dir=temp_dir)
 
-        # Use more days to accommodate SMA warmup
         dates = pd.date_range("2024-01-01", periods=5, freq="D")
         eth_data = pd.DataFrame(
             {
@@ -328,12 +495,44 @@ class TestTotal2EdgeCases:
         cache.set_prices("sol", sol_data)
         cache.set_prices("ada", ada_data)
 
-        # Request top 50, but only 3 available
-        # Use small SMA window for test data
         processor = Total2Processor(price_cache=cache, top_n=50, volume_sma_window=2)
         result = processor.calculate_total2(show_progress=False)
 
-        # Should still work with 3 coins
         assert result.coins_processed == 3
-        # Each day should have 3 coins (after warmup)
         assert (result.index_df["coin_count"] == 3).all()
+
+
+class TestTotal2bEdgeCases:
+    """Tests for edge cases in TOTAL2b calculation."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    def test_no_cached_data_raises_error(self, temp_dir):
+        """Test that empty cache raises appropriate error."""
+        cache = PriceDataCache(prices_dir=temp_dir)
+        processor = Total2bProcessor(price_cache=cache)
+
+        with pytest.raises(ProcessorError, match="No price data available"):
+            processor.calculate_total2(show_progress=False)
+
+    def test_all_filtered_raises_error(self, temp_dir):
+        """Test error when all coins are filtered out."""
+        cache = PriceDataCache(prices_dir=temp_dir)
+
+        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        wbtc_data = pd.DataFrame(
+            {
+                "close": [1.0] * 30,
+                "volume_to": [1000] * 30,
+            },
+            index=dates,
+        )
+        cache.set_prices("wbtc", wbtc_data)
+
+        processor = Total2bProcessor(price_cache=cache, freeze_period_days=5)
+
+        with pytest.raises(ProcessorError, match="No eligible coins"):
+            processor.calculate_total2(show_progress=False)

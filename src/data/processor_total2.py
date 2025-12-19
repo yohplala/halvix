@@ -9,10 +9,9 @@ Extends BaseTotal2Processor with:
 
 from datetime import date
 
-import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
+from analysis.filters import TokenFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
     TOP_N_FOR_TOTAL2,
@@ -27,8 +26,6 @@ from data.processor_base import (
     ProcessorError,
     Total2Result,
 )
-from analysis.filters import TokenFilter
-
 
 # Price outlier detection parameters (TOTAL2-specific)
 MAX_DOD_INCREASE = 3.0  # Maximum day-over-day price increase factor

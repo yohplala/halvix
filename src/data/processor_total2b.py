@@ -8,12 +8,12 @@ Extends BaseTotal2Processor with:
 - Simpler, more predictable entry mechanics
 """
 
-from datetime import date, timedelta
+from datetime import date
 
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from analysis.filters import TokenFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
     TOP_N_FOR_TOTAL2,
@@ -25,8 +25,6 @@ from data.processor_base import (
     ProcessorError,
     Total2Result,
 )
-from analysis.filters import TokenFilter
-
 
 # TOTAL2b-specific parameters
 FREEZE_PERIOD_DAYS = 21  # 3-week freeze period before coin can join index
@@ -340,7 +338,6 @@ class Total2bProcessor(BaseTotal2Processor):
             # Step 3: Calculate volume-weighted average
             # Use scaled prices for coins that have scaling applied
             volumes = []
-            prices = []
 
             for coin_id in eligible_coins:
                 vol = smoothed_volume_df.loc[dt, coin_id]
@@ -423,7 +420,6 @@ class Total2bProcessor(BaseTotal2Processor):
         Returns:
             List of dicts with coin freeze status information
         """
-        from datetime import datetime
 
         if price_data is None:
             price_data = self.load_all_price_data(show_progress=False)
