@@ -207,78 +207,32 @@ USE_YESTERDAY_AS_END_DATE = True  # Don't fetch incomplete today's data
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                     Simplified Fetch Pipeline                       │
+│                     Simplified Fetch Pipeline                      │
 ├────────────────────────────────────────────────────────────────────┤
-│                                                                     │
+│                                                                    │
 │  1. Fetch Top Coins (CryptoCompare)                                │
 │     └── /data/top/mktcapfull                                       │
 │         ├── Returns: symbol, name, market_cap, volume              │
 │         └── Pagination: 100 coins per page                         │
-│                                                                     │
+│                                                                    │
 │  2. Filter Coins Locally                                           │
 │     ├── Remove wrapped/staked/bridged/stablecoins                  │
 │     └── Export rejected to CSV                                     │
-│                                                                     │
+│                                                                    │
 │  3. For each filtered coin:                                        │
 │     ├── Has cached prices?                                         │
-│     │   ├── Up to yesterday? → Skip (cache is current)            │
-│     │   └── Older? → Fetch incrementally from last_date           │
-│     └── No cache? → Fetch full history                            │
-│                                                                     │
+│     │   ├── Up to yesterday? → Skip (cache is current)             │
+│     │   └── Older? → Fetch incrementally from last_date            │
+│     └── No cache? → Fetch full history                             │
+│                                                                    │
 │  4. All fetches end at YESTERDAY (not today)                       │
 │     └── Today's data is incomplete                                 │
-│                                                                     │
+│                                                                    │
 │  5. Calculate Volume-Weighted TOTAL2                               │
 │     ├── For each day: rank by volume, take top 30                  │
-│     └── Weighted average: Σ(price × volume) / Σ(volume)           │
-│                                                                     │
+│     └── Weighted average: Σ(price × volume) / Σ(volume)            │
+│                                                                    │
 └────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 8. Test Cases
-
-### Token Filtering Tests
-
-```python
-class TestTokenFiltering:
-    def test_filters_wrapped_tokens(self):
-        """wBTC, wETH, etc. should be excluded."""
-
-    def test_filters_staked_tokens(self):
-        """stETH, JitoSOL, etc. should be excluded."""
-
-    def test_allows_legitimate_tokens(self):
-        """SUI, SEI, STX, etc. should pass filtering."""
-```
-
-### Incremental Fetching Tests
-
-```python
-class TestIncrementalFetching:
-    def test_incremental_fetch_merges_correctly(self):
-        """New data should merge with existing cache."""
-
-    def test_no_fetch_when_cache_current(self):
-        """Should skip fetch if cache is up to yesterday."""
-
-    def test_full_fetch_when_no_cache(self):
-        """Should fetch full history when no cache exists."""
-```
-
-### Volume-Weighted TOTAL2 Tests
-
-```python
-class TestVolumeWeightedTotal2:
-    def test_ranks_by_volume(self):
-        """Coins should be ranked by 24h volume, not market cap."""
-
-    def test_weighted_average_calculation(self):
-        """TOTAL2 should be volume-weighted average of prices."""
-
-    def test_excludes_stablecoins(self):
-        """Stablecoins should not be included in TOTAL2."""
 ```
 
 ---
