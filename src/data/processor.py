@@ -1,41 +1,34 @@
 """
-Data processor for TOTAL2 index calculation.
+Data processors for TOTAL2 index calculations.
 
-This module provides backward compatibility by re-exporting classes
-from the refactored processor modules:
+This module re-exports classes from the processor submodules:
 
 - processor_base.py: BaseTotal2Processor with shared algorithms
 - processor_total2.py: Total2Processor for legacy TOTAL2 calculation
 - processor_total2b.py: Total2bProcessor for new TOTAL2b calculation
-
-For new code, prefer importing directly from the specific modules.
 """
 
-# Re-export all public classes for backward compatibility
 from data.processor_base import (
+    MIN_VOLUME_FOR_OUTLIER_CHECK,
+    OUTLIER_WINDOW_DAYS,
+    VOLUME_OUTLIER_THRESHOLD,
     BaseTotal2Processor,
     ProcessorError,
     Total2Result,
-    VOLUME_OUTLIER_THRESHOLD,
-    MIN_VOLUME_FOR_OUTLIER_CHECK,
-    OUTLIER_WINDOW_DAYS,
 )
-
 from data.processor_total2 import (
-    Total2Processor,
-    MAX_DOD_INCREASE,
     MAX_DOD_DECREASE,
+    MAX_DOD_INCREASE,
     PRICE_OUTLIER_WINDOW_DAYS,
+    Total2Processor,
 )
-
 from data.processor_total2b import (
-    Total2bProcessor,
     FREEZE_PERIOD_DAYS,
     MIN_COINS_FOR_SCALING,
+    Total2bProcessor,
 )
 
 
-# Factory function for getting the appropriate processor
 def get_processor(
     index_type: str = "total2b",
     **kwargs,
@@ -61,12 +54,6 @@ def get_processor(
         raise ValueError(f"Unknown index type: {index_type}. Use 'total2' or 'total2b'.")
 
 
-# Keep legacy constants for backward compatibility
-PRICE_OUTLIER_THRESHOLD = 5
-MIN_PRICE_FOR_OUTLIER_CHECK = 0.001
-TOTAL2_OUTLIER_THRESHOLD = 2
-
-
 __all__ = [
     # Base classes and types
     "BaseTotal2Processor",
@@ -81,13 +68,10 @@ __all__ = [
     "VOLUME_OUTLIER_THRESHOLD",
     "MIN_VOLUME_FOR_OUTLIER_CHECK",
     "OUTLIER_WINDOW_DAYS",
-    # Constants (price outliers - TOTAL2 specific)
+    # Constants (TOTAL2 specific)
     "MAX_DOD_INCREASE",
     "MAX_DOD_DECREASE",
     "PRICE_OUTLIER_WINDOW_DAYS",
-    "PRICE_OUTLIER_THRESHOLD",
-    "MIN_PRICE_FOR_OUTLIER_CHECK",
-    "TOTAL2_OUTLIER_THRESHOLD",
     # Constants (TOTAL2b specific)
     "FREEZE_PERIOD_DAYS",
     "MIN_COINS_FOR_SCALING",
