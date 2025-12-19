@@ -44,7 +44,7 @@ poetry run python -m main status
 - **[Charts Dashboard](https://yohplala.github.io/halvix/index.html)** - Interactive halving cycle charts (BTC, TOTAL2)
 
 ### 📋 References
-- **[Project Context](docs/PROJECT_CONTEXT.md)** - Full project specification for developers
+- **[Project Context](AGENTS.md)** - Full project specification for AI agents and developers
 - **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
 - **[Deployment](docs/DEPLOYMENT.md)** - Charts generation and GitHub Pages deployment workflow

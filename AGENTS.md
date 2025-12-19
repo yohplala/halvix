@@ -1,6 +1,6 @@
 # Halvix - Cryptocurrency Halving Cycle Analysis
 
-**[← Back to README](../README.md)**
+**[← Back to README](README.md)**
 
 ---
 
@@ -32,7 +32,7 @@ halvix/
 ├── README.md
 ├── CHANGELOG.md                # Version history
 ├── docs/
-│   ├── PROJECT_CONTEXT.md      # This file (AI agent context)
+├── AGENTS.md                   # This file (AI agent context)
 │   ├── DATA_SOURCES.md         # CryptoCompare API documentation
 │   ├── EDGE_CASES.md           # Edge cases and solutions
 │   └── TOTAL2_CALCULATION.md   # TOTAL2 index methodology
@@ -216,7 +216,7 @@ Skipped coins exported to `data/processed/download_skipped.csv`:
 
 ## 5. TOTAL2 Index Calculation
 
-> **Detailed documentation:** [TOTAL2_CALCULATION.md](TOTAL2_CALCULATION.md)
+> **Detailed documentation:** [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md)
 
 ### 5.1 Definition
 Volume-weighted average price of top `TOP_N_FOR_TOTAL2` coins (default: 30), excluding:
@@ -519,4 +519,4 @@ from analysis.filters import TokenFilter
 
 ---
 
-**[← Back to README](../README.md)**
+**[← Back to README](README.md)**
