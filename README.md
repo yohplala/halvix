@@ -55,7 +55,7 @@ poetry run python -m main status
 | Module | Status |
 |--------|--------|
 | Configuration | ✅ Complete |
-| Token Filtering | ✅ Complete |
+| Coin Filtering | ✅ Complete |
 | CryptoCompare Client | ✅ Complete |
 | Data Fetcher & Caching | ✅ Complete |
 | TOTAL2 Calculation | ✅ Complete |
