@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOTAL2 Composition Sep 2014 - Halvix</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-orange: #f7931a;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --border-color: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            padding: 0.5rem 2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            position: relative;
+        }
+
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 1.1rem;
+            position: absolute;
+            left: 1.25rem;
+        }
+
+        .back-link:hover {
+            color: var(--accent-blue);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+        }
+
+        header h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .page-title {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+
+        .month-nav {
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .month-nav-table {
+            border-collapse: collapse;
+            background: transparent;
+        }
+
+        .month-nav-table td {
+            padding: 0.2rem 0.4rem;
+            text-align: center;
+            border: none;
+            background: transparent;
+        }
+
+        .month-nav-table .year-label {
+            font-weight: bold;
+            color: var(--text-secondary);
+            text-align: right;
+            padding-right: 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        .month-nav .month-link {
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .month-nav .month-link:hover {
+            text-decoration: underline;
+        }
+
+        .month-nav .month-current {
+            color: var(--accent-orange);
+            font-weight: bold;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .month-nav .month-empty {
+            color: var(--border-color);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        select {
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 160px;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: var(--accent-green);
+        }
+
+        .stat-value.blue {
+            color: var(--accent-blue);
+        }
+
+        .stat-value.orange {
+            color: var(--accent-orange);
+        }
+
+        .changes-row {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .changes-box {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 200px;
+        }
+
+        .changes-box .label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .changes-box .coins {
+            font-size: 0.95rem;
+            font-weight: bold;
+        }
+
+        .changes-box .coins.added {
+            color: var(--accent-green);
+        }
+
+        .changes-box .coins.removed {
+            color: #f85149;
+        }
+
+        .changes-box .coins.none {
+            color: var(--text-secondary);
+            font-weight: normal;
+            font-style: italic;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: #21262d;
+        }
+
+        .coin-symbol {
+            color: var(--accent-blue);
+            font-weight: bold;
+        }
+
+        .weight {
+            color: var(--accent-green);
+        }
+
+        footer {
+            text-align: center;
+            padding: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        footer a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 0.9rem;
+            }
+
+            header {
+                padding: 0.4rem 1rem;
+            }
+
+            .stats-row {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .changes-row {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .stat, .changes-box {
+                min-width: auto;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="../index.html" class="back-link">← Back</a>
+        <div class="header-content">
+            <div class="logo">📊</div>
+            <h1>Halvix</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <h2 class="page-title">🧩 TOTAL2 Composition - Sep 2014</h2>
+
+        <div class="month-nav">
+            <table class="month-nav-table">
+                <tr><td class="year-label">2014</td><td><span class="month-empty">J</span></td><td><span class="month-empty">F</span></td><td><span class="month-empty">M</span></td><td><span class="month-empty">A</span></td><td><span class="month-empty">M</span></td><td><span class="month-empty">J</span></td><td><a href="total2_composition_2014_07.html" class="month-link" title="Jul 2014">J</a></td><td><a href="total2_composition_2014_08.html" class="month-link" title="Aug 2014">A</a></td><td><span class="month-current" title="Sep 2014">S</span></td><td><a href="total2_composition_2014_10.html" class="month-link" title="Oct 2014">O</a></td><td><a href="total2_composition_2014_11.html" class="month-link" title="Nov 2014">N</a></td><td><a href="total2_composition_2014_12.html" class="month-link" title="Dec 2014">D</a></td></tr>
+<tr><td class="year-label">2015</td><td><a href="total2_composition_2015_01.html" class="month-link" title="Jan 2015">J</a></td><td><a href="total2_composition_2015_02.html" class="month-link" title="Feb 2015">F</a></td><td><a href="total2_composition_2015_03.html" class="month-link" title="Mar 2015">M</a></td><td><a href="total2_composition_2015_04.html" class="month-link" title="Apr 2015">A</a></td><td><a href="total2_composition_2015_05.html" class="month-link" title="May 2015">M</a></td><td><a href="total2_composition_2015_06.html" class="month-link" title="Jun 2015">J</a></td><td><a href="total2_composition_2015_07.html" class="month-link" title="Jul 2015">J</a></td><td><a href="total2_composition_2015_08.html" class="month-link" title="Aug 2015">A</a></td><td><a href="total2_composition_2015_09.html" class="month-link" title="Sep 2015">S</a></td><td><a href="total2_composition_2015_10.html" class="month-link" title="Oct 2015">O</a></td><td><a href="total2_composition_2015_11.html" class="month-link" title="Nov 2015">N</a></td><td><a href="total2_composition_2015_12.html" class="month-link" title="Dec 2015">D</a></td></tr>
+<tr><td class="year-label">2016</td><td><a href="total2_composition_2016_01.html" class="month-link" title="Jan 2016">J</a></td><td><a href="total2_composition_2016_02.html" class="month-link" title="Feb 2016">F</a></td><td><a href="total2_composition_2016_03.html" class="month-link" title="Mar 2016">M</a></td><td><a href="total2_composition_2016_04.html" class="month-link" title="Apr 2016">A</a></td><td><a href="total2_composition_2016_05.html" class="month-link" title="May 2016">M</a></td><td><a href="total2_composition_2016_06.html" class="month-link" title="Jun 2016">J</a></td><td><a href="total2_composition_2016_07.html" class="month-link" title="Jul 2016">J</a></td><td><a href="total2_composition_2016_08.html" class="month-link" title="Aug 2016">A</a></td><td><a href="total2_composition_2016_09.html" class="month-link" title="Sep 2016">S</a></td><td><a href="total2_composition_2016_10.html" class="month-link" title="Oct 2016">O</a></td><td><a href="total2_composition_2016_11.html" class="month-link" title="Nov 2016">N</a></td><td><a href="total2_composition_2016_12.html" class="month-link" title="Dec 2016">D</a></td></tr>
+<tr><td class="year-label">2017</td><td><a href="total2_composition_2017_01.html" class="month-link" title="Jan 2017">J</a></td><td><a href="total2_composition_2017_02.html" class="month-link" title="Feb 2017">F</a></td><td><a href="total2_composition_2017_03.html" class="month-link" title="Mar 2017">M</a></td><td><a href="total2_composition_2017_04.html" class="month-link" title="Apr 2017">A</a></td><td><a href="total2_composition_2017_05.html" class="month-link" title="May 2017">M</a></td><td><a href="total2_composition_2017_06.html" class="month-link" title="Jun 2017">J</a></td><td><a href="total2_composition_2017_07.html" class="month-link" title="Jul 2017">J</a></td><td><a href="total2_composition_2017_08.html" class="month-link" title="Aug 2017">A</a></td><td><a href="total2_composition_2017_09.html" class="month-link" title="Sep 2017">S</a></td><td><a href="total2_composition_2017_10.html" class="month-link" title="Oct 2017">O</a></td><td><a href="total2_composition_2017_11.html" class="month-link" title="Nov 2017">N</a></td><td><a href="total2_composition_2017_12.html" class="month-link" title="Dec 2017">D</a></td></tr>
+<tr><td class="year-label">2018</td><td><a href="total2_composition_2018_01.html" class="month-link" title="Jan 2018">J</a></td><td><a href="total2_composition_2018_02.html" class="month-link" title="Feb 2018">F</a></td><td><a href="total2_composition_2018_03.html" class="month-link" title="Mar 2018">M</a></td><td><a href="total2_composition_2018_04.html" class="month-link" title="Apr 2018">A</a></td><td><a href="total2_composition_2018_05.html" class="month-link" title="May 2018">M</a></td><td><a href="total2_composition_2018_06.html" class="month-link" title="Jun 2018">J</a></td><td><a href="total2_composition_2018_07.html" class="month-link" title="Jul 2018">J</a></td><td><a href="total2_composition_2018_08.html" class="month-link" title="Aug 2018">A</a></td><td><a href="total2_composition_2018_09.html" class="month-link" title="Sep 2018">S</a></td><td><a href="total2_composition_2018_10.html" class="month-link" title="Oct 2018">O</a></td><td><a href="total2_composition_2018_11.html" class="month-link" title="Nov 2018">N</a></td><td><a href="total2_composition_2018_12.html" class="month-link" title="Dec 2018">D</a></td></tr>
+<tr><td class="year-label">2019</td><td><a href="total2_composition_2019_01.html" class="month-link" title="Jan 2019">J</a></td><td><a href="total2_composition_2019_02.html" class="month-link" title="Feb 2019">F</a></td><td><a href="total2_composition_2019_03.html" class="month-link" title="Mar 2019">M</a></td><td><a href="total2_composition_2019_04.html" class="month-link" title="Apr 2019">A</a></td><td><a href="total2_composition_2019_05.html" class="month-link" title="May 2019">M</a></td><td><a href="total2_composition_2019_06.html" class="month-link" title="Jun 2019">J</a></td><td><a href="total2_composition_2019_07.html" class="month-link" title="Jul 2019">J</a></td><td><a href="total2_composition_2019_08.html" class="month-link" title="Aug 2019">A</a></td><td><a href="total2_composition_2019_09.html" class="month-link" title="Sep 2019">S</a></td><td><a href="total2_composition_2019_10.html" class="month-link" title="Oct 2019">O</a></td><td><a href="total2_composition_2019_11.html" class="month-link" title="Nov 2019">N</a></td><td><a href="total2_composition_2019_12.html" class="month-link" title="Dec 2019">D</a></td></tr>
+<tr><td class="year-label">2020</td><td><a href="total2_composition_2020_01.html" class="month-link" title="Jan 2020">J</a></td><td><a href="total2_composition_2020_02.html" class="month-link" title="Feb 2020">F</a></td><td><a href="total2_composition_2020_03.html" class="month-link" title="Mar 2020">M</a></td><td><a href="total2_composition_2020_04.html" class="month-link" title="Apr 2020">A</a></td><td><a href="total2_composition_2020_05.html" class="month-link" title="May 2020">M</a></td><td><a href="total2_composition_2020_06.html" class="month-link" title="Jun 2020">J</a></td><td><a href="total2_composition_2020_07.html" class="month-link" title="Jul 2020">J</a></td><td><a href="total2_composition_2020_08.html" class="month-link" title="Aug 2020">A</a></td><td><a href="total2_composition_2020_09.html" class="month-link" title="Sep 2020">S</a></td><td><a href="total2_composition_2020_10.html" class="month-link" title="Oct 2020">O</a></td><td><a href="total2_composition_2020_11.html" class="month-link" title="Nov 2020">N</a></td><td><a href="total2_composition_2020_12.html" class="month-link" title="Dec 2020">D</a></td></tr>
+<tr><td class="year-label">2021</td><td><a href="total2_composition_2021_01.html" class="month-link" title="Jan 2021">J</a></td><td><a href="total2_composition_2021_02.html" class="month-link" title="Feb 2021">F</a></td><td><a href="total2_composition_2021_03.html" class="month-link" title="Mar 2021">M</a></td><td><a href="total2_composition_2021_04.html" class="month-link" title="Apr 2021">A</a></td><td><a href="total2_composition_2021_05.html" class="month-link" title="May 2021">M</a></td><td><a href="total2_composition_2021_06.html" class="month-link" title="Jun 2021">J</a></td><td><a href="total2_composition_2021_07.html" class="month-link" title="Jul 2021">J</a></td><td><a href="total2_composition_2021_08.html" class="month-link" title="Aug 2021">A</a></td><td><a href="total2_composition_2021_09.html" class="month-link" title="Sep 2021">S</a></td><td><a href="total2_composition_2021_10.html" class="month-link" title="Oct 2021">O</a></td><td><a href="total2_composition_2021_11.html" class="month-link" title="Nov 2021">N</a></td><td><a href="total2_composition_2021_12.html" class="month-link" title="Dec 2021">D</a></td></tr>
+<tr><td class="year-label">2022</td><td><a href="total2_composition_2022_01.html" class="month-link" title="Jan 2022">J</a></td><td><a href="total2_composition_2022_02.html" class="month-link" title="Feb 2022">F</a></td><td><a href="total2_composition_2022_03.html" class="month-link" title="Mar 2022">M</a></td><td><a href="total2_composition_2022_04.html" class="month-link" title="Apr 2022">A</a></td><td><a href="total2_composition_2022_05.html" class="month-link" title="May 2022">M</a></td><td><a href="total2_composition_2022_06.html" class="month-link" title="Jun 2022">J</a></td><td><a href="total2_composition_2022_07.html" class="month-link" title="Jul 2022">J</a></td><td><a href="total2_composition_2022_08.html" class="month-link" title="Aug 2022">A</a></td><td><a href="total2_composition_2022_09.html" class="month-link" title="Sep 2022">S</a></td><td><a href="total2_composition_2022_10.html" class="month-link" title="Oct 2022">O</a></td><td><a href="total2_composition_2022_11.html" class="month-link" title="Nov 2022">N</a></td><td><a href="total2_composition_2022_12.html" class="month-link" title="Dec 2022">D</a></td></tr>
+<tr><td class="year-label">2023</td><td><a href="total2_composition_2023_01.html" class="month-link" title="Jan 2023">J</a></td><td><a href="total2_composition_2023_02.html" class="month-link" title="Feb 2023">F</a></td><td><a href="total2_composition_2023_03.html" class="month-link" title="Mar 2023">M</a></td><td><a href="total2_composition_2023_04.html" class="month-link" title="Apr 2023">A</a></td><td><a href="total2_composition_2023_05.html" class="month-link" title="May 2023">M</a></td><td><a href="total2_composition_2023_06.html" class="month-link" title="Jun 2023">J</a></td><td><a href="total2_composition_2023_07.html" class="month-link" title="Jul 2023">J</a></td><td><a href="total2_composition_2023_08.html" class="month-link" title="Aug 2023">A</a></td><td><a href="total2_composition_2023_09.html" class="month-link" title="Sep 2023">S</a></td><td><a href="total2_composition_2023_10.html" class="month-link" title="Oct 2023">O</a></td><td><a href="total2_composition_2023_11.html" class="month-link" title="Nov 2023">N</a></td><td><a href="total2_composition_2023_12.html" class="month-link" title="Dec 2023">D</a></td></tr>
+<tr><td class="year-label">2024</td><td><a href="total2_composition_2024_01.html" class="month-link" title="Jan 2024">J</a></td><td><a href="total2_composition_2024_02.html" class="month-link" title="Feb 2024">F</a></td><td><a href="total2_composition_2024_03.html" class="month-link" title="Mar 2024">M</a></td><td><a href="total2_composition_2024_04.html" class="month-link" title="Apr 2024">A</a></td><td><a href="total2_composition_2024_05.html" class="month-link" title="May 2024">M</a></td><td><a href="total2_composition_2024_06.html" class="month-link" title="Jun 2024">J</a></td><td><a href="total2_composition_2024_07.html" class="month-link" title="Jul 2024">J</a></td><td><a href="total2_composition_2024_08.html" class="month-link" title="Aug 2024">A</a></td><td><a href="total2_composition_2024_09.html" class="month-link" title="Sep 2024">S</a></td><td><a href="total2_composition_2024_10.html" class="month-link" title="Oct 2024">O</a></td><td><a href="total2_composition_2024_11.html" class="month-link" title="Nov 2024">N</a></td><td><a href="total2_composition_2024_12.html" class="month-link" title="Dec 2024">D</a></td></tr>
+<tr><td class="year-label">2025</td><td><a href="total2_composition_2025_01.html" class="month-link" title="Jan 2025">J</a></td><td><a href="total2_composition_2025_02.html" class="month-link" title="Feb 2025">F</a></td><td><a href="total2_composition_2025_03.html" class="month-link" title="Mar 2025">M</a></td><td><a href="total2_composition_2025_04.html" class="month-link" title="Apr 2025">A</a></td><td><a href="total2_composition_2025_05.html" class="month-link" title="May 2025">M</a></td><td><a href="total2_composition_2025_06.html" class="month-link" title="Jun 2025">J</a></td><td><a href="total2_composition_2025_07.html" class="month-link" title="Jul 2025">J</a></td><td><a href="total2_composition_2025_08.html" class="month-link" title="Aug 2025">A</a></td><td><a href="total2_composition_2025_09.html" class="month-link" title="Sep 2025">S</a></td><td><a href="total2_composition_2025_10.html" class="month-link" title="Oct 2025">O</a></td><td><a href="total2_composition_2025_11.html" class="month-link" title="Nov 2025">N</a></td><td><a href="total2_composition_2025_12.html" class="month-link" title="Dec 2025">D</a></td></tr>
+            </table>
+        </div>
+
+        <div class="stats-row">
+            <div class="stat">
+                <div class="stat-label">Select Date</div>
+                <select id="date-select">
+                    <option value="2014-09-01 00:00:00">2014-09-01</option>
+<option value="2014-09-02 00:00:00">2014-09-02</option>
+<option value="2014-09-03 00:00:00">2014-09-03</option>
+<option value="2014-09-04 00:00:00">2014-09-04</option>
+<option value="2014-09-05 00:00:00">2014-09-05</option>
+<option value="2014-09-06 00:00:00">2014-09-06</option>
+<option value="2014-09-07 00:00:00">2014-09-07</option>
+<option value="2014-09-08 00:00:00">2014-09-08</option>
+<option value="2014-09-09 00:00:00">2014-09-09</option>
+<option value="2014-09-10 00:00:00">2014-09-10</option>
+<option value="2014-09-11 00:00:00">2014-09-11</option>
+<option value="2014-09-12 00:00:00">2014-09-12</option>
+<option value="2014-09-13 00:00:00">2014-09-13</option>
+<option value="2014-09-14 00:00:00">2014-09-14</option>
+<option value="2014-09-15 00:00:00">2014-09-15</option>
+<option value="2014-09-16 00:00:00">2014-09-16</option>
+<option value="2014-09-17 00:00:00">2014-09-17</option>
+<option value="2014-09-18 00:00:00">2014-09-18</option>
+<option value="2014-09-19 00:00:00">2014-09-19</option>
+<option value="2014-09-20 00:00:00">2014-09-20</option>
+<option value="2014-09-21 00:00:00">2014-09-21</option>
+<option value="2014-09-22 00:00:00">2014-09-22</option>
+<option value="2014-09-23 00:00:00">2014-09-23</option>
+<option value="2014-09-24 00:00:00">2014-09-24</option>
+<option value="2014-09-25 00:00:00">2014-09-25</option>
+<option value="2014-09-26 00:00:00">2014-09-26</option>
+<option value="2014-09-27 00:00:00">2014-09-27</option>
+<option value="2014-09-28 00:00:00">2014-09-28</option>
+<option value="2014-09-29 00:00:00">2014-09-29</option>
+<option value="2014-09-30 00:00:00">2014-09-30</option>
+                </select>
+            </div>
+            <div class="stat">
+                <div class="stat-label">TOTAL2 Value</div>
+                <div class="stat-value" id="total2-value">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Coins in TOTAL2</div>
+                <div class="stat-value blue" id="coin-count">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Total Volume</div>
+                <div class="stat-value" id="total-volume">-</div>
+            </div>
+        </div>
+
+        <div class="changes-row">
+            <div class="changes-box">
+                <div class="label">↑ New vs Previous Day</div>
+                <div class="coins added" id="coins-added">-</div>
+            </div>
+            <div class="changes-box">
+                <div class="label">↓ Removed vs Previous Day</div>
+                <div class="coins removed" id="coins-removed">-</div>
+            </div>
+        </div>
+
+        <table id="composition-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Coin</th>
+                    <th>Weight</th>
+                    <th>Price (BTC)</th>
+                    <th>Volume (BTC)</th>
+                </tr>
+            </thead>
+            <tbody id="composition-body">
+            </tbody>
+        </table>
+    </div>
+
+    <footer>
+        <p>
+            Generated by <strong>Halvix</strong> •
+            <a href="https://github.com/yohplala/halvix">Source Code</a> •
+            Data from <a href="https://www.cryptocompare.com/">CryptoCompare</a>
+        </p>
+    </footer>
+
+    <script>
+        const compositionData = {"2014-08-31 00:00:00": {"total2_value": 0.00518602209363926, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 23.460105833333333, "weight": 97.29109553972224, "price_btc": 0.00503}, {"rank": 2, "coin_id": "LTC", "volume": 0.6525134766666666, "weight": 2.7060300345760577, "price_btc": 0.0108}, {"rank": 3, "coin_id": "PPC", "volume": 0.0006931192499999999, "weight": 0.002874425701710025, "price_btc": 0.001}]}, "2014-09-01 00:00:00": {"total2_value": 0.004974304598747696, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 23.34353916666667, "weight": 97.17212288654278, "price_btc": 0.00481}, {"rank": 2, "coin_id": "LTC", "volume": 0.67864431, "weight": 2.82499186677483, "price_btc": 0.01063}, {"rank": 3, "coin_id": "PPC", "volume": 0.0006931192499999999, "weight": 0.002885246682396954, "price_btc": 0.001}]}, "2014-09-02 00:00:00": {"total2_value": 0.0049858377691354185, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 23.234889166666665, "weight": 97.15963178661723, "price_btc": 0.004854}, {"rank": 2, "coin_id": "LTC", "volume": 0.6783904766666667, "weight": 2.8367756974300646, "price_btc": 0.0095}, {"rank": 3, "coin_id": "PPC", "volume": 0.00085911925, "weight": 0.0035925159527141312, "price_btc": 0.006}]}, "2014-09-03 00:00:00": {"total2_value": 0.005758944150668099, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 23.244889166666667, "weight": 97.16221027929558, "price_btc": 0.00565}, {"rank": 2, "coin_id": "LTC", "volume": 0.6780323933333333, "weight": 2.834133796245349, "price_btc": 0.0095}, {"rank": 3, "coin_id": "PPC", "volume": 0.0008746359166666666, "weight": 0.0036559244590787404, "price_btc": 0.001}]}, "2014-09-04 00:00:00": {"total2_value": 0.006500548000127821, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 23.248055833333332, "weight": 97.14299780122569, "price_btc": 0.006373}, {"rank": 2, "coin_id": "LTC", "volume": 0.68285706, "weight": 2.85334749510623, "price_btc": 0.01085}, {"rank": 3, "coin_id": "PPC", "volume": 0.0008746359166666666, "weight": 0.0036547036680718726, "price_btc": 0.001}]}, "2014-09-05 00:00:00": {"total2_value": 0.005973293922304291, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 23.288855833333333, "weight": 97.0233364702842, "price_btc": 0.00588}, {"rank": 2, "coin_id": "LTC", "volume": 0.7136244766666666, "weight": 2.973019722761984, "price_btc": 0.009024}, {"rank": 3, "coin_id": "PPC", "volume": 0.0008746359166666666, "weight": 0.003643806953808578, "price_btc": 0.001}]}, "2014-09-06 00:00:00": {"total2_value": 0.006324583620496979, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 22.98893916666667, "weight": 96.9096352986497, "price_btc": 0.006205}, {"rank": 2, "coin_id": "LTC", "volume": 0.7321229766666666, "weight": 3.0862568363051617, "price_btc": 0.01008}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744692499999999, "weight": 0.004107865045124724, "price_btc": 0.00599}]}, "2014-09-07 00:00:00": {"total2_value": 0.006145798499142948, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 22.3981725, "weight": 96.83086503774871, "price_btc": 0.006022}, {"rank": 2, "coin_id": "LTC", "volume": 0.7320854766666667, "weight": 3.164922048314698, "price_btc": 0.00994}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004212913936580421, "price_btc": 0.0012}]}, "2014-09-08 00:00:00": {"total2_value": 0.006017140745240173, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 22.298289166666667, "weight": 96.80288827701877, "price_btc": 0.005853}, {"rank": 2, "coin_id": "LTC", "volume": 0.7354717266666667, "weight": 3.1928811603111145, "price_btc": 0.011}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.00423056267012529, "price_btc": 0.0012}]}, "2014-09-09 00:00:00": {"total2_value": 0.006244851202664167, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 22.063455833333332, "weight": 96.7724913270086, "price_btc": 0.00612}, {"rank": 2, "coin_id": "LTC", "volume": 0.73487506, "weight": 3.223234424719802, "price_btc": 0.01}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004274248271607086, "price_btc": 0.0012}]}, "2014-09-10 00:00:00": {"total2_value": 0.006153737581933596, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 21.435030833333332, "weight": 96.65655175704151, "price_btc": 0.0058}, {"rank": 2, "coin_id": "LTC", "volume": 0.7404849766666667, "weight": 3.3390539546689877, "price_btc": 0.0164}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004394288289499275, "price_btc": 0.0012}]}, "2014-09-11 00:00:00": {"total2_value": 0.005985038753994445, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 20.998280833333336, "weight": 96.62847397953414, "price_btc": 0.005791}, {"rank": 2, "coin_id": "LTC", "volume": 0.7316899766666667, "weight": 3.3670416370080267, "price_btc": 0.01156}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004484383457846214, "price_btc": 0.0012}]}, "2014-09-12 00:00:00": {"total2_value": 0.006048055911832234, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 19.610930833333335, "weight": 96.39339287934231, "price_btc": 0.005867}, {"rank": 2, "coin_id": "LTC", "volume": 0.73277831, "weight": 3.601817176838436, "price_btc": 0.0109}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004789943819243842, "price_btc": 0.0012}]}, "2014-09-13 00:00:00": {"total2_value": 0.006207819844042695, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 19.131880833333334, "weight": 96.2903104344766, "price_btc": 0.006016}, {"rank": 2, "coin_id": "LTC", "volume": 0.7361021433333333, "weight": 3.704784935183028, "price_btc": 0.0112}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004904630340390099, "price_btc": 0.0012}]}, "2014-09-14 00:00:00": {"total2_value": 0.006075688292120458, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 18.750989166666667, "weight": 95.9619719855127, "price_btc": 0.005861}, {"rank": 2, "coin_id": "LTC", "volume": 0.7880570100000001, "weight": 4.033040819576686, "price_btc": 0.01119}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.004987194910619381, "price_btc": 0.0012}]}, "2014-09-15 00:00:00": {"total2_value": 0.006638073508032401, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 18.43993083333333, "weight": 95.87956205225603, "price_btc": 0.006455}, {"rank": 2, "coin_id": "LTC", "volume": 0.7914841766666666, "weight": 4.115370980291933, "price_btc": 0.01091}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.005066967452041579, "price_btc": 0.0012}]}, "2014-09-16 00:00:00": {"total2_value": 0.007179736230788118, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 17.803272500000002, "weight": 95.73221079041502, "price_btc": 0.00703}, {"rank": 2, "coin_id": "LTC", "volume": 0.7927041766666666, "weight": 4.262549109164942, "price_btc": 0.01055}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.0052401004200415624, "price_btc": 0.0012}]}, "2014-09-17 00:00:00": {"total2_value": 0.008177812080702309, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 17.4387225, "weight": 95.54490867892436, "price_btc": 0.00803}, {"rank": 2, "coin_id": "LTC", "volume": 0.8121625100000001, "weight": 4.449752144997777, "price_btc": 0.01136}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009744989166666667, "weight": 0.005339176077870806, "price_btc": 0.0012}]}, "2014-09-18 00:00:00": {"total2_value": 0.009285748737467273, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 17.313322500000005, "weight": 95.40536971682435, "price_btc": 0.009079}, {"rank": 2, "coin_id": "LTC", "volume": 0.83281826, "weight": 4.5892597450444494, "price_btc": 0.01359}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009745977499999999, "weight": 0.005370538131195506, "price_btc": 0.004}]}, "2014-09-19 00:00:00": {"total2_value": 0.008984873574874175, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 16.267239166666666, "weight": 95.1261668340414, "price_btc": 0.00888}, {"rank": 2, "coin_id": "LTC", "volume": 0.8324849266666666, "weight": 4.868133996774891, "price_btc": 0.01104}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009745977499999999, "weight": 0.005699169183702277, "price_btc": 0.004}]}, "2014-09-20 00:00:00": {"total2_value": 0.007768174015528608, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 14.748772500000001, "weight": 94.68368172529824, "price_btc": 0.007604}, {"rank": 2, "coin_id": "LTC", "volume": 0.8271424266666667, "weight": 5.310061584311339, "price_btc": 0.0107}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009745977499999999, "weight": 0.006256690390416679, "price_btc": 0.004}]}, "2014-09-21 00:00:00": {"total2_value": 0.007660810566585552, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 13.715380833333334, "weight": 94.30009927746329, "price_btc": 0.00748}, {"rank": 2, "coin_id": "LTC", "volume": 0.8280415933333333, "weight": 5.693199875823271, "price_btc": 0.01066}, {"rank": 3, "coin_id": "PPC", "volume": 0.0009745977499999999, "weight": 0.006700846713438009, "price_btc": 0.004}]}, "2014-09-22 00:00:00": {"total2_value": 0.008277791364623423, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 12.914608333333332, "weight": 93.81125410190575, "price_btc": 0.00815}, {"rank": 2, "coin_id": "LTC", "volume": 0.8300540933333332, "weight": 6.029483315187929, "price_btc": 0.01048}, {"rank": 3, "coin_id": "DOGE", "volume": 0.020950425, "weight": 0.15218313962686328, "price_btc": 7.4e-07}, {"rank": 4, "coin_id": "PPC", "volume": 0.0009745977499999999, "weight": 0.007079443279469356, "price_btc": 0.004}]}, "2014-09-23 00:00:00": {"total2_value": 0.00810149813595125, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 12.341658333333333, "weight": 93.47487001376004, "price_btc": 0.007921}, {"rank": 2, "coin_id": "LTC", "volume": 0.8380632600000001, "weight": 6.347433398008344, "price_btc": 0.01098}, {"rank": 3, "coin_id": "DOGE", "volume": 0.021562008333333334, "weight": 0.16330916573425996, "price_btc": 7.4e-07}, {"rank": 4, "coin_id": "PPC", "volume": 0.0018995977499999999, "weight": 0.014387422497355988, "price_btc": 0.00281}]}, "2014-09-24 00:00:00": {"total2_value": 0.007808519142194696, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 11.617591666666666, "weight": 92.9825888921668, "price_btc": 0.007693}, {"rank": 2, "coin_id": "LTC", "volume": 0.8353049266666667, "weight": 6.685448828322698, "price_btc": 0.009752}, {"rank": 3, "coin_id": "DOGE", "volume": 0.028193674999999998, "weight": 0.22565097544322027, "price_btc": 7.3e-07}, {"rank": 4, "coin_id": "PPC", "volume": 0.013282931083333335, "weight": 0.10631130406728595, "price_btc": 0.0032}]}, "2014-09-25 00:00:00": {"total2_value": 0.007302825762842027, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 10.824341666666665, "weight": 88.52066899346116, "price_btc": 0.00738}, {"rank": 2, "coin_id": "LTC", "volume": 0.86362326, "weight": 7.062647418912824, "price_btc": 0.01083}, {"rank": 3, "coin_id": "XLM", "volume": 0.49159550583333333, "weight": 4.020231843249492, "price_btc": 8.77e-06}, {"rank": 4, "coin_id": "DOGE", "volume": 0.029071175, "weight": 0.2377419282089658, "price_btc": 7.6e-07}, {"rank": 5, "coin_id": "PPC", "volume": 0.01940709775, "weight": 0.15870981616755708, "price_btc": 0.003}]}, "2014-09-26 00:00:00": {"total2_value": 0.0070605852622207185, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 10.027541666666666, "weight": 87.4582314053489, "price_btc": 0.007101}, {"rank": 2, "coin_id": "LTC", "volume": 0.8810249266666667, "weight": 7.6841248305585585, "price_btc": 0.011}, {"rank": 3, "coin_id": "XLM", "volume": 0.4989496725, "weight": 4.351740173983625, "price_btc": 7.69e-06}, {"rank": 4, "coin_id": "DOGE", "volume": 0.03853784166666666, "weight": 0.3361194185360516, "price_btc": 1.1e-06}, {"rank": 5, "coin_id": "PPC", "volume": 0.019466639416666667, "weight": 0.16978417157285838, "price_btc": 0.0027}]}, "2014-09-27 00:00:00": {"total2_value": 0.00724052613557646, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 9.409532500000001, "weight": 86.62696928358397, "price_btc": 0.007314}, {"rank": 2, "coin_id": "LTC", "volume": 0.8849415933333333, "weight": 8.147036871752396, "price_btc": 0.01104}, {"rank": 3, "coin_id": "XLM", "volume": 0.4989496725, "weight": 4.5934798518111055, "price_btc": 7.69e-06}, {"rank": 4, "coin_id": "DOGE", "volume": 0.049237841666666664, "weight": 0.4532982906056495, "price_btc": 1.03e-06}, {"rank": 5, "coin_id": "PPC", "volume": 0.019466639416666667, "weight": 0.1792157022468638, "price_btc": 0.0027}]}, "2014-09-28 00:00:00": {"total2_value": 0.007659168789593852, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 9.199916666666667, "weight": 86.0172866017438, "price_btc": 0.007775}, {"rank": 2, "coin_id": "LTC", "volume": 0.9274488433333334, "weight": 8.67145169417757, "price_btc": 0.01114}, {"rank": 3, "coin_id": "XLM", "volume": 0.4990330058333334, "weight": 4.665853685612608, "price_btc": 8.7e-06}, {"rank": 4, "coin_id": "DOGE", "volume": 0.04956250833333333, "weight": 0.4633990326734462, "price_btc": 1.05e-06}, {"rank": 5, "coin_id": "PPC", "volume": 0.019466639416666667, "weight": 0.18200898579257635, "price_btc": 0.0027}]}, "2014-09-29 00:00:00": {"total2_value": 0.00741506958520887, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 8.904233333333332, "weight": 85.40293223884687, "price_btc": 0.007464}, {"rank": 2, "coin_id": "LTC", "volume": 0.95339551, "weight": 9.14427655804365, "price_btc": 0.01132}, {"rank": 3, "coin_id": "XLM", "volume": 0.4990330058333334, "weight": 4.7863617659913364, "price_btc": 8.7e-06}, {"rank": 4, "coin_id": "DOGE", "volume": 0.050016258333333334, "weight": 0.4797195852102926, "price_btc": 1.05e-06}, {"rank": 5, "coin_id": "PPC", "volume": 0.019466639416666667, "weight": 0.1867098519078546, "price_btc": 0.0027}]}, "2014-09-30 00:00:00": {"total2_value": 0.007151611034018283, "coins": [{"rank": 1, "coin_id": "DASH", "volume": 8.444049999999999, "weight": 84.35048119247946, "price_btc": 0.007107}, {"rank": 2, "coin_id": "LTC", "volume": 0.9965488433333333, "weight": 9.954864604896407, "price_btc": 0.01157}, {"rank": 3, "coin_id": "XLM", "volume": 0.4990330058333334, "weight": 4.985010057137403, "price_btc": 8.7e-06}, {"rank": 4, "coin_id": "DOGE", "volume": 0.05108209166666666, "weight": 0.5102763499033851, "price_btc": 1.06e-06}, {"rank": 5, "coin_id": "PPC", "volume": 0.019958056083333335, "weight": 0.1993677955833586, "price_btc": 0.00231}]}};
+        const sortedDates = Object.keys(compositionData).sort();
+
+        function getPreviousDate(dateStr) {
+            const idx = sortedDates.indexOf(dateStr);
+            if (idx > 0) {
+                return sortedDates[idx - 1];
+            }
+            return null;
+        }
+
+        function updateTable(dateStr) {
+            const dayData = compositionData[dateStr];
+            const tbody = document.getElementById('composition-body');
+
+            if (!dayData || !dayData.coins || dayData.coins.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5">No data for this date</td></tr>';
+                document.getElementById('total2-value').textContent = '-';
+                document.getElementById('coin-count').textContent = '-';
+                document.getElementById('total-volume').textContent = '-';
+                document.getElementById('coins-added').textContent = '-';
+                document.getElementById('coins-added').className = 'coins none';
+                document.getElementById('coins-removed').textContent = '-';
+                document.getElementById('coins-removed').className = 'coins none';
+                return;
+            }
+
+            const coins = dayData.coins;
+            const total2Value = dayData.total2_value;
+
+            // Display TOTAL2 value
+            if (total2Value !== null && total2Value !== undefined) {
+                document.getElementById('total2-value').textContent = total2Value.toFixed(8) + ' BTC';
+            } else {
+                document.getElementById('total2-value').textContent = '-';
+            }
+
+            document.getElementById('coin-count').textContent = coins.length;
+            const totalVol = coins.reduce((sum, c) => sum + c.volume, 0);
+            document.getElementById('total-volume').textContent = totalVol.toFixed(2) + ' BTC';
+
+            // Calculate changes vs previous day
+            const prevDateStr = getPreviousDate(dateStr);
+            const prevData = prevDateStr ? compositionData[prevDateStr] : null;
+
+            if (prevData && prevData.coins) {
+                const currentCoins = new Set(coins.map(c => c.coin_id));
+                const prevCoins = new Set(prevData.coins.map(c => c.coin_id));
+
+                const added = [...currentCoins].filter(c => !prevCoins.has(c));
+                const removed = [...prevCoins].filter(c => !currentCoins.has(c));
+
+                const addedEl = document.getElementById('coins-added');
+                const removedEl = document.getElementById('coins-removed');
+
+                if (added.length > 0) {
+                    addedEl.textContent = added.join(', ');
+                    addedEl.className = 'coins added';
+                } else {
+                    addedEl.textContent = 'None';
+                    addedEl.className = 'coins none';
+                }
+
+                if (removed.length > 0) {
+                    removedEl.textContent = removed.join(', ');
+                    removedEl.className = 'coins removed';
+                } else {
+                    removedEl.textContent = 'None';
+                    removedEl.className = 'coins none';
+                }
+            } else {
+                document.getElementById('coins-added').textContent = 'N/A (first day)';
+                document.getElementById('coins-added').className = 'coins none';
+                document.getElementById('coins-removed').textContent = 'N/A (first day)';
+                document.getElementById('coins-removed').className = 'coins none';
+            }
+
+            tbody.innerHTML = coins.map(coin => `
+                <tr>
+                    <td>${coin.rank}</td>
+                    <td class="coin-symbol">${coin.coin_id}</td>
+                    <td class="weight">${coin.weight.toFixed(2)}%</td>
+                    <td>${coin.price_btc.toFixed(8)}</td>
+                    <td>${coin.volume.toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+
+        document.getElementById('date-select').addEventListener('change', (e) => {
+            updateTable(e.target.value);
+        });
+
+        // Initialize with last date
+        const select = document.getElementById('date-select');
+        select.selectedIndex = select.options.length - 1;
+        updateTable(select.value);
+    </script>
+</body>
+</html>

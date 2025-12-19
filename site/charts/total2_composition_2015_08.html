@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOTAL2 Composition Aug 2015 - Halvix</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-orange: #f7931a;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --border-color: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            padding: 0.5rem 2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            position: relative;
+        }
+
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 1.1rem;
+            position: absolute;
+            left: 1.25rem;
+        }
+
+        .back-link:hover {
+            color: var(--accent-blue);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+        }
+
+        header h1 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .page-title {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+
+        .month-nav {
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .month-nav-table {
+            border-collapse: collapse;
+            background: transparent;
+        }
+
+        .month-nav-table td {
+            padding: 0.2rem 0.4rem;
+            text-align: center;
+            border: none;
+            background: transparent;
+        }
+
+        .month-nav-table .year-label {
+            font-weight: bold;
+            color: var(--text-secondary);
+            text-align: right;
+            padding-right: 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        .month-nav .month-link {
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .month-nav .month-link:hover {
+            text-decoration: underline;
+        }
+
+        .month-nav .month-current {
+            color: var(--accent-orange);
+            font-weight: bold;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .month-nav .month-empty {
+            color: var(--border-color);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        select {
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 160px;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: var(--accent-green);
+        }
+
+        .stat-value.blue {
+            color: var(--accent-blue);
+        }
+
+        .stat-value.orange {
+            color: var(--accent-orange);
+        }
+
+        .changes-row {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .changes-box {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 200px;
+        }
+
+        .changes-box .label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .changes-box .coins {
+            font-size: 0.95rem;
+            font-weight: bold;
+        }
+
+        .changes-box .coins.added {
+            color: var(--accent-green);
+        }
+
+        .changes-box .coins.removed {
+            color: #f85149;
+        }
+
+        .changes-box .coins.none {
+            color: var(--text-secondary);
+            font-weight: normal;
+            font-style: italic;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: #21262d;
+        }
+
+        .coin-symbol {
+            color: var(--accent-blue);
+            font-weight: bold;
+        }
+
+        .weight {
+            color: var(--accent-green);
+        }
+
+        footer {
+            text-align: center;
+            padding: 0.75rem;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        footer a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 0.9rem;
+            }
+
+            header {
+                padding: 0.4rem 1rem;
+            }
+
+            .stats-row {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .changes-row {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .stat, .changes-box {
+                min-width: auto;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="../index.html" class="back-link">← Back</a>
+        <div class="header-content">
+            <div class="logo">📊</div>
+            <h1>Halvix</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <h2 class="page-title">🧩 TOTAL2 Composition - Aug 2015</h2>
+
+        <div class="month-nav">
+            <table class="month-nav-table">
+                <tr><td class="year-label">2014</td><td><span class="month-empty">J</span></td><td><span class="month-empty">F</span></td><td><span class="month-empty">M</span></td><td><span class="month-empty">A</span></td><td><span class="month-empty">M</span></td><td><span class="month-empty">J</span></td><td><a href="total2_composition_2014_07.html" class="month-link" title="Jul 2014">J</a></td><td><a href="total2_composition_2014_08.html" class="month-link" title="Aug 2014">A</a></td><td><a href="total2_composition_2014_09.html" class="month-link" title="Sep 2014">S</a></td><td><a href="total2_composition_2014_10.html" class="month-link" title="Oct 2014">O</a></td><td><a href="total2_composition_2014_11.html" class="month-link" title="Nov 2014">N</a></td><td><a href="total2_composition_2014_12.html" class="month-link" title="Dec 2014">D</a></td></tr>
+<tr><td class="year-label">2015</td><td><a href="total2_composition_2015_01.html" class="month-link" title="Jan 2015">J</a></td><td><a href="total2_composition_2015_02.html" class="month-link" title="Feb 2015">F</a></td><td><a href="total2_composition_2015_03.html" class="month-link" title="Mar 2015">M</a></td><td><a href="total2_composition_2015_04.html" class="month-link" title="Apr 2015">A</a></td><td><a href="total2_composition_2015_05.html" class="month-link" title="May 2015">M</a></td><td><a href="total2_composition_2015_06.html" class="month-link" title="Jun 2015">J</a></td><td><a href="total2_composition_2015_07.html" class="month-link" title="Jul 2015">J</a></td><td><span class="month-current" title="Aug 2015">A</span></td><td><a href="total2_composition_2015_09.html" class="month-link" title="Sep 2015">S</a></td><td><a href="total2_composition_2015_10.html" class="month-link" title="Oct 2015">O</a></td><td><a href="total2_composition_2015_11.html" class="month-link" title="Nov 2015">N</a></td><td><a href="total2_composition_2015_12.html" class="month-link" title="Dec 2015">D</a></td></tr>
+<tr><td class="year-label">2016</td><td><a href="total2_composition_2016_01.html" class="month-link" title="Jan 2016">J</a></td><td><a href="total2_composition_2016_02.html" class="month-link" title="Feb 2016">F</a></td><td><a href="total2_composition_2016_03.html" class="month-link" title="Mar 2016">M</a></td><td><a href="total2_composition_2016_04.html" class="month-link" title="Apr 2016">A</a></td><td><a href="total2_composition_2016_05.html" class="month-link" title="May 2016">M</a></td><td><a href="total2_composition_2016_06.html" class="month-link" title="Jun 2016">J</a></td><td><a href="total2_composition_2016_07.html" class="month-link" title="Jul 2016">J</a></td><td><a href="total2_composition_2016_08.html" class="month-link" title="Aug 2016">A</a></td><td><a href="total2_composition_2016_09.html" class="month-link" title="Sep 2016">S</a></td><td><a href="total2_composition_2016_10.html" class="month-link" title="Oct 2016">O</a></td><td><a href="total2_composition_2016_11.html" class="month-link" title="Nov 2016">N</a></td><td><a href="total2_composition_2016_12.html" class="month-link" title="Dec 2016">D</a></td></tr>
+<tr><td class="year-label">2017</td><td><a href="total2_composition_2017_01.html" class="month-link" title="Jan 2017">J</a></td><td><a href="total2_composition_2017_02.html" class="month-link" title="Feb 2017">F</a></td><td><a href="total2_composition_2017_03.html" class="month-link" title="Mar 2017">M</a></td><td><a href="total2_composition_2017_04.html" class="month-link" title="Apr 2017">A</a></td><td><a href="total2_composition_2017_05.html" class="month-link" title="May 2017">M</a></td><td><a href="total2_composition_2017_06.html" class="month-link" title="Jun 2017">J</a></td><td><a href="total2_composition_2017_07.html" class="month-link" title="Jul 2017">J</a></td><td><a href="total2_composition_2017_08.html" class="month-link" title="Aug 2017">A</a></td><td><a href="total2_composition_2017_09.html" class="month-link" title="Sep 2017">S</a></td><td><a href="total2_composition_2017_10.html" class="month-link" title="Oct 2017">O</a></td><td><a href="total2_composition_2017_11.html" class="month-link" title="Nov 2017">N</a></td><td><a href="total2_composition_2017_12.html" class="month-link" title="Dec 2017">D</a></td></tr>
+<tr><td class="year-label">2018</td><td><a href="total2_composition_2018_01.html" class="month-link" title="Jan 2018">J</a></td><td><a href="total2_composition_2018_02.html" class="month-link" title="Feb 2018">F</a></td><td><a href="total2_composition_2018_03.html" class="month-link" title="Mar 2018">M</a></td><td><a href="total2_composition_2018_04.html" class="month-link" title="Apr 2018">A</a></td><td><a href="total2_composition_2018_05.html" class="month-link" title="May 2018">M</a></td><td><a href="total2_composition_2018_06.html" class="month-link" title="Jun 2018">J</a></td><td><a href="total2_composition_2018_07.html" class="month-link" title="Jul 2018">J</a></td><td><a href="total2_composition_2018_08.html" class="month-link" title="Aug 2018">A</a></td><td><a href="total2_composition_2018_09.html" class="month-link" title="Sep 2018">S</a></td><td><a href="total2_composition_2018_10.html" class="month-link" title="Oct 2018">O</a></td><td><a href="total2_composition_2018_11.html" class="month-link" title="Nov 2018">N</a></td><td><a href="total2_composition_2018_12.html" class="month-link" title="Dec 2018">D</a></td></tr>
+<tr><td class="year-label">2019</td><td><a href="total2_composition_2019_01.html" class="month-link" title="Jan 2019">J</a></td><td><a href="total2_composition_2019_02.html" class="month-link" title="Feb 2019">F</a></td><td><a href="total2_composition_2019_03.html" class="month-link" title="Mar 2019">M</a></td><td><a href="total2_composition_2019_04.html" class="month-link" title="Apr 2019">A</a></td><td><a href="total2_composition_2019_05.html" class="month-link" title="May 2019">M</a></td><td><a href="total2_composition_2019_06.html" class="month-link" title="Jun 2019">J</a></td><td><a href="total2_composition_2019_07.html" class="month-link" title="Jul 2019">J</a></td><td><a href="total2_composition_2019_08.html" class="month-link" title="Aug 2019">A</a></td><td><a href="total2_composition_2019_09.html" class="month-link" title="Sep 2019">S</a></td><td><a href="total2_composition_2019_10.html" class="month-link" title="Oct 2019">O</a></td><td><a href="total2_composition_2019_11.html" class="month-link" title="Nov 2019">N</a></td><td><a href="total2_composition_2019_12.html" class="month-link" title="Dec 2019">D</a></td></tr>
+<tr><td class="year-label">2020</td><td><a href="total2_composition_2020_01.html" class="month-link" title="Jan 2020">J</a></td><td><a href="total2_composition_2020_02.html" class="month-link" title="Feb 2020">F</a></td><td><a href="total2_composition_2020_03.html" class="month-link" title="Mar 2020">M</a></td><td><a href="total2_composition_2020_04.html" class="month-link" title="Apr 2020">A</a></td><td><a href="total2_composition_2020_05.html" class="month-link" title="May 2020">M</a></td><td><a href="total2_composition_2020_06.html" class="month-link" title="Jun 2020">J</a></td><td><a href="total2_composition_2020_07.html" class="month-link" title="Jul 2020">J</a></td><td><a href="total2_composition_2020_08.html" class="month-link" title="Aug 2020">A</a></td><td><a href="total2_composition_2020_09.html" class="month-link" title="Sep 2020">S</a></td><td><a href="total2_composition_2020_10.html" class="month-link" title="Oct 2020">O</a></td><td><a href="total2_composition_2020_11.html" class="month-link" title="Nov 2020">N</a></td><td><a href="total2_composition_2020_12.html" class="month-link" title="Dec 2020">D</a></td></tr>
+<tr><td class="year-label">2021</td><td><a href="total2_composition_2021_01.html" class="month-link" title="Jan 2021">J</a></td><td><a href="total2_composition_2021_02.html" class="month-link" title="Feb 2021">F</a></td><td><a href="total2_composition_2021_03.html" class="month-link" title="Mar 2021">M</a></td><td><a href="total2_composition_2021_04.html" class="month-link" title="Apr 2021">A</a></td><td><a href="total2_composition_2021_05.html" class="month-link" title="May 2021">M</a></td><td><a href="total2_composition_2021_06.html" class="month-link" title="Jun 2021">J</a></td><td><a href="total2_composition_2021_07.html" class="month-link" title="Jul 2021">J</a></td><td><a href="total2_composition_2021_08.html" class="month-link" title="Aug 2021">A</a></td><td><a href="total2_composition_2021_09.html" class="month-link" title="Sep 2021">S</a></td><td><a href="total2_composition_2021_10.html" class="month-link" title="Oct 2021">O</a></td><td><a href="total2_composition_2021_11.html" class="month-link" title="Nov 2021">N</a></td><td><a href="total2_composition_2021_12.html" class="month-link" title="Dec 2021">D</a></td></tr>
+<tr><td class="year-label">2022</td><td><a href="total2_composition_2022_01.html" class="month-link" title="Jan 2022">J</a></td><td><a href="total2_composition_2022_02.html" class="month-link" title="Feb 2022">F</a></td><td><a href="total2_composition_2022_03.html" class="month-link" title="Mar 2022">M</a></td><td><a href="total2_composition_2022_04.html" class="month-link" title="Apr 2022">A</a></td><td><a href="total2_composition_2022_05.html" class="month-link" title="May 2022">M</a></td><td><a href="total2_composition_2022_06.html" class="month-link" title="Jun 2022">J</a></td><td><a href="total2_composition_2022_07.html" class="month-link" title="Jul 2022">J</a></td><td><a href="total2_composition_2022_08.html" class="month-link" title="Aug 2022">A</a></td><td><a href="total2_composition_2022_09.html" class="month-link" title="Sep 2022">S</a></td><td><a href="total2_composition_2022_10.html" class="month-link" title="Oct 2022">O</a></td><td><a href="total2_composition_2022_11.html" class="month-link" title="Nov 2022">N</a></td><td><a href="total2_composition_2022_12.html" class="month-link" title="Dec 2022">D</a></td></tr>
+<tr><td class="year-label">2023</td><td><a href="total2_composition_2023_01.html" class="month-link" title="Jan 2023">J</a></td><td><a href="total2_composition_2023_02.html" class="month-link" title="Feb 2023">F</a></td><td><a href="total2_composition_2023_03.html" class="month-link" title="Mar 2023">M</a></td><td><a href="total2_composition_2023_04.html" class="month-link" title="Apr 2023">A</a></td><td><a href="total2_composition_2023_05.html" class="month-link" title="May 2023">M</a></td><td><a href="total2_composition_2023_06.html" class="month-link" title="Jun 2023">J</a></td><td><a href="total2_composition_2023_07.html" class="month-link" title="Jul 2023">J</a></td><td><a href="total2_composition_2023_08.html" class="month-link" title="Aug 2023">A</a></td><td><a href="total2_composition_2023_09.html" class="month-link" title="Sep 2023">S</a></td><td><a href="total2_composition_2023_10.html" class="month-link" title="Oct 2023">O</a></td><td><a href="total2_composition_2023_11.html" class="month-link" title="Nov 2023">N</a></td><td><a href="total2_composition_2023_12.html" class="month-link" title="Dec 2023">D</a></td></tr>
+<tr><td class="year-label">2024</td><td><a href="total2_composition_2024_01.html" class="month-link" title="Jan 2024">J</a></td><td><a href="total2_composition_2024_02.html" class="month-link" title="Feb 2024">F</a></td><td><a href="total2_composition_2024_03.html" class="month-link" title="Mar 2024">M</a></td><td><a href="total2_composition_2024_04.html" class="month-link" title="Apr 2024">A</a></td><td><a href="total2_composition_2024_05.html" class="month-link" title="May 2024">M</a></td><td><a href="total2_composition_2024_06.html" class="month-link" title="Jun 2024">J</a></td><td><a href="total2_composition_2024_07.html" class="month-link" title="Jul 2024">J</a></td><td><a href="total2_composition_2024_08.html" class="month-link" title="Aug 2024">A</a></td><td><a href="total2_composition_2024_09.html" class="month-link" title="Sep 2024">S</a></td><td><a href="total2_composition_2024_10.html" class="month-link" title="Oct 2024">O</a></td><td><a href="total2_composition_2024_11.html" class="month-link" title="Nov 2024">N</a></td><td><a href="total2_composition_2024_12.html" class="month-link" title="Dec 2024">D</a></td></tr>
+<tr><td class="year-label">2025</td><td><a href="total2_composition_2025_01.html" class="month-link" title="Jan 2025">J</a></td><td><a href="total2_composition_2025_02.html" class="month-link" title="Feb 2025">F</a></td><td><a href="total2_composition_2025_03.html" class="month-link" title="Mar 2025">M</a></td><td><a href="total2_composition_2025_04.html" class="month-link" title="Apr 2025">A</a></td><td><a href="total2_composition_2025_05.html" class="month-link" title="May 2025">M</a></td><td><a href="total2_composition_2025_06.html" class="month-link" title="Jun 2025">J</a></td><td><a href="total2_composition_2025_07.html" class="month-link" title="Jul 2025">J</a></td><td><a href="total2_composition_2025_08.html" class="month-link" title="Aug 2025">A</a></td><td><a href="total2_composition_2025_09.html" class="month-link" title="Sep 2025">S</a></td><td><a href="total2_composition_2025_10.html" class="month-link" title="Oct 2025">O</a></td><td><a href="total2_composition_2025_11.html" class="month-link" title="Nov 2025">N</a></td><td><a href="total2_composition_2025_12.html" class="month-link" title="Dec 2025">D</a></td></tr>
+            </table>
+        </div>
+
+        <div class="stats-row">
+            <div class="stat">
+                <div class="stat-label">Select Date</div>
+                <select id="date-select">
+                    <option value="2015-08-01 00:00:00">2015-08-01  (C2: Day -343)</option>
+<option value="2015-08-02 00:00:00">2015-08-02  (C2: Day -342)</option>
+<option value="2015-08-03 00:00:00">2015-08-03  (C2: Day -341)</option>
+<option value="2015-08-04 00:00:00">2015-08-04  (C2: Day -340)</option>
+<option value="2015-08-05 00:00:00">2015-08-05  (C2: Day -339)</option>
+<option value="2015-08-06 00:00:00">2015-08-06  (C2: Day -338)</option>
+<option value="2015-08-07 00:00:00">2015-08-07  (C2: Day -337)</option>
+<option value="2015-08-08 00:00:00">2015-08-08  (C2: Day -336)</option>
+<option value="2015-08-09 00:00:00">2015-08-09  (C2: Day -335)</option>
+<option value="2015-08-10 00:00:00">2015-08-10  (C2: Day -334)</option>
+<option value="2015-08-11 00:00:00">2015-08-11  (C2: Day -333)</option>
+<option value="2015-08-12 00:00:00">2015-08-12  (C2: Day -332)</option>
+<option value="2015-08-13 00:00:00">2015-08-13  (C2: Day -331)</option>
+<option value="2015-08-14 00:00:00">2015-08-14  (C2: Day -330)</option>
+<option value="2015-08-15 00:00:00">2015-08-15  (C2: Day -329)</option>
+<option value="2015-08-16 00:00:00">2015-08-16  (C2: Day -328)</option>
+<option value="2015-08-17 00:00:00">2015-08-17  (C2: Day -327)</option>
+<option value="2015-08-18 00:00:00">2015-08-18  (C2: Day -326)</option>
+<option value="2015-08-19 00:00:00">2015-08-19  (C2: Day -325)</option>
+<option value="2015-08-20 00:00:00">2015-08-20  (C2: Day -324)</option>
+<option value="2015-08-21 00:00:00">2015-08-21  (C2: Day -323)</option>
+<option value="2015-08-22 00:00:00">2015-08-22  (C2: Day -322)</option>
+<option value="2015-08-23 00:00:00">2015-08-23  (C2: Day -321)</option>
+<option value="2015-08-24 00:00:00">2015-08-24  (C2: Day -320)</option>
+<option value="2015-08-25 00:00:00">2015-08-25  (C2: Day -319)</option>
+<option value="2015-08-26 00:00:00">2015-08-26  (C2: Day -318)</option>
+<option value="2015-08-27 00:00:00">2015-08-27  (C2: Day -317)</option>
+<option value="2015-08-28 00:00:00">2015-08-28  (C2: Day -316)</option>
+<option value="2015-08-29 00:00:00">2015-08-29  (C2: Day -315)</option>
+<option value="2015-08-30 00:00:00">2015-08-30  (C2: Day -314)</option>
+<option value="2015-08-31 00:00:00">2015-08-31  (C2: Day -313)</option>
+                </select>
+            </div>
+            <div class="stat">
+                <div class="stat-label">TOTAL2 Value</div>
+                <div class="stat-value" id="total2-value">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Coins in TOTAL2</div>
+                <div class="stat-value blue" id="coin-count">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Total Volume</div>
+                <div class="stat-value" id="total-volume">-</div>
+            </div>
+        </div>
+
+        <div class="changes-row">
+            <div class="changes-box">
+                <div class="label">↑ New vs Previous Day</div>
+                <div class="coins added" id="coins-added">-</div>
+            </div>
+            <div class="changes-box">
+                <div class="label">↓ Removed vs Previous Day</div>
+                <div class="coins removed" id="coins-removed">-</div>
+            </div>
+        </div>
+
+        <table id="composition-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Coin</th>
+                    <th>Weight</th>
+                    <th>Price (BTC)</th>
+                    <th>Volume (BTC)</th>
+                </tr>
+            </thead>
+            <tbody id="composition-body">
+            </tbody>
+        </table>
+    </div>
+
+    <footer>
+        <p>
+            Generated by <strong>Halvix</strong> •
+            <a href="https://github.com/yohplala/halvix">Source Code</a> •
+            Data from <a href="https://www.cryptocompare.com/">CryptoCompare</a>
+        </p>
+    </footer>
+
+    <script>
+        const compositionData = {"2015-07-31 00:00:00": {"total2_value": 0.015107106325429788, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4321.549083333333, "weight": 91.39714344213759, "price_btc": 0.01622}, {"rank": 2, "coin_id": "PPC", "volume": 186.13035916666664, "weight": 3.9365011961337597, "price_btc": 0.00183}, {"rank": 3, "coin_id": "DASH", "volume": 69.938, "weight": 1.4791301208884535, "price_btc": 0.01281}, {"rank": 4, "coin_id": "DOGE", "volume": 48.63240833333334, "weight": 1.0285347024104203, "price_btc": 6.5e-07}, {"rank": 5, "coin_id": "XMR", "volume": 46.72324166666667, "weight": 0.9881574265022891, "price_btc": 0.002022}, {"rank": 6, "coin_id": "XRP", "volume": 30.65545, "weight": 0.6483370909146665, "price_btc": 2.895e-05}, {"rank": 7, "coin_id": "MONA", "volume": 8.610811049999999, "weight": 0.18211144141002217, "price_btc": 0.0004353}, {"rank": 8, "coin_id": "XEM", "volume": 6.310598333333333, "weight": 0.13346386907921026, "price_btc": 5.6e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.641175825, "weight": 0.09815698131340356, "price_btc": 1.92e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.423414, "weight": 0.05125317628160329, "price_btc": 2.7e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.419380425, "weight": 0.0511678695488205, "price_btc": 9.03e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.17238858333333335, "weight": 0.0036458741471821123, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11332880166666667, "weight": 0.002396809232596875, "price_btc": 2.35e-06}]}, "2015-08-01 00:00:00": {"total2_value": 0.013993768020162244, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4349.853833333334, "weight": 91.49074421081487, "price_btc": 0.01499}, {"rank": 2, "coin_id": "PPC", "volume": 187.2281925, "weight": 3.9379821312166023, "price_btc": 0.001779}, {"rank": 3, "coin_id": "DASH", "volume": 69.47308333333334, "weight": 1.4612316506083272, "price_btc": 0.01294}, {"rank": 4, "coin_id": "DOGE", "volume": 48.76649166666667, "weight": 1.0257086297805105, "price_btc": 6.4e-07}, {"rank": 5, "coin_id": "XMR", "volume": 44.05940833333334, "weight": 0.9267042554429539, "price_btc": 0.002078}, {"rank": 6, "coin_id": "XRP", "volume": 30.464033333333337, "weight": 0.6407518937697037, "price_btc": 2.891e-05}, {"rank": 7, "coin_id": "MONA", "volume": 8.66390105, "weight": 0.18222836564279046, "price_btc": 0.000389}, {"rank": 8, "coin_id": "XEM", "volume": 6.118231666666667, "weight": 0.12868514434853023, "price_btc": 5.5e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.639273325, "weight": 0.09757812224609191, "price_btc": 1.91e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.433772333333333, "weight": 0.051189683733746466, "price_btc": 2.6e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.4300262583333336, "weight": 0.05111089230701091, "price_btc": 9.8e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.17493275, "weight": 0.003679371330066016, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11437463499999999, "weight": 0.0024056487587702418, "price_btc": 2.69e-06}]}, "2015-08-02 00:00:00": {"total2_value": 0.013925918056979437, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4381.0215, "weight": 91.60827678294535, "price_btc": 0.0149}, {"rank": 2, "coin_id": "PPC", "volume": 187.97060916666666, "weight": 3.930513372645819, "price_btc": 0.00184}, {"rank": 3, "coin_id": "DASH", "volume": 68.652, "weight": 1.4355308271604612, "price_btc": 0.01282}, {"rank": 4, "coin_id": "DOGE", "volume": 48.891325, "weight": 1.022330073679149, "price_btc": 6.3e-07}, {"rank": 5, "coin_id": "XMR", "volume": 40.99015833333333, "weight": 0.8571146637780148, "price_btc": 0.002199}, {"rank": 6, "coin_id": "XRP", "volume": 30.244866666666667, "weight": 0.6324278748377012, "price_btc": 2.92e-05}, {"rank": 7, "coin_id": "MONA", "volume": 8.783876050000002, "weight": 0.18367308820910488, "price_btc": 0.00048}, {"rank": 8, "coin_id": "XEM", "volume": 6.002773333333333, "weight": 0.12551952118593426, "price_btc": 5.4e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.636854991666667, "weight": 0.09695782033459133, "price_btc": 1.86e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.427651758333333, "weight": 0.05076281734979021, "price_btc": 9.69e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.427064, "weight": 0.050750527173154134, "price_btc": 2.8e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.17721525000000002, "weight": 0.003705616069713161, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11654638499999999, "weight": 0.0024370146312068337, "price_btc": 2.69e-06}]}, "2015-08-03 00:00:00": {"total2_value": 0.014054468390053483, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4396.337916666667, "weight": 91.7069731005174, "price_btc": 0.01503}, {"rank": 2, "coin_id": "PPC", "volume": 188.2151925, "weight": 3.926141694038238, "price_btc": 0.001829}, {"rank": 3, "coin_id": "DASH", "volume": 68.04008333333334, "weight": 1.4193062977147088, "price_btc": 0.01278}, {"rank": 4, "coin_id": "DOGE", "volume": 48.890075, "weight": 1.0198398935418378, "price_btc": 6.2e-07}, {"rank": 5, "coin_id": "XMR", "volume": 37.745075, "weight": 0.7873568054401364, "price_btc": 0.002117}, {"rank": 6, "coin_id": "XRP", "volume": 30.302699999999998, "weight": 0.6321099393287951, "price_btc": 2.875e-05}, {"rank": 7, "coin_id": "MONA", "volume": 8.855309383333333, "weight": 0.1847204729953616, "price_btc": 0.0004601}, {"rank": 8, "coin_id": "XEM", "volume": 5.7251233333333325, "weight": 0.11942524471031302, "price_btc": 5.4e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.621769991666667, "weight": 0.0964094535808381, "price_btc": 1.81e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.4584806666666665, "weight": 0.05128355113728092, "price_btc": 2.7e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.408799258333333, "weight": 0.05024720414485606, "price_btc": 9.86e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.17935275, "weight": 0.0037412724252608707, "price_btc": 5.1e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11721416000000001, "weight": 0.00244507042494813, "price_btc": 2.36e-06}]}, "2015-08-04 00:00:00": {"total2_value": 0.014373541968968171, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4413.694166666667, "weight": 91.76268503170434, "price_btc": 0.01537}, {"rank": 2, "coin_id": "PPC", "volume": 187.8374425, "weight": 3.905224834892851, "price_btc": 0.001841}, {"rank": 3, "coin_id": "DASH", "volume": 67.82358333333335, "weight": 1.4100827742304798, "price_btc": 0.01275}, {"rank": 4, "coin_id": "DOGE", "volume": 48.91490833333334, "weight": 1.0169629243106875, "price_btc": 6.2e-07}, {"rank": 5, "coin_id": "XMR", "volume": 37.236574999999995, "weight": 0.7741651266165969, "price_btc": 0.00218}, {"rank": 6, "coin_id": "XRP", "volume": 30.325033333333334, "weight": 0.6304710696446311, "price_btc": 2.903e-05}, {"rank": 7, "coin_id": "MONA", "volume": 8.89660105, "weight": 0.18496433354385033, "price_btc": 0.0004667}, {"rank": 8, "coin_id": "XEM", "volume": 5.4332400000000005, "weight": 0.11295950104268074, "price_btc": 5.3e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.588114991666667, "weight": 0.09538897235997489, "price_btc": 1.8e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.435955666666666, "weight": 0.050644612913980855, "price_btc": 2.7e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.4181492583333335, "weight": 0.0502744096833679, "price_btc": 9.24e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.17976783333333335, "weight": 0.0037374540342147828, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11731131833333334, "weight": 0.002438955022342547, "price_btc": 2.5e-06}]}, "2015-08-05 00:00:00": {"total2_value": 0.014401039098949815, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4421.892166666667, "weight": 91.80598222069814, "price_btc": 0.0154}, {"rank": 2, "coin_id": "PPC", "volume": 188.41027583333332, "weight": 3.9117169260124416, "price_btc": 0.00182}, {"rank": 3, "coin_id": "DASH", "volume": 66.47941666666667, "weight": 1.380225458809217, "price_btc": 0.01262}, {"rank": 4, "coin_id": "DOGE", "volume": 48.96349166666666, "weight": 1.0165651436049945, "price_btc": 6.2e-07}, {"rank": 5, "coin_id": "XMR", "volume": 36.109075, "weight": 0.749685648701562, "price_btc": 0.0022}, {"rank": 6, "coin_id": "XRP", "volume": 30.685916666666667, "weight": 0.6370916824164583, "price_btc": 2.904e-05}, {"rank": 7, "coin_id": "MONA", "volume": 8.96180105, "weight": 0.18606219167075283, "price_btc": 0.0004561}, {"rank": 8, "coin_id": "XEM", "volume": 5.351281666666667, "weight": 0.11110168476095764, "price_btc": 5.4e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.580014991666667, "weight": 0.09508888029091037, "price_btc": 1.59e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.418973425, "weight": 0.05022199159942381, "price_btc": 9.53e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.4105306666666664, "weight": 0.050046705615001456, "price_btc": 2.6e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.18176533333333333, "weight": 0.0037737566479189967, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11741377666666666, "weight": 0.002437709172191487, "price_btc": 2.5e-06}]}, "2015-08-06 00:00:00": {"total2_value": 0.013603644358043076, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4437.132, "weight": 91.74180768604468, "price_btc": 0.01454}, {"rank": 2, "coin_id": "PPC", "volume": 189.07410916666666, "weight": 3.909282068141888, "price_btc": 0.00177}, {"rank": 3, "coin_id": "DASH", "volume": 65.539, "weight": 1.355079437333774, "price_btc": 0.01267}, {"rank": 4, "coin_id": "DOGE", "volume": 48.962825, "weight": 1.0123516890900388, "price_btc": 6.1e-07}, {"rank": 5, "coin_id": "XMR", "volume": 41.06940833333333, "weight": 0.8491479994501646, "price_btc": 0.002643}, {"rank": 6, "coin_id": "XRP", "volume": 30.806041666666665, "weight": 0.6369434017630337, "price_btc": 2.817e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.013251050000001, "weight": 0.18635730117002164, "price_btc": 0.0004653}, {"rank": 8, "coin_id": "XEM", "volume": 5.265865, "weight": 0.1088766288969257, "price_btc": 5e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.562589991666667, "weight": 0.09433576769087682, "price_btc": 1.64e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.424000091666667, "weight": 0.0501184436795295, "price_btc": 9.3e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.3915723333333334, "weight": 0.04944796978587336, "price_btc": 2.5e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.184672, "weight": 0.0038182643899251243, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.11768966, "weight": 0.0024333425632494113, "price_btc": 2.61e-06}]}, "2015-08-07 00:00:00": {"total2_value": 0.013986594986888944, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4453.312916666667, "weight": 91.6792843026586, "price_btc": 0.01498}, {"rank": 2, "coin_id": "PPC", "volume": 190.33285916666668, "weight": 3.918336895297229, "price_btc": 0.00181}, {"rank": 3, "coin_id": "DASH", "volume": 65.30833333333334, "weight": 1.344486985540887, "price_btc": 0.01168}, {"rank": 4, "coin_id": "DOGE", "volume": 49.02015833333334, "weight": 1.0091662356767181, "price_btc": 6.1e-07}, {"rank": 5, "coin_id": "XMR", "volume": 44.62849166666667, "weight": 0.9187560479288494, "price_btc": 0.002618}, {"rank": 6, "coin_id": "XRP", "volume": 30.937475, "weight": 0.6369023734030351, "price_btc": 2.899e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.068184383333335, "weight": 0.18668453570310245, "price_btc": 0.0004447}, {"rank": 8, "coin_id": "XEM", "volume": 5.194623333333334, "weight": 0.10694046394978214, "price_btc": 4.9e-07}, {"rank": 9, "coin_id": "SYS", "volume": 4.575031658333333, "weight": 0.09418507882710284, "price_btc": 1.32e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.4220584250000003, "weight": 0.04986233554623696, "price_btc": 8.47e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.361778166666667, "weight": 0.04862136033407604, "price_btc": 2.4e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.19000366666666665, "weight": 0.003911559888299842, "price_btc": 5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.1390129016666667, "weight": 0.002861825246085621, "price_btc": 2.81e-06}]}, "2015-08-08 00:00:00": {"total2_value": 0.013903027141313914, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4474.380499999999, "weight": 91.69166789649587, "price_btc": 0.01489}, {"rank": 2, "coin_id": "PPC", "volume": 190.70160916666666, "weight": 3.9079708610024007, "price_btc": 0.00176}, {"rank": 3, "coin_id": "DASH", "volume": 64.81066666666666, "weight": 1.3281387499678436, "price_btc": 0.01173}, {"rank": 4, "coin_id": "DOGE", "volume": 48.983825, "weight": 1.00380569202822, "price_btc": 6.1e-07}, {"rank": 5, "coin_id": "XMR", "volume": 46.000991666666664, "weight": 0.9426796962863294, "price_btc": 0.002599}, {"rank": 6, "coin_id": "XRP", "volume": 31.68278333333333, "weight": 0.649262450396571, "price_btc": 3.212e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.18450105, "weight": 0.18821426118579268, "price_btc": 0.0004493}, {"rank": 8, "coin_id": "XEM", "volume": 5.065273333333333, "weight": 0.10380059547572601, "price_btc": 5.1e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.877506658333333, "weight": 0.07946017393521886, "price_btc": 1.39e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.4252608083333334, "weight": 0.049699887749843165, "price_btc": 8.85e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.364469833333333, "weight": 0.04845412291361518, "price_btc": 2.3e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.19193866666666667, "weight": 0.003933321379461631, "price_btc": 5.1e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.14211431833333332, "weight": 0.002912291183093815, "price_btc": 3.67e-06}]}, "2015-08-09 00:00:00": {"total2_value": 0.013839485742847909, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4474.241583333333, "weight": 91.61799868042742, "price_btc": 0.01483}, {"rank": 2, "coin_id": "PPC", "volume": 191.20185916666665, "weight": 3.9151957610157204, "price_btc": 0.001756}, {"rank": 3, "coin_id": "DASH", "volume": 65.14108333333334, "weight": 1.333878731337677, "price_btc": 0.01176}, {"rank": 4, "coin_id": "DOGE", "volume": 49.05565833333334, "weight": 1.0045012449020454, "price_btc": 6.2e-07}, {"rank": 5, "coin_id": "XMR", "volume": 48.86649166666666, "weight": 1.0006277233019585, "price_btc": 0.00258}, {"rank": 6, "coin_id": "XRP", "volume": 31.89995, "weight": 0.6532078169163904, "price_btc": 3.332e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.260851050000001, "weight": 0.18963228146622052, "price_btc": 0.0004617}, {"rank": 8, "coin_id": "XEM", "volume": 5.074106666666666, "weight": 0.10390129572410726, "price_btc": 4.9e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.6547983250000002, "weight": 0.07483845069170736, "price_btc": 1.41e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.4330541416666667, "weight": 0.049821080732648966, "price_btc": 8.36e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.396269833333333, "weight": 0.04906785705226087, "price_btc": 2.1e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.193682, "weight": 0.003965981024923246, "price_btc": 5.1e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.16423957666666666, "weight": 0.0033630954069114667, "price_btc": 3.13e-06}]}, "2015-08-10 00:00:00": {"total2_value": 0.013970109110357306, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4481.7716666666665, "weight": 91.59305108270104, "price_btc": 0.01498}, {"rank": 2, "coin_id": "PPC", "volume": 191.59194250000002, "weight": 3.915525350600508, "price_btc": 0.0017}, {"rank": 3, "coin_id": "DASH", "volume": 65.4535, "weight": 1.3376597950382507, "price_btc": 0.01171}, {"rank": 4, "coin_id": "XMR", "volume": 49.78075, "weight": 1.017359008179095, "price_btc": 0.002476}, {"rank": 5, "coin_id": "DOGE", "volume": 49.225408333333334, "weight": 1.0060096040981898, "price_btc": 6e-07}, {"rank": 6, "coin_id": "XRP", "volume": 32.15769166666667, "weight": 0.6572001687264486, "price_btc": 3.24e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.306034383333332, "weight": 0.1901855217189085, "price_btc": 0.0004477}, {"rank": 8, "coin_id": "XEM", "volume": 5.042831666666667, "weight": 0.10305931957260855, "price_btc": 5.1e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.6205174916666665, "weight": 0.07399177562445453, "price_btc": 1.45e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.436819725, "weight": 0.04980078641919326, "price_btc": 8.26e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.3879248333333334, "weight": 0.04880153151662502, "price_btc": 2.1e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.195412, "weight": 0.003993595084571713, "price_btc": 5.1e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.16452974333333334, "weight": 0.0033624607201289875, "price_btc": 2.73e-06}]}, "2015-08-11 00:00:00": {"total2_value": 0.014222437330244456, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4494.689916666666, "weight": 91.5783924172604, "price_btc": 0.01526}, {"rank": 2, "coin_id": "PPC", "volume": 192.12110916666668, "weight": 3.914428504102998, "price_btc": 0.001726}, {"rank": 3, "coin_id": "DASH", "volume": 64.67591666666667, "weight": 1.3177586410318072, "price_btc": 0.0118}, {"rank": 4, "coin_id": "XMR", "volume": 51.369749999999996, "weight": 1.0466482029010336, "price_btc": 0.002242}, {"rank": 5, "coin_id": "DOGE", "volume": 49.45199166666667, "weight": 1.0075742671084356, "price_btc": 6e-07}, {"rank": 6, "coin_id": "XRP", "volume": 32.61479166666667, "weight": 0.6645197433491165, "price_btc": 3.076e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.423551049999999, "weight": 0.19200293502360138, "price_btc": 0.0004343}, {"rank": 8, "coin_id": "XEM", "volume": 4.986115, "weight": 0.10159107848895287, "price_btc": 4.9e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.5664324916666663, "weight": 0.07266533627613082, "price_btc": 1.47e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.435894725, "weight": 0.04963085933603642, "price_btc": 8.34e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.3218331666666665, "weight": 0.04730687829564447, "price_btc": 2.2e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.20041116666666667, "weight": 0.004083336738702567, "price_btc": 5.8e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.16676486, "weight": 0.003397800087133818, "price_btc": 2.52e-06}]}, "2015-08-12 00:00:00": {"total2_value": 0.014126267756582071, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4502.377833333333, "weight": 91.55105357015437, "price_btc": 0.01516}, {"rank": 2, "coin_id": "PPC", "volume": 192.42902583333336, "weight": 3.9128391051706393, "price_btc": 0.001779}, {"rank": 3, "coin_id": "DASH", "volume": 64.69175, "weight": 1.315437772891717, "price_btc": 0.0115}, {"rank": 4, "coin_id": "XMR", "volume": 52.88441666666666, "weight": 1.0753482365321325, "price_btc": 0.002344}, {"rank": 5, "coin_id": "DOGE", "volume": 49.58599166666667, "weight": 1.008278280377749, "price_btc": 6e-07}, {"rank": 6, "coin_id": "XRP", "volume": 33.10004166666667, "weight": 0.6730540616480932, "price_btc": 3.013e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.442484383333332, "weight": 0.19200285396170014, "price_btc": 0.0004281}, {"rank": 8, "coin_id": "XEM", "volume": 4.876865, "weight": 0.09916585088969711, "price_btc": 5.1e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.5532024916666667, "weight": 0.07225058484692869, "price_btc": 1.48e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.3005415, "weight": 0.04677905895581693, "price_btc": 2.1e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.276186391666667, "weight": 0.046283823791139274, "price_btc": 9.8e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.20052241666666668, "weight": 0.004077409579967537, "price_btc": 5.2e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.16865360166666668, "weight": 0.0034293912000613186, "price_btc": 2.5e-06}]}, "2015-08-13 00:00:00": {"total2_value": 0.013714332800608239, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4507.223666666667, "weight": 91.52275998276512, "price_btc": 0.01472}, {"rank": 2, "coin_id": "PPC", "volume": 193.10252583333332, "weight": 3.9211003116204797, "price_btc": 0.0017}, {"rank": 3, "coin_id": "DASH", "volume": 64.35091666666668, "weight": 1.3066965245835935, "price_btc": 0.01151}, {"rank": 4, "coin_id": "XMR", "volume": 54.10691666666666, "weight": 1.0986839601756633, "price_btc": 0.002197}, {"rank": 5, "coin_id": "DOGE", "volume": 49.773158333333335, "weight": 1.0106835516984178, "price_btc": 5.9e-07}, {"rank": 6, "coin_id": "XRP", "volume": 33.324041666666666, "weight": 0.6766711600468606, "price_btc": 3.087e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.498622716666667, "weight": 0.19287708606376913, "price_btc": 0.0003963}, {"rank": 8, "coin_id": "XEM", "volume": 4.8676233333333325, "weight": 0.09884096174722201, "price_btc": 4.6e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.5354366583333334, "weight": 0.07178985216729002, "price_btc": 1.5e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.282094725, "weight": 0.04633974775176294, "price_btc": 8.64e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.2644165000000003, "weight": 0.045980777338210585, "price_btc": 2.4e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.20242658333333333, "weight": 0.004110432712173193, "price_btc": 5.1e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17067301833333334, "weight": 0.0034656513294375538, "price_btc": 2.29e-06}]}, "2015-08-14 00:00:00": {"total2_value": 0.014144186902074979, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4522.064416666666, "weight": 91.52632624246847, "price_btc": 0.01519}, {"rank": 2, "coin_id": "PPC", "volume": 192.48769249999998, "weight": 3.8959399332045384, "price_btc": 0.00172}, {"rank": 3, "coin_id": "DASH", "volume": 63.94983333333334, "weight": 1.294340984450775, "price_btc": 0.01141}, {"rank": 4, "coin_id": "XMR", "volume": 55.27033333333333, "weight": 1.1186683987853365, "price_btc": 0.00229}, {"rank": 5, "coin_id": "DOGE", "volume": 49.98649166666667, "weight": 1.0117237443893332, "price_btc": 5.9e-07}, {"rank": 6, "coin_id": "XRP", "volume": 33.981458333333336, "weight": 0.6877827812776107, "price_btc": 3.143e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.656689383333335, "weight": 0.1954508431289998, "price_btc": 0.0004083}, {"rank": 8, "coin_id": "XEM", "volume": 4.86329, "weight": 0.09843271261488211, "price_btc": 4.5e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.536236658333333, "weight": 0.07157322856089932, "price_btc": 1.78e-06}, {"rank": 10, "coin_id": "XLM", "volume": 2.280499725, "weight": 0.046157184549809424, "price_btc": 8.4e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.2716165, "weight": 0.045977388581747, "price_btc": 2.3e-07}, {"rank": 12, "coin_id": "GRT", "volume": 0.20578741666666664, "weight": 0.004165125592861829, "price_btc": 5.3e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17101986833333335, "weight": 0.003461432394755398, "price_btc": 2.29e-06}]}, "2015-08-15 00:00:00": {"total2_value": 0.014001920171431271, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4528.016250000001, "weight": 91.5072700319994, "price_btc": 0.01504}, {"rank": 2, "coin_id": "PPC", "volume": 193.22018083333333, "weight": 3.9048117954849624, "price_btc": 0.001699}, {"rank": 3, "coin_id": "DASH", "volume": 63.437583333333336, "weight": 1.282018382390036, "price_btc": 0.01131}, {"rank": 4, "coin_id": "XMR", "volume": 56.532916666666665, "weight": 1.1424810746015288, "price_btc": 0.002346}, {"rank": 5, "coin_id": "DOGE", "volume": 49.903575000000004, "weight": 1.0085078455906897, "price_btc": 5.9e-07}, {"rank": 6, "coin_id": "XRP", "volume": 34.24150833333333, "weight": 0.6919911008184412, "price_btc": 3.129e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.73029355, "weight": 0.19664076942534645, "price_btc": 0.0004357}, {"rank": 8, "coin_id": "XEM", "volume": 4.844714999999999, "weight": 0.09790747631108387, "price_btc": 4.5e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.5308616583333334, "weight": 0.07135564304009322, "price_btc": 2.03e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.2305581666666665, "weight": 0.04507764045220645, "price_btc": 2.2e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.188100075, "weight": 0.04421959934884578, "price_btc": 8.58e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.20641074999999998, "weight": 0.004171381725442684, "price_btc": 5.2e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.175527535, "weight": 0.0035472588119126614, "price_btc": 2.23e-06}]}, "2015-08-16 00:00:00": {"total2_value": 0.014295081628537609, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4540.724916666667, "weight": 91.4672488789049, "price_btc": 0.01536}, {"rank": 2, "coin_id": "PPC", "volume": 193.719675, "weight": 3.9022416136525266, "price_btc": 0.001669}, {"rank": 3, "coin_id": "DASH", "volume": 63.361583333333336, "weight": 1.2763401920339053, "price_btc": 0.01187}, {"rank": 4, "coin_id": "XMR", "volume": 58.21574999999999, "weight": 1.1726837876431089, "price_btc": 0.002381}, {"rank": 5, "coin_id": "DOGE", "volume": 50.09288333333333, "weight": 1.0090587540536315, "price_btc": 5.8e-07}, {"rank": 6, "coin_id": "XRP", "volume": 35.336324999999995, "weight": 0.7118062627791942, "price_btc": 3.097e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.817143549999999, "weight": 0.1977541315202521, "price_btc": 0.0004697}, {"rank": 8, "coin_id": "XEM", "volume": 4.853681666666666, "weight": 0.09777137288243445, "price_btc": 4.7e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.4797283249999995, "weight": 0.0700947937994445, "price_btc": 1.88e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.2087581666666667, "weight": 0.04449268269968722, "price_btc": 2.3e-07}, {"rank": 11, "coin_id": "XLM", "volume": 2.1221759083333334, "weight": 0.042748590926498214, "price_btc": 8.13e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.20965158333333334, "weight": 0.004223170067012934, "price_btc": 5.3e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17552681166666667, "weight": 0.003535769037385678, "price_btc": 2.23e-06}]}, "2015-08-17 00:00:00": {"total2_value": 0.014357809739958037, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4548.907749999999, "weight": 91.44696819992008, "price_btc": 0.01544}, {"rank": 2, "coin_id": "PPC", "volume": 193.93642499999999, "weight": 3.8987157059364828, "price_btc": 0.001678}, {"rank": 3, "coin_id": "DASH", "volume": 63.662, "weight": 1.2798010444470571, "price_btc": 0.01122}, {"rank": 4, "coin_id": "XMR", "volume": 59.428666666666665, "weight": 1.1946980878718232, "price_btc": 0.002366}, {"rank": 5, "coin_id": "DOGE", "volume": 50.2482, "weight": 1.0101426100591344, "price_btc": 5.8e-07}, {"rank": 6, "coin_id": "XRP", "volume": 35.961, "weight": 0.7229261625359025, "price_btc": 3.171e-05}, {"rank": 7, "coin_id": "MONA", "volume": 9.901629383333333, "weight": 0.19905305561430162, "price_btc": 0.0004409}, {"rank": 8, "coin_id": "XEM", "volume": 4.824106666666666, "weight": 0.09697930870101491, "price_btc": 4.6e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.4727131583333333, "weight": 0.0698121630972957, "price_btc": 1.93e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.147133166666667, "weight": 0.04316394818364044, "price_btc": 2.3e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.4896292416666668, "weight": 0.029946106929155194, "price_btc": 8.16e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.21191575, "weight": 0.004260155166108219, "price_btc": 5.9e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.175766845, "weight": 0.00353345153796871, "price_btc": 2.3e-06}]}, "2015-08-18 00:00:00": {"total2_value": 0.01440892730712869, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4561.3545, "weight": 91.42860837241483, "price_btc": 0.0155}, {"rank": 2, "coin_id": "PPC", "volume": 194.30975833333332, "weight": 3.89477967511556, "price_btc": 0.00162}, {"rank": 3, "coin_id": "DASH", "volume": 63.68449999999999, "weight": 1.2765035495252672, "price_btc": 0.01137}, {"rank": 4, "coin_id": "XMR", "volume": 60.36625, "weight": 1.2099919508911852, "price_btc": 0.002318}, {"rank": 5, "coin_id": "DOGE", "volume": 50.473525, "weight": 1.011700395222579, "price_btc": 5.7e-07}, {"rank": 6, "coin_id": "XRP", "volume": 36.47026666666667, "weight": 0.731016571569739, "price_btc": 3.221e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.037454383333335, "weight": 0.20119253740742185, "price_btc": 0.0004802}, {"rank": 8, "coin_id": "XEM", "volume": 4.842006666666666, "weight": 0.09705405077883955, "price_btc": 4.4e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.4057964916666665, "weight": 0.06826639622786082, "price_btc": 1.64e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.1474998333333333, "weight": 0.04304487214086505, "price_btc": 2.2e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.4982834083333334, "weight": 0.030031861582210988, "price_btc": 8.05e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.21455741666666667, "weight": 0.004300627373253645, "price_btc": 5.5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17507026166666667, "weight": 0.0035091397503916547, "price_btc": 2.15e-06}]}, "2015-08-19 00:00:00": {"total2_value": 0.01426470595216327, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4603.147083333333, "weight": 91.42924201304419, "price_btc": 0.01534}, {"rank": 2, "coin_id": "PPC", "volume": 196.44584166666664, "weight": 3.9018728002911396, "price_btc": 0.001569}, {"rank": 3, "coin_id": "DASH", "volume": 63.716166666666666, "weight": 1.2655517446754319, "price_btc": 0.01171}, {"rank": 4, "coin_id": "XMR", "volume": 61.26566666666667, "weight": 1.2168790967028795, "price_btc": 0.002364}, {"rank": 5, "coin_id": "DOGE", "volume": 50.688858333333336, "weight": 1.0067990033825398, "price_btc": 5.7e-07}, {"rank": 6, "coin_id": "XRP", "volume": 37.04976666666666, "weight": 0.7358948175604463, "price_btc": 3.329e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.14481855, "weight": 0.2014997682226361, "price_btc": 0.0005071}, {"rank": 8, "coin_id": "XEM", "volume": 4.821506666666666, "weight": 0.09576637285614419, "price_btc": 4.5e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.3545194916666663, "weight": 0.06662858450722593, "price_btc": 1.72e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.127885666666667, "weight": 0.04226477452744611, "price_btc": 2.3e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.5002084083333334, "weight": 0.029797639561016737, "price_btc": 8.09e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.21672408333333332, "weight": 0.00430464599684042, "price_btc": 5.4e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17614942833333333, "weight": 0.003498738672040271, "price_btc": 2.3e-06}]}, "2015-08-20 00:00:00": {"total2_value": 0.01428108022301592, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4612.915583333333, "weight": 91.3895128734925, "price_btc": 0.01536}, {"rank": 2, "coin_id": "PPC", "volume": 197.15325833333333, "weight": 3.905933224879303, "price_btc": 0.0016}, {"rank": 3, "coin_id": "XMR", "volume": 63.35408333333333, "weight": 1.2551495274049977, "price_btc": 0.002541}, {"rank": 4, "coin_id": "DASH", "volume": 63.20933333333334, "weight": 1.2522817896912983, "price_btc": 0.01182}, {"rank": 5, "coin_id": "DOGE", "volume": 50.777275, "weight": 1.0059820830148587, "price_btc": 5.9e-07}, {"rank": 6, "coin_id": "XRP", "volume": 37.768474999999995, "weight": 0.7482561668146748, "price_btc": 3.313e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.282501883333333, "weight": 0.20371342619705124, "price_btc": 0.0004835}, {"rank": 8, "coin_id": "XEM", "volume": 4.808678333333333, "weight": 0.09526789782072956, "price_btc": 4.5e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.2655553250000002, "weight": 0.06469607020155699, "price_btc": 1.71e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.1110165, "weight": 0.041822740112555004, "price_btc": 2.3e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.4924492416666666, "weight": 0.029567896208013908, "price_btc": 8.56e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.21835575000000002, "weight": 0.004325989770488309, "price_btc": 5.4e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17617476166666665, "weight": 0.0034903143919416627, "price_btc": 2.42e-06}]}, "2015-08-21 00:00:00": {"total2_value": 0.014274919285155495, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4618.47375, "weight": 91.35812401528183, "price_btc": 0.01536}, {"rank": 2, "coin_id": "PPC", "volume": 197.271425, "weight": 3.9022301057403146, "price_btc": 0.00158}, {"rank": 3, "coin_id": "XMR", "volume": 64.28075, "weight": 1.271538834727669, "price_btc": 0.002441}, {"rank": 4, "coin_id": "DASH", "volume": 63.49008333333334, "weight": 1.2558986411706345, "price_btc": 0.01181}, {"rank": 5, "coin_id": "DOGE", "volume": 51.15052500000001, "weight": 1.0118095845833863, "price_btc": 6.1e-07}, {"rank": 6, "coin_id": "XRP", "volume": 38.20473333333333, "weight": 0.7557286139901602, "price_btc": 3.338e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.385501883333335, "weight": 0.20543582585448492, "price_btc": 0.000503}, {"rank": 8, "coin_id": "XEM", "volume": 4.810253333333334, "weight": 0.09515171988832663, "price_btc": 4.3e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.2685936583333333, "weight": 0.06465611822381374, "price_btc": 1.67e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.1260025000000002, "weight": 0.04205449907597704, "price_btc": 2.3e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.4925292416666665, "weight": 0.02952375155463812, "price_btc": 9.61e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.22107074999999998, "weight": 0.0043730050419040194, "price_btc": 5.6e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.175687845, "weight": 0.0034752848668865143, "price_btc": 2.43e-06}]}, "2015-08-22 00:00:00": {"total2_value": 0.014198478872835662, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4628.842000000001, "weight": 91.35505950258236, "price_btc": 0.01528}, {"rank": 2, "coin_id": "PPC", "volume": 197.44309166666665, "weight": 3.8967468294623475, "price_btc": 0.001579}, {"rank": 3, "coin_id": "XMR", "volume": 64.79491666666667, "weight": 1.2787957479534187, "price_btc": 0.002394}, {"rank": 4, "coin_id": "DASH", "volume": 63.768166666666666, "weight": 1.2585317580949882, "price_btc": 0.0116}, {"rank": 5, "coin_id": "DOGE", "volume": 51.161941666666664, "weight": 1.0097346647878627, "price_btc": 6.2e-07}, {"rank": 6, "coin_id": "XRP", "volume": 38.37743333333333, "weight": 0.7574189626094505, "price_btc": 3.309e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.43364355, "weight": 0.20591891607857526, "price_btc": 0.0005007}, {"rank": 8, "coin_id": "XEM", "volume": 4.797594999999999, "weight": 0.09468557723385061, "price_btc": 4.4e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.2453411583333334, "weight": 0.06405021701447602, "price_btc": 1.57e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.1142766666666666, "weight": 0.04172747107986291, "price_btc": 2.3e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.4926125749999999, "weight": 0.029458277168118434, "price_btc": 8.6e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.22331491666666667, "weight": 0.004407354474379888, "price_btc": 7.3e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17555292833333333, "weight": 0.0034647214603013544, "price_btc": 2.43e-06}]}, "2015-08-23 00:00:00": {"total2_value": 0.01392741139984196, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4638.964083333334, "weight": 91.33957314848058, "price_btc": 0.01499}, {"rank": 2, "coin_id": "PPC", "volume": 198.135675, "weight": 3.901221836359207, "price_btc": 0.00149}, {"rank": 3, "coin_id": "XMR", "volume": 65.33825, "weight": 1.2864871893943226, "price_btc": 0.002392}, {"rank": 4, "coin_id": "DASH", "volume": 63.98408333333334, "weight": 1.2598241234418144, "price_btc": 0.01154}, {"rank": 5, "coin_id": "DOGE", "volume": 51.33455833333334, "weight": 1.0107594199270553, "price_btc": 6.1e-07}, {"rank": 6, "coin_id": "XRP", "volume": 38.516925, "weight": 0.7583847223848499, "price_btc": 3.253e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.52239355, "weight": 0.20718223251832502, "price_btc": 0.0005153}, {"rank": 8, "coin_id": "XEM", "volume": 4.7610141666666665, "weight": 0.09374269641353347, "price_btc": 4.3e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.2451411583333334, "weight": 0.06389568940049797, "price_btc": 1.7e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.1176675, "weight": 0.0416961291455878, "price_btc": 2.4e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.4913359083333333, "weight": 0.02936388013383553, "price_btc": 8.5e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.22413241666666664, "weight": 0.004413088547208675, "price_btc": 7.2e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17551577, "weight": 0.003455843853205134, "price_btc": 3.09e-06}]}, "2015-08-24 00:00:00": {"total2_value": 0.013186272456813568, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4678.740333333333, "weight": 91.32118147010907, "price_btc": 0.01419}, {"rank": 2, "coin_id": "PPC", "volume": 199.26809166666666, "weight": 3.8893796756892036, "price_btc": 0.00149}, {"rank": 3, "coin_id": "XMR", "volume": 68.06591666666667, "weight": 1.328532785536646, "price_btc": 0.002064}, {"rank": 4, "coin_id": "DASH", "volume": 64.36466666666666, "weight": 1.2562905795505244, "price_btc": 0.01123}, {"rank": 5, "coin_id": "DOGE", "volume": 51.42780833333334, "weight": 1.0037847546184235, "price_btc": 6e-07}, {"rank": 6, "coin_id": "XRP", "volume": 38.89281666666667, "weight": 0.7591226944988291, "price_btc": 3.372e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.581751883333334, "weight": 0.20653808828093087, "price_btc": 0.0005212}, {"rank": 8, "coin_id": "XEM", "volume": 4.7658974999999995, "weight": 0.09302234350658324, "price_btc": 4.4e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.2368844916666664, "weight": 0.0631785683756205, "price_btc": 1.44e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.12366, "weight": 0.04145028927105348, "price_btc": 2.2e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.5201442416666666, "weight": 0.029670671647443355, "price_btc": 9.01e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.22648158333333332, "weight": 0.004420541491450077, "price_btc": 8e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17560611166666668, "weight": 0.003427537424233753, "price_btc": 3.09e-06}]}, "2015-08-25 00:00:00": {"total2_value": 0.012532152247700623, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4753.485166666666, "weight": 91.41297902230613, "price_btc": 0.01346}, {"rank": 2, "coin_id": "PPC", "volume": 199.74859166666664, "weight": 3.8413107813618277, "price_btc": 0.00149}, {"rank": 3, "coin_id": "XMR", "volume": 69.11266666666667, "weight": 1.3290868755578606, "price_btc": 0.002214}, {"rank": 4, "coin_id": "DASH", "volume": 64.14733333333334, "weight": 1.2335999021216844, "price_btc": 0.01135}, {"rank": 5, "coin_id": "DOGE", "volume": 51.62705833333334, "weight": 0.9928259024562803, "price_btc": 5.8e-07}, {"rank": 6, "coin_id": "XRP", "volume": 39.139466666666664, "weight": 0.7526804270756112, "price_btc": 3.233e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.666611883333333, "weight": 0.20512670896036203, "price_btc": 0.0005056}, {"rank": 8, "coin_id": "XEM", "volume": 4.752005833333333, "weight": 0.09138453036574665, "price_btc": 3.9e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.225016991666666, "weight": 0.06201942370055552, "price_btc": 1.54e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.164060833333333, "weight": 0.041616464683157064, "price_btc": 2.1e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.5393009083333333, "weight": 0.029601876667086496, "price_btc": 8.19e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.22836825, "weight": 0.004391687638577343, "price_btc": 8.5e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.17557302833333333, "weight": 0.0033763971051102314, "price_btc": 2.58e-06}]}, "2015-08-26 00:00:00": {"total2_value": 0.012214717087785553, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4773.622666666666, "weight": 91.4399342939014, "price_btc": 0.01311}, {"rank": 2, "coin_id": "PPC", "volume": 200.062425, "weight": 3.8322457123433953, "price_btc": 0.00146}, {"rank": 3, "coin_id": "XMR", "volume": 69.42366666666666, "weight": 1.3298276721302884, "price_btc": 0.002201}, {"rank": 4, "coin_id": "DASH", "volume": 63.643166666666666, "weight": 1.2191007510695195, "price_btc": 0.01152}, {"rank": 5, "coin_id": "DOGE", "volume": 51.83730833333333, "weight": 0.9929565864246583, "price_btc": 6e-07}, {"rank": 6, "coin_id": "XRP", "volume": 39.25488333333333, "weight": 0.7519370933482731, "price_btc": 3.231e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.728559383333334, "weight": 0.20550823422439607, "price_btc": 0.0005005}, {"rank": 8, "coin_id": "XEM", "volume": 4.7440308333333325, "weight": 0.09087309533645076, "price_btc": 4.1e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.0860919916666663, "weight": 0.05911486278826157, "price_btc": 1.7e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.1533725, "weight": 0.04124838799791204, "price_btc": 2e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.5351742416666665, "weight": 0.02940664597725988, "price_btc": 6.55e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.23013575, "weight": 0.004408307762911659, "price_btc": 8.7e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.179499445, "weight": 0.003438356695262837, "price_btc": 2.88e-06}]}, "2015-08-27 00:00:00": {"total2_value": 0.011953188926605197, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4772.9475, "weight": 91.43493196502843, "price_btc": 0.01283}, {"rank": 2, "coin_id": "PPC", "volume": 200.133425, "weight": 3.833938273740308, "price_btc": 0.001441}, {"rank": 3, "coin_id": "XMR", "volume": 69.92558333333334, "weight": 1.3395581985132372, "price_btc": 0.002053}, {"rank": 4, "coin_id": "DASH", "volume": 63.662416666666665, "weight": 1.2195752701335933, "price_btc": 0.01132}, {"rank": 5, "coin_id": "DOGE", "volume": 51.65739166666666, "weight": 0.9895960708833468, "price_btc": 5.9e-07}, {"rank": 6, "coin_id": "XRP", "volume": 39.09313333333333, "weight": 0.7489036882624662, "price_btc": 3.279e-05}, {"rank": 7, "coin_id": "MONA", "volume": 10.786126050000002, "weight": 0.20662886016407492, "price_btc": 0.0004973}, {"rank": 8, "coin_id": "XEM", "volume": 4.708230833333333, "weight": 0.09019516052114179, "price_btc": 4.1e-07}, {"rank": 9, "coin_id": "SYS", "volume": 3.0393169916666665, "weight": 0.05822392606522417, "price_btc": 1.65e-06}, {"rank": 10, "coin_id": "DGB", "volume": 2.143803333333333, "weight": 0.041068650331840956, "price_btc": 2e-07}, {"rank": 11, "coin_id": "XLM", "volume": 1.5398509083333332, "weight": 0.02949878728809515, "price_btc": 8.59e-06}, {"rank": 12, "coin_id": "GRT", "volume": 0.23199075, "weight": 0.004444226223474262, "price_btc": 8.9e-07}, {"rank": 13, "coin_id": "GRS", "volume": 0.1794090283333333, "weight": 0.0034369228447558215, "price_btc": 2.88e-06}]}, "2015-08-28 00:00:00": {"total2_value": 0.010486803238233967, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4790.230500000001, "weight": 74.60668928929525, "price_btc": 0.01255}, {"rank": 2, "coin_id": "ETH", "volume": 1182.9776666666667, "weight": 18.42459297379854, "price_btc": 0.005121}, {"rank": 3, "coin_id": "PPC", "volume": 200.75809166666664, "weight": 3.1267590499636393, "price_btc": 0.001471}, {"rank": 4, "coin_id": "XMR", "volume": 70.50950000000002, "weight": 1.0981685241333508, "price_btc": 0.002054}, {"rank": 5, "coin_id": "DASH", "volume": 63.161750000000005, "weight": 0.9837290830197302, "price_btc": 0.01124}, {"rank": 6, "coin_id": "DOGE", "volume": 51.223975, "weight": 0.7978011051843178, "price_btc": 5.7e-07}, {"rank": 7, "coin_id": "XRP", "volume": 39.198299999999996, "weight": 0.6105041059649595, "price_btc": 3.221e-05}, {"rank": 8, "coin_id": "MONA", "volume": 10.800417716666665, "weight": 0.16821391137273026, "price_btc": 0.0004836}, {"rank": 9, "coin_id": "XEM", "volume": 4.7124308333333325, "weight": 0.07339497817063177, "price_btc": 4.4e-07}, {"rank": 10, "coin_id": "SYS", "volume": 3.0119061583333333, "weight": 0.046909714871401255, "price_btc": 1.6e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.141495, "weight": 0.03335327017762074, "price_btc": 2e-07}, {"rank": 12, "coin_id": "XLM", "volume": 1.5070509083333332, "weight": 0.02347195586124199, "price_btc": 9.56e-06}, {"rank": 13, "coin_id": "GRT", "volume": 0.23199075, "weight": 0.0036132002005416163, "price_btc": 8.9e-07}, {"rank": 14, "coin_id": "GRS", "volume": 0.179703445, "weight": 0.002798837986049096, "price_btc": 2.88e-06}]}, "2015-08-29 00:00:00": {"total2_value": 0.01050847816710754, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4793.418083333333, "weight": 74.44652243518183, "price_btc": 0.01258}, {"rank": 2, "coin_id": "ETH", "volume": 1196.01025, "weight": 18.575221764802755, "price_btc": 0.005166}, {"rank": 3, "coin_id": "PPC", "volume": 202.26325833333334, "weight": 3.141348394307871, "price_btc": 0.0016}, {"rank": 4, "coin_id": "XMR", "volume": 71.48830833333334, "weight": 1.1102841141054298, "price_btc": 0.002079}, {"rank": 5, "coin_id": "DASH", "volume": 62.688, "weight": 0.9736066241839944, "price_btc": 0.01121}, {"rank": 6, "coin_id": "DOGE", "volume": 50.967708333333334, "weight": 0.7915789058960423, "price_btc": 5.7e-07}, {"rank": 7, "coin_id": "XRP", "volume": 39.387100000000004, "weight": 0.611720607889826, "price_btc": 3.352e-05}, {"rank": 8, "coin_id": "MONA", "volume": 10.79815105, "weight": 0.16770596272363694, "price_btc": 0.0004834}, {"rank": 9, "coin_id": "XEM", "volume": 4.722703333333333, "weight": 0.07334825244686644, "price_btc": 4.2e-07}, {"rank": 10, "coin_id": "SYS", "volume": 2.956697825, "weight": 0.04592044072438758, "price_btc": 1.5e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.1324833333333335, "weight": 0.0331195747080031, "price_btc": 2.1e-07}, {"rank": 12, "coin_id": "XLM", "volume": 1.4917984083333333, "weight": 0.023169104330979975, "price_btc": 1.108e-05}, {"rank": 13, "coin_id": "GRT", "volume": 0.23370908333333332, "weight": 0.0036297331493316495, "price_btc": 8.9e-07}, {"rank": 14, "coin_id": "GRS", "volume": 0.18183552833333333, "weight": 0.0028240855490258058, "price_btc": 3.1e-06}]}, "2015-08-30 00:00:00": {"total2_value": 0.01047324174895033, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4798.686000000001, "weight": 73.93716579790944, "price_btc": 0.01242}, {"rank": 2, "coin_id": "ETH", "volume": 1241.2478333333333, "weight": 19.12489103255819, "price_btc": 0.005809}, {"rank": 3, "coin_id": "PPC", "volume": 202.57184999999998, "weight": 3.121185353540373, "price_btc": 0.00155}, {"rank": 4, "coin_id": "XMR", "volume": 72.08030000000001, "weight": 1.1105984204557355, "price_btc": 0.002014}, {"rank": 5, "coin_id": "DASH", "volume": 62.52183333333333, "weight": 0.963323534224979, "price_btc": 0.01116}, {"rank": 6, "coin_id": "DOGE", "volume": 50.991708333333335, "weight": 0.7856697423753726, "price_btc": 5.7e-07}, {"rank": 7, "coin_id": "XRP", "volume": 39.610875, "weight": 0.6103162057853474, "price_btc": 3.399e-05}, {"rank": 8, "coin_id": "MONA", "volume": 10.818376050000001, "weight": 0.1666873105831435, "price_btc": 0.0004875}, {"rank": 9, "coin_id": "XEM", "volume": 4.73342, "weight": 0.07293156070873161, "price_btc": 4.5e-07}, {"rank": 10, "coin_id": "SYS", "volume": 2.9524061583333334, "weight": 0.04549006616216617, "price_btc": 1.54e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.1260208333333335, "weight": 0.03275729123430377, "price_btc": 2.2e-07}, {"rank": 12, "coin_id": "XLM", "volume": 1.4654734083333334, "weight": 0.022579712522213184, "price_btc": 1.05e-05}, {"rank": 13, "coin_id": "GRT", "volume": 0.23377946666666669, "weight": 0.0036020258852277848, "price_btc": 7.6e-07}, {"rank": 14, "coin_id": "GRS", "volume": 0.18185251166666666, "weight": 0.0028019460547876215, "price_btc": 2.88e-06}]}, "2015-08-31 00:00:00": {"total2_value": 0.010409060181874713, "coins": [{"rank": 1, "coin_id": "LTC", "volume": 4799.918166666667, "weight": 73.37175051525409, "price_btc": 0.01236}, {"rank": 2, "coin_id": "ETH", "volume": 1290.7236666666665, "weight": 19.730056131470985, "price_btc": 0.005888}, {"rank": 3, "coin_id": "PPC", "volume": 202.76585000000003, "weight": 3.0994872917896137, "price_btc": 0.00156}, {"rank": 4, "coin_id": "XMR", "volume": 72.65883333333333, "weight": 1.1106659753253627, "price_btc": 0.002037}, {"rank": 5, "coin_id": "DASH", "volume": 62.11666666666667, "weight": 0.9495179732763915, "price_btc": 0.01123}, {"rank": 6, "coin_id": "DOGE", "volume": 50.897708333333334, "weight": 0.7780245054104573, "price_btc": 5.7e-07}, {"rank": 7, "coin_id": "XRP", "volume": 40.47079166666666, "weight": 0.6186382196977367, "price_btc": 3.325e-05}, {"rank": 8, "coin_id": "MONA", "volume": 10.934034383333334, "weight": 0.16713810840993368, "price_btc": 0.0004698}, {"rank": 9, "coin_id": "XEM", "volume": 4.690161666666667, "weight": 0.07169400805052786, "price_btc": 4.2e-07}, {"rank": 10, "coin_id": "SYS", "volume": 2.731522825, "weight": 0.04175417252619592, "price_btc": 1.61e-06}, {"rank": 11, "coin_id": "DGB", "volume": 2.111470833333333, "weight": 0.032276031762257254, "price_btc": 2.2e-07}, {"rank": 12, "coin_id": "XLM", "volume": 1.4750642416666666, "weight": 0.0225478938964284, "price_btc": 1.094e-05}, {"rank": 13, "coin_id": "GRT", "volume": 0.23571113333333335, "weight": 0.0036030902753101364, "price_btc": 8.6e-07}, {"rank": 14, "coin_id": "GRS", "volume": 0.186188345, "weight": 0.002846082854715625, "price_btc": 3.1e-06}]}};
+        const sortedDates = Object.keys(compositionData).sort();
+
+        function getPreviousDate(dateStr) {
+            const idx = sortedDates.indexOf(dateStr);
+            if (idx > 0) {
+                return sortedDates[idx - 1];
+            }
+            return null;
+        }
+
+        function updateTable(dateStr) {
+            const dayData = compositionData[dateStr];
+            const tbody = document.getElementById('composition-body');
+
+            if (!dayData || !dayData.coins || dayData.coins.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5">No data for this date</td></tr>';
+                document.getElementById('total2-value').textContent = '-';
+                document.getElementById('coin-count').textContent = '-';
+                document.getElementById('total-volume').textContent = '-';
+                document.getElementById('coins-added').textContent = '-';
+                document.getElementById('coins-added').className = 'coins none';
+                document.getElementById('coins-removed').textContent = '-';
+                document.getElementById('coins-removed').className = 'coins none';
+                return;
+            }
+
+            const coins = dayData.coins;
+            const total2Value = dayData.total2_value;
+
+            // Display TOTAL2 value
+            if (total2Value !== null && total2Value !== undefined) {
+                document.getElementById('total2-value').textContent = total2Value.toFixed(8) + ' BTC';
+            } else {
+                document.getElementById('total2-value').textContent = '-';
+            }
+
+            document.getElementById('coin-count').textContent = coins.length;
+            const totalVol = coins.reduce((sum, c) => sum + c.volume, 0);
+            document.getElementById('total-volume').textContent = totalVol.toFixed(2) + ' BTC';
+
+            // Calculate changes vs previous day
+            const prevDateStr = getPreviousDate(dateStr);
+            const prevData = prevDateStr ? compositionData[prevDateStr] : null;
+
+            if (prevData && prevData.coins) {
+                const currentCoins = new Set(coins.map(c => c.coin_id));
+                const prevCoins = new Set(prevData.coins.map(c => c.coin_id));
+
+                const added = [...currentCoins].filter(c => !prevCoins.has(c));
+                const removed = [...prevCoins].filter(c => !currentCoins.has(c));
+
+                const addedEl = document.getElementById('coins-added');
+                const removedEl = document.getElementById('coins-removed');
+
+                if (added.length > 0) {
+                    addedEl.textContent = added.join(', ');
+                    addedEl.className = 'coins added';
+                } else {
+                    addedEl.textContent = 'None';
+                    addedEl.className = 'coins none';
+                }
+
+                if (removed.length > 0) {
+                    removedEl.textContent = removed.join(', ');
+                    removedEl.className = 'coins removed';
+                } else {
+                    removedEl.textContent = 'None';
+                    removedEl.className = 'coins none';
+                }
+            } else {
+                document.getElementById('coins-added').textContent = 'N/A (first day)';
+                document.getElementById('coins-added').className = 'coins none';
+                document.getElementById('coins-removed').textContent = 'N/A (first day)';
+                document.getElementById('coins-removed').className = 'coins none';
+            }
+
+            tbody.innerHTML = coins.map(coin => `
+                <tr>
+                    <td>${coin.rank}</td>
+                    <td class="coin-symbol">${coin.coin_id}</td>
+                    <td class="weight">${coin.weight.toFixed(2)}%</td>
+                    <td>${coin.price_btc.toFixed(8)}</td>
+                    <td>${coin.volume.toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+
+        document.getElementById('date-select').addEventListener('change', (e) => {
+            updateTable(e.target.value);
+        });
+
+        // Initialize with last date
+        const select = document.getElementById('date-select');
+        select.selectedIndex = select.options.length - 1;
+        updateTable(select.value);
+    </script>
+</body>
+</html>

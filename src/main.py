@@ -643,8 +643,7 @@ def _generate_html(
         + str(len(skipped_coins))
         + """)</h2>
             <p class="section-description">
-                These coins were skipped from download: stablecoins, wrapped/staked/bridged tokens, BTC derivatives,
-                and coins without sufficient historical data (before 2024-01-10).
+                These coins were skipped from download: stablecoins, and wrapped/staked/bridged tokens.
                 Click the coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
@@ -756,9 +755,9 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
     volume_outliers = (
         max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
     )
-    price_outliers = max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
+    price_events = max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
     coin_statistics = max_weight_info.get("coin_statistics", []) if max_weight_info else []
-    total_outliers = len(volume_outliers) + len(price_outliers)
+    total_corrections = len(volume_outliers) + len(price_events)
     total_coins = len(coin_statistics)
 
     html = (
@@ -1079,7 +1078,7 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
                     <span class="icon">📊</span>
                     <div class="link-content">
                         <div>TOTAL2 Statistics</div>
-                        <div class="description">{total_coins} coins tracked, {total_outliers} outlier corrections</div>
+                        <div class="description">{total_coins} coins tracked, {total_corrections} corrections</div>
                     </div>
                     <span class="arrow">→</span>
                 </a>
@@ -1099,11 +1098,12 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
 
 def _generate_total2_statistics_html(
     volume_outliers: list[dict],
-    price_outliers: list[dict],
+    price_events: list[dict],
     coin_statistics: list[dict],
     max_weight_change: float | None = None,
     max_weight_change_coin: str | None = None,
     max_weight_change_date: str | None = None,
+    index_type: str = "total2b",
 ) -> str:
     """
     Generate HTML page with TOTAL2 statistics including coin rankings.
@@ -1113,11 +1113,12 @@ def _generate_total2_statistics_html(
 
     Args:
         volume_outliers: List of volume outlier dicts
-        price_outliers: List of price outlier dicts
+        price_events: List of price event dicts (scaling for TOTAL2b, capping for TOTAL2)
         coin_statistics: List of coin statistics dicts (ranked by days in TOTAL2)
         max_weight_change: Maximum weight change percentage
         max_weight_change_coin: Coin with maximum weight change
         max_weight_change_date: Date of maximum weight change
+        index_type: "total2" or "total2b" - determines display text
 
     Returns:
         Complete HTML string for total2_statistics.html
@@ -1165,19 +1166,45 @@ def _generate_total2_statistics_html(
                 <td class="number">{o['ratio']:,.0f}x</td>
             </tr>"""
 
-    # Build price outlier table rows
+    # Build price events table rows
+    # Both total2 and total2b use 'change_factor' key for their events
     price_rows = ""
-    for o in price_outliers:
-        ratio_str = f"{o['ratio']:.1f}x" if o["ratio"] > 1 else f"{o['ratio']:.2f}x"
+    for o in price_events:
+        factor = o.get("change_factor", 1.0)
+        factor_str = f"{factor:.1f}x" if factor > 1 else f"{factor:.2f}x"
         price_rows += f"""
             <tr>
                 <td><strong>{o['coin']}</strong></td>
                 <td>{o['date']}</td>
                 <td class="number">{o['original']:.6f}</td>
                 <td class="number">{o['corrected']:.6f}</td>
-                <td class="number">{ratio_str}</td>
+                <td class="number">{factor_str}</td>
                 <td>{o.get('type', 'unknown')}</td>
             </tr>"""
+
+    # Set section content based on index type
+    if index_type == "total2b":
+        price_section_title = "Price Scaling Events"
+        price_section_description = (
+            "<strong>TOTAL2b price scaling:</strong> When a coin first enters the index "
+            "(after the 21-day freeze period), its price is scaled by "
+            "<code>TOTAL2b_d-1 / COIN_PRICE_d</code> to prevent large absolute price offsets. "
+            "This preserves day-over-day price change factors while ensuring smooth index entry.<br><br>"
+            f"<strong>{len(price_events)} scaling events</strong> were applied."
+        )
+        price_corrected_header = "Scaled Price (BTC)"
+    else:
+        # TOTAL2 (legacy)
+        price_section_title = "Entry Warmup Capping"
+        price_section_description = (
+            "<strong>TOTAL2 entry warmup:</strong> When a coin first enters TOTAL2, its price is capped "
+            "to max +70% gain or -50% loss per day during a 21-day warmup period, starting from market level "
+            "(TOTAL2 value). This prevents artificial spikes from coins with extreme prices.<br>"
+            "<strong>TOTAL2 series smoothing:</strong> Extreme day-over-day movements in the aggregate index "
+            "are capped at 3x increase or 0.35x decrease.<br><br>"
+            f"<strong>{len(price_events)} capping events</strong> were applied."
+        )
+        price_corrected_header = "Capped Price (BTC)"
 
     # Get shared CSS and HTML components
     base_css = _get_base_css()
@@ -1499,14 +1526,9 @@ def _generate_total2_statistics_html(
         </div>
 
         <div class="section">
-            <h2>📈 Price Corrections (Outliers + Entry Warmup)</h2>
+            <h2>📈 {price_section_title}</h2>
             <p class="description">
-                <strong>Day-over-day outliers:</strong> Extreme price changes (&gt;5x spike or &gt;80% crash)
-                are detected and corrected using a capped average approach.<br>
-                <strong>TOTAL2 entry warmup:</strong> When a coin first enters TOTAL2, its price is capped
-                to max +80% gain or -40% loss per day, starting from market level (TOTAL2 value).
-                This prevents artificial spikes from coins like ZEC (27.8 BTC on day 1) or YFI (3.73 BTC after 10x growth).<br><br>
-                <strong>{len(price_outliers)} corrections</strong> were applied.
+                {price_section_description}
             </p>
 
             <div class="table-container">
@@ -1516,8 +1538,8 @@ def _generate_total2_statistics_html(
                             <th>Coin</th>
                             <th>Date</th>
                             <th>Original Price (BTC)</th>
-                            <th>Corrected Price (BTC)</th>
-                            <th>Ratio</th>
+                            <th>{price_corrected_header}</th>
+                            <th>Factor</th>
                             <th>Type</th>
                         </tr>
                     </thead>
@@ -1557,17 +1579,20 @@ def generate_index_page() -> Path:
     volume_outliers = (
         max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
     )
-    price_outliers = max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
+    price_events = max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
     coin_statistics = max_weight_info.get("coin_statistics", []) if max_weight_info else []
 
-    if volume_outliers or price_outliers or coin_statistics:
+    if volume_outliers or price_events or coin_statistics:
         stats_html = _generate_total2_statistics_html(
             volume_outliers,
-            price_outliers,
+            price_events,
             coin_statistics,
             max_weight_change=max_weight_info.get("max_weight_change") if max_weight_info else None,
             max_weight_change_coin=max_weight_info.get("coin") if max_weight_info else None,
             max_weight_change_date=max_weight_info.get("date") if max_weight_info else None,
+            index_type=(
+                max_weight_info.get("index_type", "total2b") if max_weight_info else "total2b"
+            ),
         )
         stats_file = DOCS_SITE_DIR / "total2_statistics.html"
 
