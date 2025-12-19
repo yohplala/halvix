@@ -25,37 +25,37 @@ This approach ensures:
 ## Workflow Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Charts Deployment Workflow                        │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  LOCAL MACHINE                                                       │
-│  ┌────────────────────────────────────────────────────────────┐     │
-│  │ 1. Fetch data & calculate TOTAL2                           │     │
-│  │    poetry run python -m main list-coins                    │     │
-│  │    poetry run python -m main fetch-prices                  │     │
-│  │    poetry run python -m main calculate-total2              │     │
-│  │                                                             │     │
-│  │ 2. Generate charts                                          │     │
-│  │    poetry run python -m main generate-charts               │     │
-│  │    → Creates HTML files in site/charts/                    │     │
-│  │                                                             │     │
-│  │ 3. Commit and push                                          │     │
-│  │    git add site/                                            │     │
-│  │    git commit -m "Update charts"                           │     │
-│  │    git push                                                 │     │
-│  └────────────────────────────────────────────────────────────┘     │
-│                              │                                       │
-│                              ▼                                       │
-│  GITHUB CI (pages.yml)                                               │
-│  ┌────────────────────────────────────────────────────────────┐     │
-│  │ 4. Checkout main branch                                     │     │
-│  │ 5. Upload site/ directory as artifact                      │     │
-│  │ 6. Deploy to GitHub Pages                                   │     │
-│  │    → https://yohplala.github.io/halvix/                    │     │
-│  └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                    Charts Deployment Workflow                     │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  LOCAL MACHINE                                                    │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 1. Fetch data & calculate TOTAL2                           │   │
+│  │    poetry run python -m main list-coins                    │   │
+│  │    poetry run python -m main fetch-prices                  │   │
+│  │    poetry run python -m main calculate-total2              │   │
+│  │                                                            │   │
+│  │ 2. Generate charts                                         │   │
+│  │    poetry run python -m main generate-charts               │   │
+│  │    → Creates HTML files in site/charts/                    │   │
+│  │                                                            │   │
+│  │ 3. Commit and push                                         │   │
+│  │    git add site/                                           │   │
+│  │    git commit -m "Update charts"                           │   │
+│  │    git push                                                │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                              │                                    │
+│                              ▼                                    │
+│  GITHUB CI (pages.yml)                                            │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 4. Checkout main branch                                    │   │
+│  │ 5. Upload site/ directory as artifact                      │   │
+│  │ 6. Deploy to GitHub Pages                                  │   │
+│  │    → https://yohplala.github.io/halvix/                    │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## Generated Files
