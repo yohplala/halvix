@@ -24,9 +24,20 @@ Halvix supports two methodologies for calculating the index:
 |---------|-----------------|------------------------|
 | **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
 | **Volume outlier correction** | ✓ Yes | ✓ Yes |
-| **Entry delay** | None (immediate) | 21-day freeze period |
-| **New coin integration** | Entry warmup with price capping | Price scaling at entry |
+| **New coin integration** | 21-day entry warmup (post-entry) | 21-day freeze period (pre-entry) |
+| **Price adjustment** | Monitor price swings during warmup | Scale by 1/TOTAL2b_d-1 at entry |
 | **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
+
+### Entry Timing Comparison
+
+Both methodologies use a **21-day period** but apply it differently:
+
+| Aspect | TOTAL2 (Legacy) | TOTAL2b (New) |
+|--------|-----------------|---------------|
+| **When** | After coin enters TOP30 | Before coin can enter TOP30 |
+| **Mechanism** | Entry warmup: monitor price swings | Freeze period: wait before eligibility |
+| **Duration** | `TOTAL2_ENTRY_WARMUP_DAYS` (21 days) | `TOTAL2B_FREEZE_PERIOD_DAYS` (21 days) |
+| **Effect** | Track large movements for reporting | Ensure stable data before inclusion |
 
 ### When to Use Each
 
@@ -56,20 +67,18 @@ DEFAULT_QUOTE_CURRENCY = "BTC"
 Additional configuration for **TOTAL2 (legacy)** in `src/config.py`:
 
 ```python
-# TOTAL2 entry warmup (price capping for coins entering TOTAL2)
-TOTAL2_ENTRY_MAX_INCREASE = 1.7    # Max 1.7x (70% gain) per day
-TOTAL2_ENTRY_MAX_DECREASE = 0.5    # Min 0.5x (50% loss) per day
-TOTAL2_ENTRY_WARMUP_DAYS = 21      # Apply capping for first 21 days after entry
+# TOTAL2 entry warmup settings (post-entry monitoring)
+TOTAL2_ENTRY_MAX_INCREASE = 1.7    # Threshold for tracking large increases (70% gain)
+TOTAL2_ENTRY_MAX_DECREASE = 0.5    # Threshold for tracking large decreases (50% loss)
+TOTAL2_ENTRY_WARMUP_DAYS = 21      # Monitor for first 21 days after entry
 ```
 
-Additional configuration for **TOTAL2b** in `src/data/processor_total2b.py`:
+Additional configuration for **TOTAL2b** in `src/config.py`:
 
 ```python
-# 3-week freeze period before coin can join index
-FREEZE_PERIOD_DAYS = 21
-
-# Only apply scaling after index has this many coins
-MIN_COINS_FOR_SCALING = 30
+# TOTAL2b new coin entry settings (pre-entry freeze + scaling)
+TOTAL2B_FREEZE_PERIOD_DAYS = 21       # Days to wait before coin can join (3 weeks)
+TOTAL2B_MIN_COINS_FOR_SCALING = 30    # Only apply scaling after index has this many coins
 ```
 
 ## Calculation Algorithm
