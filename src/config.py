@@ -81,6 +81,7 @@ CYCLE_WINDOWS = get_all_cycle_windows()
 # Linear Regression Configuration
 # =============================================================================
 
+# Could be 2 1st weeks of Sept 23 or 2 1st weeks of Sept 24
 REGRESSION_START_DATE = date(2023, 11, 1)
 
 # Minimum number of data points required for regression
@@ -164,6 +165,14 @@ TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # How many days entry warmup applies (3 we
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
 
+# Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
+# tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
+# or old "OMG" replaced by OmiseGO in July 2017 with a 633x jump).
+# When a coin's price jumps by more than this factor in a single day, we treat it
+# as a symbol replacement and reset the first_seen date to after the jump.
+# This prevents old scaling factors from being incorrectly applied to new tokens.
+TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 100  # 100x price change indicates symbol swap
+
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
 QUOTE_CURRENCIES = ["BTC", "USD"]
@@ -214,10 +223,14 @@ EXCLUDED_STABLECOINS = {
     "eurs",
     "eurt",
     "eurc",
+    "eurcv",  # Euro CoinVertible
+    "eurq",  # Quantoz EURQ
+    "eurr",  # Euro stablecoin
     "ageur",
     # Other stablecoins
     "mim",
     "dola",
+    "ausd",  # Acala USD (Polkadot stablecoin)
     # Algorithmic stablecoins (depegged but originally USD-pegged)
     "ust",  # TerraUSD (collapsed May 2022)
     "ustc",  # TerraUSD Classic (post-collapse renamed UST)

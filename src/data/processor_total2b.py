@@ -19,6 +19,7 @@ from config import (
     TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
+    TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -52,6 +53,7 @@ class Total2bProcessor(BaseTotal2Processor):
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
         freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
         min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING,
+        symbol_replacement_threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
     ):
         """
         Initialize the TOTAL2b processor.
@@ -64,6 +66,7 @@ class Total2bProcessor(BaseTotal2Processor):
             quote_currency: Quote currency for prices
             freeze_period_days: Days to wait before including new coin
             min_coins_for_scaling: Min coins before applying scaling
+            symbol_replacement_threshold: Price change factor that indicates symbol swap
         """
         super().__init__(
             price_cache=price_cache,
@@ -74,6 +77,7 @@ class Total2bProcessor(BaseTotal2Processor):
         )
         self.freeze_period_days = freeze_period_days
         self.min_coins_for_scaling = min_coins_for_scaling
+        self.symbol_replacement_threshold = symbol_replacement_threshold
 
     def calculate_total2(
         self,
@@ -138,7 +142,10 @@ class Total2bProcessor(BaseTotal2Processor):
         smoothed_volume_df = self.apply_volume_sma_smoothing(volume_df)
 
         # Calculate first-seen dates for each coin (requires both price and volume)
-        first_seen_dates = self._calculate_first_seen_dates(close_df, volume_df)
+        # Also detects symbol replacements and resets first_seen accordingly
+        first_seen_dates, symbol_replacements = self._calculate_first_seen_dates(
+            close_df, volume_df, show_progress=show_progress
+        )
 
         if show_progress:
             print(f"Tracking first-seen dates for {len(first_seen_dates)} coins")
@@ -204,7 +211,8 @@ class Total2bProcessor(BaseTotal2Processor):
         self,
         close_df: pd.DataFrame,
         volume_df: pd.DataFrame,
-    ) -> dict[str, pd.Timestamp]:
+        show_progress: bool = True,
+    ) -> tuple[dict[str, pd.Timestamp], list[dict]]:
         """
         Calculate the first date each coin appears in CryptoCompare data.
 
@@ -212,17 +220,23 @@ class Total2bProcessor(BaseTotal2Processor):
         - Non-null and positive close price
         - Non-null and positive volume
 
+        This method also detects symbol replacements (when CryptoCompare reuses
+        a symbol for a different token) by looking for extreme price jumps.
+        If detected, the first_seen date is reset to after the jump.
+
         This is used to enforce the freeze period - coins cannot
         join the index until freeze_period_days after their first appearance.
 
         Args:
             close_df: DataFrame of close prices (dates × coins)
             volume_df: DataFrame of raw volumes (dates × coins)
+            show_progress: Whether to print symbol replacement detections
 
         Returns:
-            Dictionary mapping coin_id to first-seen Timestamp
+            Tuple of (first_seen dict, symbol_replacement_events list)
         """
         first_seen = {}
+        symbol_replacements = []
 
         for coin_id in close_df.columns:
             if coin_id not in volume_df.columns:
@@ -233,10 +247,97 @@ class Total2bProcessor(BaseTotal2Processor):
             volume_valid = (volume_df[coin_id] > 0) & volume_df[coin_id].notna()
             both_valid = price_valid & volume_valid
 
-            if both_valid.any():
-                first_seen[coin_id] = both_valid.idxmax()
+            if not both_valid.any():
+                continue
 
-        return first_seen
+            initial_first_seen = both_valid.idxmax()
+
+            # Check for symbol replacement (extreme price jumps)
+            replacement_date = self._detect_symbol_replacement(
+                close_df[coin_id], initial_first_seen
+            )
+
+            if replacement_date is not None:
+                # Symbol was replaced - use post-replacement date
+                symbol_replacements.append(
+                    {
+                        "coin": coin_id.upper(),
+                        "original_first_seen": str(initial_first_seen.date()),
+                        "replacement_date": str(replacement_date.date()),
+                        "price_before": float(
+                            close_df.loc[replacement_date - pd.Timedelta(days=1), coin_id]
+                        ),
+                        "price_after": float(close_df.loc[replacement_date, coin_id]),
+                    }
+                )
+                first_seen[coin_id] = replacement_date
+            else:
+                first_seen[coin_id] = initial_first_seen
+
+        if show_progress and symbol_replacements:
+            print(f"  Detected {len(symbol_replacements)} symbol replacement(s):")
+            for event in symbol_replacements:
+                print(
+                    f"    {event['coin']:6s}: {event['original_first_seen']} → "
+                    f"{event['replacement_date']} "
+                    f"(price {event['price_before']:.2e} → {event['price_after']:.2e})"
+                )
+
+        return first_seen, symbol_replacements
+
+    def _detect_symbol_replacement(
+        self,
+        price_series: pd.Series,
+        first_seen: pd.Timestamp,
+    ) -> pd.Timestamp | None:
+        """
+        Detect if a coin's symbol was replaced by a different token.
+
+        CryptoCompare sometimes reuses symbols for different tokens (e.g.,
+        old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024).
+        This is detected by looking for extreme price jumps (>1000x or <0.001x).
+
+        A true symbol replacement requires:
+        - Non-zero price BEFORE the jump (old token was trading)
+        - Non-zero price AFTER the jump (new token is trading)
+        - Extreme price ratio between them
+
+        A jump from 0 to non-zero is just the coin starting to trade, not a replacement.
+
+        Args:
+            price_series: Series of close prices for a coin
+            first_seen: The initial first-seen date
+
+        Returns:
+            The date of the last symbol replacement, or None if no replacement detected
+        """
+        # Get previous day's price
+        prev_price = price_series.shift(1)
+
+        # Calculate daily price change ratios (only where both prices are positive)
+        # This avoids division by zero and filters out "coin starts trading" events
+        valid_ratio_mask = (price_series > 0) & (prev_price > 0)
+        price_ratio = price_series / prev_price
+
+        # Find dates with extreme price jumps (either direction)
+        # Both current and previous price must be > 0 (not just starting to trade)
+        extreme_jumps = (
+            (price_ratio > self.symbol_replacement_threshold)
+            | (price_ratio < 1 / self.symbol_replacement_threshold)
+        ) & valid_ratio_mask
+
+        if not extreme_jumps.any():
+            return None
+
+        # Return the date of the LAST extreme jump (most recent replacement)
+        # This handles cases where a symbol might be replaced multiple times
+        last_jump_date = price_series.index[extreme_jumps][-1]
+
+        # Only consider it a replacement if it happened after the first_seen date
+        if last_jump_date > first_seen:
+            return last_jump_date
+
+        return None
 
     def _calculate_total2b_iterative(
         self,
