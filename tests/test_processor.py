@@ -80,16 +80,19 @@ class TestTotal2bProcessorInit:
 
     def test_default_initialization(self):
         """Test processor initializes with defaults."""
-        from config import TOP_N_FOR_TOTAL2
-        from data.processor import FREEZE_PERIOD_DAYS, MIN_COINS_FOR_SCALING
+        from config import (
+            TOP_N_FOR_TOTAL2,
+            TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
+            TOTAL2B_MIN_COINS_FOR_SCALING,
+        )
 
         processor = Total2bProcessor()
 
         assert processor.price_cache is not None
         assert processor.token_filter is not None
         assert processor.top_n == TOP_N_FOR_TOTAL2
-        assert processor.freeze_period_days == FREEZE_PERIOD_DAYS
-        assert processor.min_coins_for_scaling == MIN_COINS_FOR_SCALING
+        assert processor.freeze_period_days == TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
+        assert processor.min_coins_for_scaling == TOTAL2B_MIN_COINS_FOR_SCALING
 
     def test_custom_freeze_period(self):
         """Test processor with custom freeze period."""

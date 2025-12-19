@@ -2,9 +2,9 @@
 TOTAL2 (legacy) processor implementation.
 
 Extends BaseTotal2Processor with:
-- Price outlier detection and correction (iterative day-over-day)
-- Entry warmup price capping for new coins
-- Two-pass vectorized algorithm with corrections
+- Entry warmup: actual price capping for new coins entering TOTAL2
+- TOTAL2 series smoothing: caps extreme day-over-day index movements
+- Two-pass algorithm: raw calculation then apply capped prices
 """
 
 from datetime import date
@@ -17,7 +17,7 @@ from config import (
     TOP_N_FOR_TOTAL2,
     TOTAL2_ENTRY_MAX_DECREASE,
     TOTAL2_ENTRY_MAX_INCREASE,
-    TOTAL2_ENTRY_WARMUP_DAYS,
+    TOTAL2_ENTRY_WARMUP_PERIOD_DAYS,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -27,10 +27,10 @@ from data.processor_base import (
     Total2Result,
 )
 
-# Price outlier detection parameters (TOTAL2-specific)
-MAX_DOD_INCREASE = 3.0  # Maximum day-over-day price increase factor
-MAX_DOD_DECREASE = 0.35  # Maximum day-over-day price decrease factor
-PRICE_OUTLIER_WINDOW_DAYS = 7  # Window for price outlier detection
+# TOTAL2 series smoothing parameters
+# Caps extreme day-over-day movements in the aggregate index
+MAX_DOD_INCREASE = 3.0  # Cap TOTAL2 increase at 3x per day
+MAX_DOD_DECREASE = 0.35  # Cap TOTAL2 decrease at 0.35x per day
 
 
 class Total2Processor(BaseTotal2Processor):
@@ -38,9 +38,9 @@ class Total2Processor(BaseTotal2Processor):
     Processor for legacy TOTAL2 index calculation.
 
     Features:
-    - Price outlier detection and iterative correction
-    - Entry warmup price capping for new coins
-    - Full two-pass algorithm with corrections
+    - Entry warmup: new coins have their prices CAPPED during warmup period
+    - TOTAL2 series smoothing: extreme day-over-day index movements are capped
+    - Two-pass algorithm: raw TOTAL2, then recalculate with capped prices
     """
 
     INDEX_TYPE = "total2"
@@ -54,7 +54,7 @@ class Total2Processor(BaseTotal2Processor):
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
         entry_max_increase: float = TOTAL2_ENTRY_MAX_INCREASE,
         entry_max_decrease: float = TOTAL2_ENTRY_MAX_DECREASE,
-        entry_warmup_days: int = TOTAL2_ENTRY_WARMUP_DAYS,
+        entry_warmup_days: int = TOTAL2_ENTRY_WARMUP_PERIOD_DAYS,
     ):
         """
         Initialize the TOTAL2 processor.
@@ -65,8 +65,8 @@ class Total2Processor(BaseTotal2Processor):
             top_n: Number of coins to include
             volume_sma_window: SMA window for volume smoothing
             quote_currency: Quote currency for prices
-            entry_max_increase: Max price increase factor for new coin entry
-            entry_max_decrease: Max price decrease factor for new coin entry
+            entry_max_increase: Max price increase factor during entry warmup
+            entry_max_decrease: Max price decrease factor during entry warmup
             entry_warmup_days: Number of days for entry warmup period
         """
         super().__init__(
@@ -88,12 +88,12 @@ class Total2Processor(BaseTotal2Processor):
         show_progress: bool = True,
     ) -> Total2Result:
         """
-        Calculate the volume-weighted TOTAL2 index with outlier corrections.
+        Calculate the volume-weighted TOTAL2 index with entry warmup price capping.
 
-        This method uses a two-pass vectorized algorithm:
-        1. First pass: Calculate raw TOTAL2 series (volume-weighted average)
-        2. Apply price corrections to TOTAL2 series for outliers and entry warmup
-        3. Second pass: Rebuild composition records with corrected prices
+        Two-pass algorithm:
+        1. First pass: Calculate raw TOTAL2 series (to get baseline for entry capping)
+        2. Apply entry warmup: cap prices for coins during their warmup period
+        3. Second pass: Recalculate TOTAL2 with capped prices
 
         Args:
             coin_ids: Optional list of coin IDs (default: all cached)
@@ -140,25 +140,40 @@ class Total2Processor(BaseTotal2Processor):
         # Calculate rank and mask
         rank_df, mask_df = self.calculate_rank_and_mask(smoothed_volume_df)
 
-        # First pass: Calculate raw TOTAL2
+        # First pass: Calculate raw TOTAL2 (needed as baseline for entry capping)
         if show_progress:
             print("First pass: Calculating raw TOTAL2...")
 
-        total2_series, volume_sum, coin_count = self.calculate_weighted_average(
+        raw_total2, _, _ = self.calculate_weighted_average(
             close_df, smoothed_volume_df, mask_df
         )
 
-        # Apply price outlier corrections to TOTAL2 series
+        # Apply entry warmup price capping
         if show_progress:
-            print("Applying price outlier corrections...")
+            print("Applying entry warmup price capping...")
 
-        total2_corrected, price_outliers = self._apply_total2_price_corrections(
-            total2_series.copy(),
-            close_df,
-            smoothed_volume_df,
+        capped_close_df, warmup_events = self._apply_entry_warmup_capping(
+            close_df.copy(),
+            raw_total2,
             mask_df,
             show_progress=show_progress,
         )
+
+        # Second pass: Recalculate TOTAL2 with capped prices
+        if show_progress:
+            print("Second pass: Recalculating TOTAL2 with capped prices...")
+
+        total2_series, volume_sum, coin_count = self.calculate_weighted_average(
+            capped_close_df, smoothed_volume_df, mask_df
+        )
+
+        # Apply TOTAL2 series smoothing (cap extreme aggregate movements)
+        total2_corrected, smoothing_events = self._apply_total2_series_smoothing(
+            total2_series, show_progress=show_progress
+        )
+
+        # Combine all events
+        all_events = warmup_events + smoothing_events
 
         # Create index DataFrame
         index_df = pd.DataFrame(
@@ -181,12 +196,12 @@ class Total2Processor(BaseTotal2Processor):
         if index_df.empty:
             raise ProcessorError("No valid index values after filtering")
 
-        # Build composition records
+        # Build composition records (using capped prices)
         if show_progress:
             print("Building composition records...")
 
         composition_records = self.build_composition_records(
-            close_df, smoothed_volume_df, rank_df, mask_df, index_df.index
+            capped_close_df, smoothed_volume_df, rank_df, mask_df, index_df.index
         )
 
         composition_df = pd.DataFrame(composition_records)
@@ -209,49 +224,181 @@ class Total2Processor(BaseTotal2Processor):
             max_weight_change_coin=max_coin,
             max_weight_change_date=max_date,
             volume_outliers_corrected=volume_outliers,
-            price_outliers_corrected=price_outliers,
+            price_outliers_corrected=all_events,
             index_type="total2",
         )
 
         return result
 
-    def _apply_total2_price_corrections(
+    def _apply_entry_warmup_capping(
+        self,
+        close_df: pd.DataFrame,
+        raw_total2: pd.Series,
+        mask_df: pd.DataFrame,
+        show_progress: bool = True,
+    ) -> tuple[pd.DataFrame, list[dict]]:
+        """
+        Apply entry warmup price capping for coins entering the index.
+
+        When a coin first enters TOP30:
+        1. Its baseline price is set to the TOTAL2 value from the previous day
+        2. During warmup period, its price is capped at MAX_INCREASE/MAX_DECREASE per day
+        3. Each day uses the previous day's CAPPED price as reference
+
+        This prevents coins with extreme prices (like ZEC at 27.8 BTC) from
+        causing artificial spikes in the index.
+
+        Args:
+            close_df: DataFrame of close prices (will be modified with capped values)
+            raw_total2: Raw TOTAL2 series (used as baseline for entry)
+            mask_df: DataFrame of inclusion mask (True = coin in TOP30)
+            show_progress: Whether to print progress
+
+        Returns:
+            Tuple of (capped_close_df, list_of_capping_events)
+        """
+        events = []
+        capped_df = close_df.copy()
+
+        # Find first entry date for each coin
+        coin_entry_dates = {}
+        for coin_id in mask_df.columns:
+            coin_mask = mask_df[coin_id]
+            true_indices = coin_mask[coin_mask].index
+            if len(true_indices) > 0:
+                coin_entry_dates[coin_id] = true_indices[0]
+
+        # Track capped prices for each coin during warmup
+        # Key: coin_id, Value: dict of {date: capped_price}
+        coin_capped_prices: dict[str, dict] = {}
+
+        # Process each date in order
+        for i, dt in enumerate(close_df.index):
+            for coin_id, entry_date in coin_entry_dates.items():
+                # Skip if coin not in index on this date
+                if coin_id not in mask_df.columns or not mask_df.loc[dt, coin_id]:
+                    continue
+
+                days_since_entry = (dt - entry_date).days
+
+                # Skip if outside warmup period
+                if days_since_entry < 0 or days_since_entry >= self.entry_warmup_days:
+                    continue
+
+                # Get actual price
+                actual_price = close_df.loc[dt, coin_id]
+                if pd.isna(actual_price) or actual_price <= 0:
+                    continue
+
+                # Initialize tracking dict for this coin
+                if coin_id not in coin_capped_prices:
+                    coin_capped_prices[coin_id] = {}
+
+                # Determine baseline/reference price
+                if days_since_entry == 0:
+                    # Entry day: use TOTAL2 value from previous day as baseline
+                    if i > 0:
+                        prev_dt = close_df.index[i - 1]
+                        baseline = raw_total2.loc[prev_dt]
+                        if pd.isna(baseline) or baseline <= 0:
+                            baseline = actual_price  # Fallback
+                    else:
+                        baseline = actual_price  # First day, no baseline available
+                    reference_price = baseline
+                else:
+                    # Subsequent days: use previous day's CAPPED price
+                    prev_dt = close_df.index[i - 1]
+                    if prev_dt in coin_capped_prices[coin_id]:
+                        reference_price = coin_capped_prices[coin_id][prev_dt]
+                    else:
+                        # Fallback to previous day's actual price
+                        reference_price = close_df.loc[prev_dt, coin_id]
+                        if pd.isna(reference_price) or reference_price <= 0:
+                            reference_price = actual_price
+
+                # Calculate price change ratio
+                price_change = actual_price / reference_price if reference_price > 0 else 1.0
+
+                # Apply capping
+                capped_price = actual_price
+                capping_applied = False
+
+                if price_change > self.entry_max_increase:
+                    capped_price = reference_price * self.entry_max_increase
+                    capping_applied = True
+                    events.append(
+                        {
+                            "date": str(dt.date()),
+                            "type": "entry_warmup_cap_up",
+                            "coin": coin_id.upper(),
+                            "original": float(actual_price),
+                            "corrected": float(capped_price),
+                            "change_factor": float(price_change),
+                            "days_since_entry": days_since_entry,
+                        }
+                    )
+                elif price_change < self.entry_max_decrease:
+                    capped_price = reference_price * self.entry_max_decrease
+                    capping_applied = True
+                    events.append(
+                        {
+                            "date": str(dt.date()),
+                            "type": "entry_warmup_cap_down",
+                            "coin": coin_id.upper(),
+                            "original": float(actual_price),
+                            "corrected": float(capped_price),
+                            "change_factor": float(price_change),
+                            "days_since_entry": days_since_entry,
+                        }
+                    )
+
+                # Store capped price (even if no capping was applied, for reference)
+                coin_capped_prices[coin_id][dt] = capped_price
+
+                # Update the DataFrame with capped price
+                if capping_applied:
+                    capped_df.loc[dt, coin_id] = capped_price
+
+        if events and show_progress:
+            print(f"  Entry warmup capping: {len(events)} price caps applied")
+            for e in events[:5]:
+                print(
+                    f"    {e['coin']} {e['date']}: "
+                    f"{e['original']:.6f} → {e['corrected']:.6f} "
+                    f"(day {e['days_since_entry']})"
+                )
+            if len(events) > 5:
+                print(f"    ... and {len(events) - 5} more")
+
+        return capped_df, events
+
+    def _apply_total2_series_smoothing(
         self,
         total2_series: pd.Series,
-        close_df: pd.DataFrame,
-        smoothed_volume_df: pd.DataFrame,
-        mask_df: pd.DataFrame,
         show_progress: bool = True,
     ) -> tuple[pd.Series, list[dict]]:
         """
-        Apply iterative price corrections to the TOTAL2 series.
+        Apply smoothing to the TOTAL2 series itself.
 
-        Corrections applied:
-        1. Day-over-day outlier detection (20%/35% limits)
-        2. Entry warmup price capping for new coins
+        Caps extreme day-over-day movements in the aggregate index.
+        This is a safety net for cases not caught by entry warmup capping.
 
         Args:
-            total2_series: Raw TOTAL2 series
-            close_df: DataFrame of close prices
-            smoothed_volume_df: DataFrame of smoothed volumes
-            mask_df: DataFrame of inclusion mask
-            show_progress: Whether to print correction info
+            total2_series: TOTAL2 series to smooth
+            show_progress: Whether to print progress
 
         Returns:
-            Tuple of (corrected_series, list_of_corrections)
+            Tuple of (smoothed_series, list_of_events)
         """
-        all_corrections = []
+        events = []
         max_iterations = 50
-
         working_series = total2_series.copy()
 
         for iteration in range(max_iterations):
-            # Detect day-over-day outliers
             pct_change = working_series.pct_change()
 
-            # Find increases > MAX_DOD_INCREASE-1 (e.g., >200%)
+            # Find extreme increases (>200%) or decreases (>65%)
             outlier_up = pct_change > (MAX_DOD_INCREASE - 1)
-            # Find decreases < -(1 - MAX_DOD_DECREASE) (e.g., <-65%)
             outlier_down = pct_change < -(1 - MAX_DOD_DECREASE)
 
             outliers = outlier_up | outlier_down
@@ -280,7 +427,8 @@ class Total2Processor(BaseTotal2Processor):
                     corrections_made.append(
                         {
                             "date": str(dt.date()),
-                            "type": "dod_increase",
+                            "type": "total2_smoothing_up",
+                            "coin": "TOTAL2",
                             "original": float(current_val),
                             "corrected": float(capped_val),
                             "change_factor": float(change),
@@ -293,7 +441,8 @@ class Total2Processor(BaseTotal2Processor):
                     corrections_made.append(
                         {
                             "date": str(dt.date()),
-                            "type": "dod_decrease",
+                            "type": "total2_smoothing_down",
+                            "coin": "TOTAL2",
                             "original": float(current_val),
                             "corrected": float(capped_val),
                             "change_factor": float(change),
@@ -301,123 +450,12 @@ class Total2Processor(BaseTotal2Processor):
                         }
                     )
 
-            all_corrections.extend(corrections_made)
+            events.extend(corrections_made)
 
             if show_progress and corrections_made:
                 print(
-                    f"  Price outlier iteration {iteration + 1}: {len(corrections_made)} corrections"
+                    f"  TOTAL2 smoothing iteration {iteration + 1}: "
+                    f"{len(corrections_made)} corrections"
                 )
 
-        # Apply entry warmup corrections
-        entry_corrections = self._apply_entry_warmup_corrections(
-            working_series, close_df, smoothed_volume_df, mask_df, show_progress
-        )
-        all_corrections.extend(entry_corrections)
-
-        if all_corrections and show_progress:
-            print(f"  Price corrections ({len(all_corrections)} total):")
-            for c in all_corrections[:10]:
-                iter_str = f" (iter {c.get('iteration', 1)})" if c.get("iteration", 1) > 1 else ""
-                print(
-                    f"    {c['date']} {c['type']}: "
-                    f"{c['original']:.6f} → {c['corrected']:.6f} "
-                    f"({c['change_factor']:.2f}x){iter_str}"
-                )
-            if len(all_corrections) > 10:
-                print(f"    ... and {len(all_corrections) - 10} more")
-
-        return working_series, all_corrections
-
-    def _apply_entry_warmup_corrections(
-        self,
-        total2_series: pd.Series,
-        close_df: pd.DataFrame,
-        smoothed_volume_df: pd.DataFrame,
-        mask_df: pd.DataFrame,
-        show_progress: bool = True,
-    ) -> list[dict]:
-        """
-        Apply entry warmup price capping for coins entering the index.
-
-        When a new coin enters the TOP30, its day-over-day price change is
-        capped during the warmup period to prevent large offsets.
-
-        Args:
-            total2_series: TOTAL2 series (modified in place)
-            close_df: DataFrame of close prices
-            smoothed_volume_df: DataFrame of smoothed volumes
-            mask_df: DataFrame of inclusion mask
-            show_progress: Whether to print progress
-
-        Returns:
-            List of correction records
-        """
-        corrections = []
-
-        # Find first entry date for each coin
-        coin_entry_dates = {}
-        for coin_id in mask_df.columns:
-            coin_mask = mask_df[coin_id]
-            true_indices = coin_mask[coin_mask].index
-            if len(true_indices) > 0:
-                coin_entry_dates[coin_id] = true_indices[0]
-
-        # Check each day for coins in warmup period
-        for i, dt in enumerate(total2_series.index):
-            if i < 1:
-                continue
-
-            prev_dt = total2_series.index[i - 1]
-
-            # Find coins that entered recently and are still in warmup
-            for coin_id, entry_date in coin_entry_dates.items():
-                if not mask_df.loc[dt, coin_id]:
-                    continue
-
-                days_since_entry = (dt - entry_date).days
-                if days_since_entry < 0 or days_since_entry >= self.entry_warmup_days:
-                    continue
-
-                # Check if this coin's price moved too much
-                if coin_id not in close_df.columns:
-                    continue
-
-                current_price = close_df.loc[dt, coin_id]
-                prev_price = close_df.loc[prev_dt, coin_id]
-
-                if pd.isna(current_price) or pd.isna(prev_price) or prev_price == 0:
-                    continue
-
-                price_change = current_price / prev_price
-
-                needs_correction = False
-                if price_change > self.entry_max_increase:
-                    needs_correction = True
-                    direction = "up"
-                elif price_change < self.entry_max_decrease:
-                    needs_correction = True
-                    direction = "down"
-
-                if needs_correction:
-                    # Calculate the correction impact on TOTAL2
-                    # (simplified - full implementation would recalculate weighted avg)
-                    corrections.append(
-                        {
-                            "date": str(dt.date()),
-                            "type": f"entry_warmup_{direction}",
-                            "coin": coin_id.upper(),
-                            "original": float(current_price),
-                            "corrected": float(
-                                prev_price
-                                * (
-                                    self.entry_max_increase
-                                    if direction == "up"
-                                    else self.entry_max_decrease
-                                )
-                            ),
-                            "change_factor": float(price_change),
-                            "days_since_entry": days_since_entry,
-                        }
-                    )
-
-        return corrections
+        return working_series, events

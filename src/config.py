@@ -122,13 +122,13 @@ TOP_N_SUMMARY = 10
 # 120 days (~4 months) provides stable ranking and reduces max weight change
 VOLUME_SMA_WINDOW = 120
 
-# TOTAL2 Entry Warmup: Price capping when a coin first enters TOTAL2
+# TOTAL2 Entry Warmup: Actual price capping when a coin first enters TOTAL2
 #
 # When a coin first enters TOTAL2 (TOP30 by volume), its price may cause
-# artificial spikes in the index. This warmup capping prevents that by:
-# 1. Using corrected TOTAL2 value as the baseline price before entry (market level)
-# 2. Capping daily price changes to MAX_INCREASE / MAX_DECREASE during warmup period
-# 3. Iteratively applying caps so each day uses the previous day's capped price
+# artificial spikes in the index. This warmup CAPS prices (not just monitors) by:
+# 1. Using raw TOTAL2 value as the baseline price at entry (market level)
+# 2. CAPPING daily price changes to MAX_INCREASE / MAX_DECREASE during warmup
+# 3. Each day uses the previous day's CAPPED price as reference
 #
 # This handles TWO types of cases:
 #
@@ -147,7 +147,22 @@ VOLUME_SMA_WINDOW = 120
 # Both cases gradually ramp up from market level, preventing artificial TOTAL2 spikes.
 TOTAL2_ENTRY_MAX_INCREASE = 1.7  # Max 1.7x (70% gain) per day during warmup
 TOTAL2_ENTRY_MAX_DECREASE = 0.5  # Min 0.5x (50% loss) per day during warmup
-TOTAL2_ENTRY_WARMUP_DAYS = 21  # How many days entry warmup applies (3 weeks)
+TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # How many days entry warmup applies (3 weeks)
+
+# =============================================================================
+# TOTAL2b New Coin Entry Settings
+# =============================================================================
+# TOTAL2b uses a different approach: freeze period + price scaling at entry
+#
+# Freeze Period: Coins must wait this many days after first appearing in
+# CryptoCompare before they can join the index. This ensures stable price
+# data and avoids launch-day volatility.
+#
+# Price Scaling: When a coin enters TOTAL2b (after freeze period + reaching
+# TOP30), its price is scaled by 1/TOTAL2b_d-1 (previous day's index value).
+# This scaling is applied once at entry and persists for all future days.
+TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 weeks)
+TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
