@@ -25,7 +25,7 @@ Halvix supports two methodologies for calculating the index:
 | **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
 | **Volume outlier correction** | ✓ Yes | ✓ Yes |
 | **New coin integration** | 21-day entry warmup (post-entry) | 21-day freeze period (pre-entry) |
-| **Price adjustment** | Cap price changes during warmup | Scale by 1/TOTAL2b_d-1 at entry |
+| **Price adjustment (post-entry)** | Cap price changes during warmup | Scale by TOTAL2b_d-1/COIN_PRICE_d |
 | **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
 
 ### Entry Timing Comparison
@@ -34,14 +34,14 @@ Both methodologies use a **21-day period** but apply it differently:
 
 | Aspect | TOTAL2 (Legacy) | TOTAL2b (New) |
 |--------|-----------------|---------------|
-| **When** | After coin enters TOP30 | Before coin can enter TOP30 |
-| **Mechanism** | Entry warmup: cap price changes | Freeze period: wait before eligibility |
+| **When** | After coin enters TOP30 | After a coin is listed on Cryptocompare |
+| **Mechanism** | Entry warmup: cap price changes | Freeze period: coin not eligible yet for any volume calculation, coin cannot enter TOP30 |
 | **Duration** | `TOTAL2_ENTRY_WARMUP_PERIOD_DAYS` (21 days) | `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` (21 days) |
 | **Effect** | Prevent index spikes from extreme prices | Ensure stable data before inclusion |
 
 ### When to Use Each
 
-- **TOTAL2b (default)**: Recommended for new analyses. Simpler, more predictable entry mechanics.
+- **TOTAL2b (default)**: Recommended for new analyses, as this index is no longer entry of coins with high absolute price values.
 - **TOTAL2 (legacy)**: For backward compatibility with existing analyses.
 
 ## Configuration
@@ -50,7 +50,7 @@ The TOTAL2 calculation uses these key variables from `src/config.py`:
 
 ```python
 # Number of top coins to use for TOTAL2 calculation
-TOP_N_FOR_TOTAL2 = 30
+TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
@@ -78,7 +78,7 @@ Additional configuration for **TOTAL2b** in `src/config.py`:
 ```python
 # TOTAL2b new coin entry settings (pre-entry freeze + scaling)
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21   # Days to wait before coin can join (3 weeks)
-TOTAL2B_MIN_COINS_FOR_SCALING = 30    # Only apply scaling after index has this many coins
+TOTAL2B_MIN_COINS_FOR_SCALING = 30    # Only apply coin price scaling after index has this many coins
 ```
 
 ## Calculation Algorithm
@@ -95,7 +95,7 @@ TOTAL2(day) = Σ(price[i] × smoothed_volume[i]) / Σ(smoothed_volume[i])
 Where:
 - `price[i]` = Close price of coin i on that day
 - `smoothed_volume[i]` = 120-day SMA of 24h trading volume
-- `N` = `TOP_N_FOR_TOTAL2` (default: 30)
+- `N` = `TOP_N_BY_VOLUME_FOR_TOTAL2` (default: 30)
 
 ### Volume Smoothing (Shared)
 
@@ -112,8 +112,9 @@ smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day
 **Solution - Zero-Padding:** Instead of excluding the first 119 days of data, we prepend zeros:
 
 1. For each coin, all days **before its first trading data** are filled with 0 volume
-2. On a coin's first trading day, its smoothed volume = `actual_volume / 120`
-3. The weight gradually increases over the 120-day warmup period
+1bis. In case of **TOTAL2b** calculation, volume is set to 0 for the next `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` days
+3. On a coin's first day with trading volume, its smoothed volume = `actual_volume / 120`
+4. The weight gradually increases over the 120-day warmup period
 
 ### Volume Outlier Detection (Shared)
 
@@ -132,7 +133,7 @@ CryptoCompare occasionally has bad data points with impossible volume spikes. Th
 
 ## TOTAL2b Algorithm (New, Default)
 
-TOTAL2b uses a simpler, more transparent entry mechanism:
+TOTAL2b uses a price scaling mechanism which makes it resistant to distorsion because of coin entry with slarge prices:
 
 ### 1. Freeze Period
 
@@ -146,14 +147,16 @@ When a coin first appears in CryptoCompare data, it must wait **21 days** before
 When a coin enters TOTAL2b (after passing the freeze period and reaching TOP30 by volume):
 
 ```python
-scaled_price = raw_price / TOTAL2b_d-1
+scaled_price = raw_price * TOTAL2b_d-1 / COIN_PRICE_d
 ```
 
-Where `TOTAL2b_d-1` is the index value from the previous day.
+Where
+- `TOTAL2b_d-1` is the index value from the previous day.
+- `COIN_PRICE_d` is the coin price on the day of entry.
 
 **Why scaling works:**
 - Preserves the coin's **day-over-day price change factor**
-- Prevents large absolute offsets in the index
+- Cancels any large absolute offsets in the index because of high coin price
 - Applies only when index already has 30+ coins (established baseline)
 
 ### 3. No TOTAL2 Series Smoothing
@@ -205,8 +208,6 @@ Extreme day-over-day movements in the **aggregate TOTAL2 index** are capped:
 - **Decreases > 65%**: Floored at 0.35x the previous day's value
 
 This prevents the index from having extreme jumps when coins with unusual prices enter or exit.
-
-**Note:** This is NOT "price outlier detection" for individual coins. It's smoothing of the aggregate index to prevent extreme movements caused by new coin entries.
 
 ### 3. Two-Pass Algorithm
 
