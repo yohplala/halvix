@@ -149,6 +149,21 @@ TOTAL2_ENTRY_MAX_INCREASE = 1.7  # Max 1.7x (70% gain) per day during warmup
 TOTAL2_ENTRY_MAX_DECREASE = 0.5  # Min 0.5x (50% loss) per day during warmup
 TOTAL2_ENTRY_WARMUP_DAYS = 21  # How many days entry warmup applies (3 weeks)
 
+# =============================================================================
+# TOTAL2b New Coin Entry Settings
+# =============================================================================
+# TOTAL2b uses a different approach: freeze period + price scaling at entry
+#
+# Freeze Period: Coins must wait this many days after first appearing in
+# CryptoCompare before they can join the index. This ensures stable price
+# data and avoids launch-day volatility.
+#
+# Price Scaling: When a coin enters TOTAL2b (after freeze period + reaching
+# TOP30), its price is scaled by 1/TOTAL2b_d-1 (previous day's index value).
+# This scaling is applied once at entry and persists for all future days.
+TOTAL2B_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 weeks)
+TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
+
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
 QUOTE_CURRENCIES = ["BTC", "USD"]
