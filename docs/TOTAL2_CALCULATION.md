@@ -374,7 +374,7 @@ class Total2Result:
 
 ---
 
-*See also: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) for full project specification*
+*See also: [AGENTS.md](../AGENTS.md) for full project specification*
 
 ---
 

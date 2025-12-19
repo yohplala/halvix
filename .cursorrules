@@ -17,7 +17,7 @@ poetry run black src/ tests/
 
 ## Full Documentation
 
-See **[docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)** for complete project context including:
+See **[AGENTS.md](AGENTS.md)** for complete project context including:
 - Project structure and architecture
 - TOTAL2/TOTAL2b processor details
 - CLI commands and options
