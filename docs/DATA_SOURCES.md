@@ -101,42 +101,42 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 ## Data Flow Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Halvix Pipeline                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
+┌────────────────────────────────────────────────────────────────┐
+│                         Halvix Pipeline                        │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
 │  Step 1: Discover Coins (CryptoCompare)                        │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ GET /data/top/mktcapfull?limit=100&page=0..2             │  │
 │  │ Returns: symbol, name, market_cap, price, volume         │  │
-│  │ Output: data/processed/accepted_coins.json               │  │
+│  │ Output: data/processed/coins_to_download.json            │  │
 │  └──────────────────────────────────────────────────────────┘  │
-│                              │                                  │
-│                              ▼                                  │
-│  Step 2: Filter Tokens (Local)                                 │
+│                              │                                 │
+│                              ▼                                 │
+│  Step 2: Filter Coins (Local)                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ Remove: wrapped, staked, bridged, stablecoins, BTC       │  │
-│  │ Output: data/processed/rejected_coins.csv                │  │
+│  │ Output: data/processed/download_skipped.csv              │  │
 │  └──────────────────────────────────────────────────────────┘  │
-│                              │                                  │
-│                              ▼                                  │
+│                              │                                 │
+│                              ▼                                 │
 │  Step 3: Fetch Historical Prices (CryptoCompare)               │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ GET /data/v2/histoday?fsym=ETH&tsym=BTC&limit=2000      │  │
-│  │ Pagination: Multiple requests for 4000+ days            │  │
-│  │ Returns: date, open, high, low, close, volume           │  │
-│  │ Output: data/raw/prices/{symbol}.parquet                │  │
+│  │ GET /data/v2/histoday?fsym=ETH&tsym=BTC&limit=2000       │  │
+│  │ Pagination: Multiple requests for 4000+ days             │  │
+│  │ Returns: date, open, high, low, close, volume            │  │
+│  │ Output: data/raw/prices/{symbol}.parquet                 │  │
 │  └──────────────────────────────────────────────────────────┘  │
-│                              │                                  │
-│                              ▼                                  │
+│                              │                                 │
+│                              ▼                                 │
 │  Step 4: Calculate Volume-Weighted TOTAL2 (Local)              │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ Daily selection of top 30 altcoins by volume             │  │
 │  │ Volume-weighted average price                            │  │
-│  │ Output: data/processed/total2_index.parquet             │  │
+│  │ Output: data/processed/total2_index.parquet              │  │
 │  └──────────────────────────────────────────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ---
