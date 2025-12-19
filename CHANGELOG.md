@@ -12,6 +12,27 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.8] - 2025-12-19
+
+**TOTAL2b processor: freeze period and price scaling**
+
+- **Added:** New TOTAL2b processor with improved entry mechanics
+  - 21-day freeze period for new coins before index inclusion
+  - Price scaling at entry: scales new coin prices to match previous TOTAL2b value
+  - Symbol replacement detection (e.g., HYPE replaced by Hyperliquid)
+  - No outlier detection (simpler, more transparent methodology)
+- **Added:** `.cursorrules` file for development environment configuration
+- **Added:** Factory function `get_processor()` to select TOTAL2 or TOTAL2b processor
+- **Changed:** TOTAL2b is now the default index type
+- **Changed:** Renamed `PROJECT_CONTEXT.md` to `AGENTS.md` for AI agent quick reference
+- **Changed:** CI workflow refactored: separate `data.yml` workflow, removed test job
+- **Fixed:** Multiple fixes in TOTAL2 calculation logic
+- **Updated:** `TOTAL2_CALCULATION.md` with comprehensive TOTAL2b algorithm documentation
+- **Updated:** `EDGE_CASES.md` with symbol replacement and freeze period edge cases
+- **Updated:** `DEPLOYMENT.md`, `DATA_SOURCES.md`, `TUTORIAL.md`, `README.md` documentation
+
+**Categories:** Features, Algorithm, Refactoring, Documentation, CI/CD
+
 ### [2025.12.7] - 2025-12-08
 
 **TOTAL2 price smoothing overhaul and governance tokens inclusion**
