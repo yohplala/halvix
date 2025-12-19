@@ -109,10 +109,10 @@ def get_regression_end_date() -> date:
 MIN_DATA_DATE = date(2024, 1, 10)
 
 # Number of top coins to fetch (increased to 1000 to include historical coins like XEM)
-TOP_N_COINS = 1000
+TOP_N_BY_MARKETCAP_TO_FETCH = 1000
 
 # Number of top coins to use for TOTAL2 calculation
-TOP_N_FOR_TOTAL2 = 30
+TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
 
 # Number of top performers to show in summary chart
 TOP_N_SUMMARY = 10
@@ -159,8 +159,8 @@ TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # How many days entry warmup applies (3 we
 # data and avoids launch-day volatility.
 #
 # Price Scaling: When a coin enters TOTAL2b (after freeze period + reaching
-# TOP30), its price is scaled by 1/TOTAL2b_d-1 (previous day's index value).
-# This scaling is applied once at entry and persists for all future days.
+# TOP30), its price is scaled by TOTAL2b_d-1/COIN_PRICE_d (where COIN_PRICE_d
+# is the coin price at entry day d). This preserves day-over-day price changes.
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
 

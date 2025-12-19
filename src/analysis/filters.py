@@ -1,5 +1,5 @@
 """
-Token filtering module for Halvix.
+Coin filtering module for Halvix.
 
 Two-stage filtering:
 
@@ -48,11 +48,7 @@ class SkippedCoin:
     url: str
 
 
-# Backwards compatibility alias
-FilteredToken = SkippedCoin
-
-
-class TokenFilter:
+class CoinFilter:
     """
     Filter tokens based on various exclusion criteria.
 

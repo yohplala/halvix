@@ -60,7 +60,7 @@ class TestDataFetcherInit:
         assert fetcher.client is not None
         assert fetcher.cache is not None
         assert fetcher.price_cache is not None
-        assert fetcher.token_filter is not None
+        assert fetcher.coin_filter is not None
 
     def test_custom_dependencies(self):
         """Test fetcher with custom dependencies."""

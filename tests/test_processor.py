@@ -56,13 +56,13 @@ class TestTotal2ProcessorInit:
 
     def test_default_initialization(self):
         """Test processor initializes with defaults."""
-        from config import TOP_N_FOR_TOTAL2
+        from config import TOP_N_BY_VOLUME_FOR_TOTAL2
 
         processor = Total2Processor()
 
         assert processor.price_cache is not None
-        assert processor.token_filter is not None
-        assert processor.top_n == TOP_N_FOR_TOTAL2
+        assert processor.coin_filter is not None
+        assert processor.top_n == TOP_N_BY_VOLUME_FOR_TOTAL2
 
     def test_custom_top_n(self):
         """Test processor with custom top_n."""
@@ -81,7 +81,7 @@ class TestTotal2bProcessorInit:
     def test_default_initialization(self):
         """Test processor initializes with defaults."""
         from config import (
-            TOP_N_FOR_TOTAL2,
+            TOP_N_BY_VOLUME_FOR_TOTAL2,
             TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
             TOTAL2B_MIN_COINS_FOR_SCALING,
         )
@@ -89,8 +89,8 @@ class TestTotal2bProcessorInit:
         processor = Total2bProcessor()
 
         assert processor.price_cache is not None
-        assert processor.token_filter is not None
-        assert processor.top_n == TOP_N_FOR_TOTAL2
+        assert processor.coin_filter is not None
+        assert processor.top_n == TOP_N_BY_VOLUME_FOR_TOTAL2
         assert processor.freeze_period_days == TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
         assert processor.min_coins_for_scaling == TOTAL2B_MIN_COINS_FOR_SCALING
 

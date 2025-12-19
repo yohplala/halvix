@@ -13,10 +13,10 @@ from datetime import date
 import pandas as pd
 from tqdm import tqdm
 
-from analysis.filters import TokenFilter
+from analysis.filters import CoinFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
-    TOP_N_FOR_TOTAL2,
+    TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
     VOLUME_SMA_WINDOW,
@@ -28,10 +28,6 @@ from data.processor_base import (
     Total2Result,
 )
 
-# Re-export for backward compatibility
-FREEZE_PERIOD_DAYS = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
-MIN_COINS_FOR_SCALING = TOTAL2B_MIN_COINS_FOR_SCALING
-
 
 class Total2bProcessor(BaseTotal2Processor):
     """
@@ -39,7 +35,7 @@ class Total2bProcessor(BaseTotal2Processor):
 
     Key differences from TOTAL2:
     - 3-week freeze period for new coins before they can join the index
-    - Price scaling for new entries: scaled by 1/TOTAL2b_d-1 to preserve
+    - Price scaling for new entries: scaled by TOTAL2b_d-1/COIN_PRICE_d to preserve
       price change factors without causing large offsets
     - No price outlier detection or iterative corrections
     - Simpler, more transparent methodology
@@ -50,8 +46,8 @@ class Total2bProcessor(BaseTotal2Processor):
     def __init__(
         self,
         price_cache: PriceDataCache | None = None,
-        token_filter: TokenFilter | None = None,
-        top_n: int = TOP_N_FOR_TOTAL2,
+        coin_filter: CoinFilter | None = None,
+        top_n: int = TOP_N_BY_VOLUME_FOR_TOTAL2,
         volume_sma_window: int = VOLUME_SMA_WINDOW,
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
         freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
@@ -62,7 +58,7 @@ class Total2bProcessor(BaseTotal2Processor):
 
         Args:
             price_cache: Cache for price data
-            token_filter: Token filter for exclusions
+            coin_filter: Coin filter for exclusions
             top_n: Number of coins to include
             volume_sma_window: SMA window for volume smoothing
             quote_currency: Quote currency for prices
@@ -71,7 +67,7 @@ class Total2bProcessor(BaseTotal2Processor):
         """
         super().__init__(
             price_cache=price_cache,
-            token_filter=token_filter,
+            coin_filter=coin_filter,
             top_n=top_n,
             volume_sma_window=volume_sma_window,
             quote_currency=quote_currency,
@@ -96,7 +92,7 @@ class Total2bProcessor(BaseTotal2Processor):
         4. Calculate coin first-seen dates for freeze period enforcement
         5. Iteratively calculate daily index values with:
            - Freeze period enforcement (coins must wait 21 days)
-           - Price scaling for new entries (scaled by 1/TOTAL2b_d-1)
+           - Price scaling for new entries (scaled by TOTAL2b_d-1/COIN_PRICE_d)
         6. Build composition records
 
         Args:
@@ -141,8 +137,8 @@ class Total2bProcessor(BaseTotal2Processor):
 
         smoothed_volume_df = self.apply_volume_sma_smoothing(volume_df)
 
-        # Calculate first-seen dates for each coin
-        first_seen_dates = self._calculate_first_seen_dates(close_df)
+        # Calculate first-seen dates for each coin (requires both price and volume)
+        first_seen_dates = self._calculate_first_seen_dates(close_df, volume_df)
 
         if show_progress:
             print(f"Tracking first-seen dates for {len(first_seen_dates)} coins")
@@ -176,9 +172,7 @@ class Total2bProcessor(BaseTotal2Processor):
             composition_df["date"] = pd.to_datetime(composition_df["date"])
             # Filter to match index date range
             if start_date:
-                composition_df = composition_df[
-                    composition_df["date"] >= pd.Timestamp(start_date)
-                ]
+                composition_df = composition_df[composition_df["date"] >= pd.Timestamp(start_date)]
             if end_date:
                 composition_df = composition_df[composition_df["date"] <= pd.Timestamp(end_date)]
 
@@ -209,15 +203,21 @@ class Total2bProcessor(BaseTotal2Processor):
     def _calculate_first_seen_dates(
         self,
         close_df: pd.DataFrame,
+        volume_df: pd.DataFrame,
     ) -> dict[str, pd.Timestamp]:
         """
-        Calculate the first date each coin appears in the data.
+        Calculate the first date each coin appears in CryptoCompare data.
+
+        A coin's first appearance is defined as the first day with BOTH:
+        - Non-null and positive close price
+        - Non-null and positive volume
 
         This is used to enforce the freeze period - coins cannot
         join the index until freeze_period_days after their first appearance.
 
         Args:
             close_df: DataFrame of close prices (dates × coins)
+            volume_df: DataFrame of raw volumes (dates × coins)
 
         Returns:
             Dictionary mapping coin_id to first-seen Timestamp
@@ -225,9 +225,16 @@ class Total2bProcessor(BaseTotal2Processor):
         first_seen = {}
 
         for coin_id in close_df.columns:
-            first_valid = close_df[coin_id].first_valid_index()
-            if first_valid is not None:
-                first_seen[coin_id] = first_valid
+            if coin_id not in volume_df.columns:
+                continue
+
+            # Find first date where both price > 0 and volume > 0
+            price_valid = (close_df[coin_id] > 0) & close_df[coin_id].notna()
+            volume_valid = (volume_df[coin_id] > 0) & volume_df[coin_id].notna()
+            both_valid = price_valid & volume_valid
+
+            if both_valid.any():
+                first_seen[coin_id] = both_valid.idxmax()
 
         return first_seen
 
@@ -248,10 +255,11 @@ class Total2bProcessor(BaseTotal2Processor):
         4. Record composition
 
         The scaling formula for new entries:
-        scaled_price = raw_price / TOTAL2b_d-1
+        scaled_price = raw_price * TOTAL2b_d-1 / COIN_PRICE_d
 
-        This preserves the coin's price change factor while preventing
-        large absolute offsets in the index.
+        Where COIN_PRICE_d is the coin's raw price on entry day.
+        This ensures entry-day scaled price equals TOTAL2b_d-1, and
+        preserves day-over-day price change factors thereafter.
 
         Args:
             close_df: DataFrame of close prices
@@ -312,27 +320,29 @@ class Total2bProcessor(BaseTotal2Processor):
 
             for coin_id in new_entries:
                 if should_scale and prev_total2b > 0:
-                    # Apply scaling: divide all future prices by prev_total2b
-                    scaling_factor = 1.0 / prev_total2b
-                    coin_scaling_factors[coin_id] = scaling_factor
+                    # Apply scaling: multiply by TOTAL2b_d-1 / COIN_PRICE_d
+                    # This ensures entry-day scaled price = prev_total2b
+                    raw_price_at_entry = close_df.loc[dt, coin_id]
+                    if raw_price_at_entry > 0:
+                        scaling_factor = prev_total2b / raw_price_at_entry
+                        coin_scaling_factors[coin_id] = scaling_factor
 
-                    # Scale all prices for this coin from this date forward
-                    raw_price = close_df.loc[dt, coin_id]
-                    scaled_close_df.loc[dt:, coin_id] = (
-                        close_df.loc[dt:, coin_id] * scaling_factor
-                    )
+                        # Scale all prices for this coin from this date forward
+                        scaled_close_df.loc[dt:, coin_id] = (
+                            close_df.loc[dt:, coin_id] * scaling_factor
+                        )
 
-                    scaling_events.append(
-                        {
-                            "date": str(dt.date()),
-                            "type": "price_scaling",
-                            "coin": coin_id.upper(),
-                            "original": float(raw_price),
-                            "corrected": float(raw_price * scaling_factor),
-                            "change_factor": float(scaling_factor),
-                            "prev_total2b": float(prev_total2b),
-                        }
-                    )
+                        scaling_events.append(
+                            {
+                                "date": str(dt.date()),
+                                "type": "price_scaling",
+                                "coin": coin_id.upper(),
+                                "original": float(raw_price_at_entry),
+                                "corrected": float(raw_price_at_entry * scaling_factor),
+                                "change_factor": float(scaling_factor),
+                                "prev_total2b": float(prev_total2b),
+                            }
+                        )
 
             # Update coins in index
             coins_in_index = set(eligible_coins)
@@ -434,9 +444,21 @@ class Total2bProcessor(BaseTotal2Processor):
         statuses = []
 
         for coin_id, df in price_data.items():
-            first_seen = df.index.min()
-            if first_seen is None:
+            # Find first date with both valid price > 0 and volume > 0
+            if "close" not in df.columns or "volume_to" not in df.columns:
                 continue
+
+            valid_mask = (
+                (df["close"] > 0)
+                & df["close"].notna()
+                & (df["volume_to"] > 0)
+                & df["volume_to"].notna()
+            )
+
+            if not valid_mask.any():
+                continue
+
+            first_seen = df.index[valid_mask].min()
 
             days_since_first = (target_ts - first_seen).days
             days_remaining = self.freeze_period_days - days_since_first

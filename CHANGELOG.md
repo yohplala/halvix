@@ -57,7 +57,7 @@ format YYYY.MM.patch.
 - **Added:** Navigation bar in HTML documentation pages
 - **Added:** Coins removed due to insufficient historical data are now added to rejected_coins.csv with detailed reason (includes actual start date)
 - **Added:** New badge style for "Insufficient historical data" in HTML documentation
-- **Changed:** `TOP_N_COINS` increased from 300 to 1000 (includes historical coins like XEM)
+- **Changed:** `TOP_N_BY_MARKETCAP_TO_FETCH` increased from 300 to 1000 (includes historical coins like XEM)
 - **Changed:** Price files now use pair-based naming: `eth-btc.parquet`, `eth-usd.parquet`
 - **Changed:** 120-day SMA warmup period means coins gradually enter TOTAL2 over 120 days
 - **Fixed:** BTC is now downloaded (for charts) but excluded from TOTAL2 calculation

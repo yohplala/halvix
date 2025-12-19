@@ -19,12 +19,12 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from analysis.filters import TokenFilter
+from analysis.filters import CoinFilter
 from config import (
     CRYPTOCOMPARE_COIN_URL,
     DEFAULT_QUOTE_CURRENCY,
     PROCESSED_DIR,
-    TOP_N_FOR_TOTAL2,
+    TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_INDEX_FILE,
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
@@ -86,8 +86,8 @@ class BaseTotal2Processor(ABC):
     def __init__(
         self,
         price_cache: PriceDataCache | None = None,
-        token_filter: TokenFilter | None = None,
-        top_n: int = TOP_N_FOR_TOTAL2,
+        coin_filter: CoinFilter | None = None,
+        top_n: int = TOP_N_BY_VOLUME_FOR_TOTAL2,
         volume_sma_window: int = VOLUME_SMA_WINDOW,
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
     ):
@@ -96,13 +96,13 @@ class BaseTotal2Processor(ABC):
 
         Args:
             price_cache: Cache for price data (default: new instance)
-            token_filter: Token filter for exclusions (default: new instance)
-            top_n: Number of coins to include in index (default: TOP_N_FOR_TOTAL2)
+            coin_filter: Coin filter for exclusions (default: new instance)
+            top_n: Number of coins to include in index (default: TOP_N_BY_VOLUME_FOR_TOTAL2)
             volume_sma_window: SMA window for volume smoothing (default: VOLUME_SMA_WINDOW)
             quote_currency: Quote currency for prices (default: DEFAULT_QUOTE_CURRENCY)
         """
         self.price_cache = price_cache or PriceDataCache()
-        self.token_filter = token_filter or TokenFilter()
+        self.coin_filter = coin_filter or CoinFilter()
         self.top_n = top_n
         self.volume_sma_window = volume_sma_window
         self.quote_currency = quote_currency
@@ -148,7 +148,7 @@ class BaseTotal2Processor(ABC):
         eligible = []
 
         for coin_id in coin_ids:
-            should_exclude, _ = self.token_filter.should_exclude_from_total2(
+            should_exclude, _ = self.coin_filter.should_exclude_from_total2(
                 coin_id=coin_id,
                 name="",
                 symbol=coin_id.upper(),

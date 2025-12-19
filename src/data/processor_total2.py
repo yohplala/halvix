@@ -11,10 +11,10 @@ from datetime import date
 
 import pandas as pd
 
-from analysis.filters import TokenFilter
+from analysis.filters import CoinFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
-    TOP_N_FOR_TOTAL2,
+    TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2_ENTRY_MAX_DECREASE,
     TOTAL2_ENTRY_MAX_INCREASE,
     TOTAL2_ENTRY_WARMUP_PERIOD_DAYS,
@@ -48,8 +48,8 @@ class Total2Processor(BaseTotal2Processor):
     def __init__(
         self,
         price_cache: PriceDataCache | None = None,
-        token_filter: TokenFilter | None = None,
-        top_n: int = TOP_N_FOR_TOTAL2,
+        coin_filter: CoinFilter | None = None,
+        top_n: int = TOP_N_BY_VOLUME_FOR_TOTAL2,
         volume_sma_window: int = VOLUME_SMA_WINDOW,
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
         entry_max_increase: float = TOTAL2_ENTRY_MAX_INCREASE,
@@ -61,7 +61,7 @@ class Total2Processor(BaseTotal2Processor):
 
         Args:
             price_cache: Cache for price data
-            token_filter: Token filter for exclusions
+            coin_filter: Coin filter for exclusions
             top_n: Number of coins to include
             volume_sma_window: SMA window for volume smoothing
             quote_currency: Quote currency for prices
@@ -71,7 +71,7 @@ class Total2Processor(BaseTotal2Processor):
         """
         super().__init__(
             price_cache=price_cache,
-            token_filter=token_filter,
+            coin_filter=coin_filter,
             top_n=top_n,
             volume_sma_window=volume_sma_window,
             quote_currency=quote_currency,
@@ -144,9 +144,7 @@ class Total2Processor(BaseTotal2Processor):
         if show_progress:
             print("First pass: Calculating raw TOTAL2...")
 
-        raw_total2, _, _ = self.calculate_weighted_average(
-            close_df, smoothed_volume_df, mask_df
-        )
+        raw_total2, _, _ = self.calculate_weighted_average(close_df, smoothed_volume_df, mask_df)
 
         # Apply entry warmup price capping
         if show_progress:

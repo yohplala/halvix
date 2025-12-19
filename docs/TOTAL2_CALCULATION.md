@@ -112,9 +112,8 @@ smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day
 **Solution - Zero-Padding:** Instead of excluding the first 119 days of data, we prepend zeros:
 
 1. For each coin, all days **before its first trading data** are filled with 0 volume
-1bis. In case of **TOTAL2b** calculation, volume is set to 0 for the next `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` days
-3. On a coin's first day with trading volume, its smoothed volume = `actual_volume / 120`
-4. The weight gradually increases over the 120-day warmup period
+2. On a coin's first day with trading volume, its smoothed volume = `actual_volume / 120`
+3. The weight gradually increases over the 120-day warmup period
 
 ### Volume Outlier Detection (Shared)
 
