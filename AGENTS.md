@@ -90,6 +90,7 @@ result = processor.calculate_total2()
 | `Total2bProcessor` | **Default**. 21-day freeze period + price scaling at entry |
 | `Total2Processor` | Legacy. Entry warmup price capping + TOTAL2 series smoothing |
 
+
 ### Token Filtering
 
 Located in `src/analysis/filters.py`. Exclusions defined in `src/config.py`:
