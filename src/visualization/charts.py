@@ -515,7 +515,7 @@ def create_total2_dual_chart(
     fig = make_subplots(
         rows=1,
         cols=2,
-        subplot_titles=("TOTAL2 vs USD (Normalized)", "TOTAL2 vs BTC (Normalized)"),
+        subplot_titles=("TOTAL2/USD (Normalized)", "TOTAL2/BTC (Normalized)"),
         horizontal_spacing=0.08,
     )
 
@@ -1163,7 +1163,7 @@ def create_total2_combined_chart(
         rows=2,
         cols=1,
         subplot_titles=(
-            "TOTAL2 vs USD - Normalized to Halving Day",
+            "TOTAL2/USD - Normalized to Halving Day",
             "TOTAL2/BTC - Absolute Values",
         ),
         vertical_spacing=0.08,

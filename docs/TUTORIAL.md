@@ -220,9 +220,9 @@ poetry run ptw
 poetry run ipython
 
 # Then in IPython (after cd src):
-# >>> from analysis.filters import TokenFilter
-# >>> tf = TokenFilter()
-# >>> tf.is_wrapped_or_staked("wbtc", "Wrapped BTC")
+# >>> from analysis.filters import CoinFilter
+# >>> cf = CoinFilter()
+# >>> cf.is_wrapped_or_staked("wbtc", "Wrapped BTC")
 # True
 ```
 

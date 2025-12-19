@@ -1,5 +1,5 @@
 """
-Tests for token filtering in Halvix.
+Tests for coin filtering in Halvix.
 
 Tests that:
 - Wrapped, staked, bridged tokens are correctly filtered out
@@ -13,16 +13,16 @@ from pathlib import Path
 
 import pytest
 
-from analysis.filters import TokenFilter
+from analysis.filters import CoinFilter
 
 
 class TestWrappedStakedTokenFiltering:
     """Tests for wrapped/staked/bridged token detection."""
 
     @pytest.fixture
-    def token_filter(self):
-        """Create a fresh TokenFilter instance."""
-        return TokenFilter()
+    def coin_filter(self):
+        """Create a fresh CoinFilter instance."""
+        return CoinFilter()
 
     # =========================================================================
     # Tokens that MUST be filtered out (using lowercase symbols as IDs)
@@ -74,9 +74,9 @@ class TestWrappedStakedTokenFiltering:
             ("cbeth", "Coinbase Wrapped Staked ETH", "CBETH"),
         ],
     )
-    def test_wrapped_staked_tokens_are_filtered(self, token_filter, coin_id, name, symbol):
+    def test_wrapped_staked_tokens_are_filtered(self, coin_filter, coin_id, name, symbol):
         """Test that wrapped/staked/bridged tokens are correctly identified and filtered."""
-        assert token_filter.is_wrapped_or_staked(
+        assert coin_filter.is_wrapped_or_staked(
             coin_id, name, symbol
         ), f"Token {coin_id} ({name}) should be filtered as wrapped/staked"
 
@@ -107,9 +107,9 @@ class TestWrappedStakedTokenFiltering:
             ("link", "Chainlink", "LINK"),
         ],
     )
-    def test_legitimate_tokens_are_accepted(self, token_filter, coin_id, name, symbol):
+    def test_legitimate_tokens_are_accepted(self, coin_filter, coin_id, name, symbol):
         """Test that legitimate tokens are NOT filtered out."""
-        assert not token_filter.is_wrapped_or_staked(
+        assert not coin_filter.is_wrapped_or_staked(
             coin_id, name, symbol
         ), f"Token {coin_id} ({name}) should NOT be filtered"
 
@@ -117,7 +117,7 @@ class TestWrappedStakedTokenFiltering:
     # Full filtering workflow tests
     # =========================================================================
 
-    def test_filter_coins_for_download_excludes_wrapped_staked(self, token_filter):
+    def test_filter_coins_for_download_excludes_wrapped_staked(self, coin_filter):
         """Test that filter_coins_for_download correctly excludes wrapped/staked tokens."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
@@ -128,7 +128,7 @@ class TestWrappedStakedTokenFiltering:
             {"id": "btc", "name": "Bitcoin", "symbol": "BTC"},  # BTC should be included
         ]
 
-        filtered = token_filter.filter_coins_for_download(coins)
+        filtered = coin_filter.filter_coins_for_download(coins)
 
         # Should have 4 coins: ETH, SOL, SUI, BTC (BTC is included for download)
         assert len(filtered) == 4
@@ -140,28 +140,28 @@ class TestWrappedStakedTokenFiltering:
         assert "wbtc" not in filtered_ids
         assert "steth" not in filtered_ids
 
-    def test_filter_coins_for_download_records_filtered_tokens(self, token_filter):
-        """Test that filtered tokens are recorded for export."""
+    def test_filter_coins_for_download_records_skipped_coins(self, coin_filter):
+        """Test that skipped coins are recorded for export."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        token_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.filter_coins_for_download(coins, record_filtered=True)
 
-        assert len(token_filter.filtered_tokens) == 2
-        filtered_ids = {t.coin_id for t in token_filter.filtered_tokens}
-        assert "wbtc" in filtered_ids
-        assert "steth" in filtered_ids
+        assert len(coin_filter.skipped_coins) == 2
+        skipped_ids = {c.coin_id for c in coin_filter.skipped_coins}
+        assert "wbtc" in skipped_ids
+        assert "steth" in skipped_ids
 
 
 class TestStablecoinFiltering:
     """Tests for stablecoin detection."""
 
     @pytest.fixture
-    def token_filter(self):
-        return TokenFilter()
+    def coin_filter(self):
+        return CoinFilter()
 
     @pytest.mark.parametrize(
         "coin_id,name,symbol",
@@ -179,13 +179,13 @@ class TestStablecoinFiltering:
             ("usdd", "USDD", "USDD"),
         ],
     )
-    def test_stablecoins_are_detected(self, token_filter, coin_id, name, symbol):
+    def test_stablecoins_are_detected(self, coin_filter, coin_id, name, symbol):
         """Test that stablecoins are correctly identified."""
-        assert token_filter.is_stablecoin(
+        assert coin_filter.is_stablecoin(
             coin_id, name, symbol
         ), f"Token {coin_id} ({symbol}) should be identified as stablecoin"
 
-    def test_filter_coins_for_download_excludes_stablecoins(self, token_filter):
+    def test_filter_coins_for_download_excludes_stablecoins(self, coin_filter):
         """Test that stablecoins are always excluded from download."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
@@ -194,7 +194,7 @@ class TestStablecoinFiltering:
             {"id": "sol", "name": "Solana", "symbol": "SOL"},
         ]
 
-        filtered = token_filter.filter_coins_for_download(coins)
+        filtered = coin_filter.filter_coins_for_download(coins)
 
         assert len(filtered) == 2
         filtered_ids = {c["id"] for c in filtered}
@@ -208,12 +208,12 @@ class TestBTCDerivativeFiltering:
     """Tests for BTC derivative detection."""
 
     @pytest.fixture
-    def token_filter(self):
-        return TokenFilter()
+    def coin_filter(self):
+        return CoinFilter()
 
-    def test_bitcoin_is_not_filtered_as_derivative(self, token_filter):
+    def test_bitcoin_is_not_filtered_as_derivative(self, coin_filter):
         """Test that Bitcoin itself is not filtered as a derivative."""
-        assert not token_filter.is_btc_derivative("btc", "Bitcoin", "BTC")
+        assert not coin_filter.is_btc_derivative("btc", "Bitcoin", "BTC")
 
     @pytest.mark.parametrize(
         "coin_id,name,symbol",
@@ -225,9 +225,9 @@ class TestBTCDerivativeFiltering:
             ("cbbtc", "Coinbase Wrapped BTC", "CBBTC"),
         ],
     )
-    def test_btc_derivatives_are_detected(self, token_filter, coin_id, name, symbol):
+    def test_btc_derivatives_are_detected(self, coin_filter, coin_id, name, symbol):
         """Test that BTC derivatives are correctly identified."""
-        assert token_filter.is_btc_derivative(
+        assert coin_filter.is_btc_derivative(
             coin_id, name, symbol
         ), f"Token {coin_id} should be identified as BTC derivative"
 
@@ -236,22 +236,22 @@ class TestCSVExport:
     """Tests for CSV export functionality."""
 
     @pytest.fixture
-    def token_filter(self):
-        return TokenFilter()
+    def coin_filter(self):
+        return CoinFilter()
 
-    def test_export_rejected_coins_csv(self, token_filter):
-        """Test that rejected coins can be exported to CSV."""
+    def test_export_skipped_coins_csv(self, coin_filter):
+        """Test that skipped coins can be exported to CSV."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        token_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.filter_coins_for_download(coins, record_filtered=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            csv_path = Path(tmpdir) / "rejected.csv"
-            result_path = token_filter.export_rejected_coins_csv(csv_path)
+            csv_path = Path(tmpdir) / "skipped.csv"
+            result_path = coin_filter.export_skipped_coins_csv(csv_path)
 
             assert result_path.exists()
 
@@ -263,17 +263,17 @@ class TestCSVExport:
             assert "steth" in content
             assert "cryptocompare.com" in content
 
-    def test_csv_uses_semicolon_delimiter(self, token_filter):
+    def test_csv_uses_semicolon_delimiter(self, coin_filter):
         """Test that CSV uses semicolon delimiter for Excel compatibility."""
         coins = [
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
         ]
 
-        token_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.filter_coins_for_download(coins, record_filtered=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            csv_path = Path(tmpdir) / "rejected.csv"
-            token_filter.export_rejected_coins_csv(csv_path)
+            csv_path = Path(tmpdir) / "skipped.csv"
+            coin_filter.export_skipped_coins_csv(csv_path)
 
             with open(csv_path, encoding="utf-8") as f:
                 first_line = f.readline()
@@ -283,14 +283,14 @@ class TestCSVExport:
             assert first_line.count(";") == 4  # 5 columns = 4 semicolons
 
 
-class TestFilteredSummary:
-    """Tests for filter summary functionality."""
+class TestSkippedSummary:
+    """Tests for skipped summary functionality."""
 
     @pytest.fixture
-    def token_filter(self):
-        return TokenFilter()
+    def coin_filter(self):
+        return CoinFilter()
 
-    def test_get_filtered_summary(self, token_filter):
+    def test_get_skipped_summary(self, coin_filter):
         """Test that summary counts are correct."""
         coins = [
             {"id": "eth", "name": "Ethereum", "symbol": "ETH"},
@@ -300,9 +300,9 @@ class TestFilteredSummary:
             {"id": "usdc", "name": "USD Coin", "symbol": "USDC"},
         ]
 
-        token_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.filter_coins_for_download(coins, record_filtered=True)
 
-        summary = token_filter.get_filtered_summary()
+        summary = coin_filter.get_skipped_summary()
 
         assert "Wrapped/Staked/Bridged token" in summary
         assert summary["Wrapped/Staked/Bridged token"] == 2
@@ -314,8 +314,8 @@ class TestAllowedTokensOverride:
     """Tests for allowed tokens override functionality."""
 
     @pytest.fixture
-    def token_filter(self):
-        return TokenFilter()
+    def coin_filter(self):
+        return CoinFilter()
 
     @pytest.mark.parametrize(
         "coin_id",
@@ -330,14 +330,14 @@ class TestAllowedTokensOverride:
             "strk",
         ],
     )
-    def test_allowed_tokens_are_never_filtered(self, token_filter, coin_id):
+    def test_allowed_tokens_are_never_filtered(self, coin_filter, coin_id):
         """Test that allowed tokens are never filtered regardless of patterns."""
-        assert token_filter.is_allowed_token(coin_id), f"Token {coin_id} should be in allowed list"
+        assert coin_filter.is_allowed_token(coin_id), f"Token {coin_id} should be in allowed list"
 
-        assert not token_filter.is_wrapped_or_staked(
+        assert not coin_filter.is_wrapped_or_staked(
             coin_id, "", coin_id.upper()
         ), f"Token {coin_id} should not be filtered as wrapped/staked"
 
-        assert not token_filter.is_stablecoin(
+        assert not coin_filter.is_stablecoin(
             coin_id, "", coin_id.upper()
         ), f"Token {coin_id} should not be filtered as stablecoin"

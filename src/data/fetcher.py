@@ -22,7 +22,7 @@ from typing import Any
 import pandas as pd
 from tqdm import tqdm
 
-from analysis.filters import TokenFilter
+from analysis.filters import CoinFilter
 from api.cryptocompare import CryptoCompareClient, CryptoCompareError
 from config import (
     COINS_TO_DOWNLOAD_JSON,
@@ -32,7 +32,7 @@ from config import (
     MIN_DATA_DATE,
     PROCESSED_DIR,
     QUOTE_CURRENCIES,
-    TOP_N_COINS,
+    TOP_N_BY_MARKETCAP_TO_FETCH,
     USE_YESTERDAY_AS_END_DATE,
 )
 from data.cache import FileCache, PriceDataCache
@@ -81,7 +81,7 @@ class DataFetcher:
         client: CryptoCompareClient | None = None,
         cache: FileCache | None = None,
         price_cache: PriceDataCache | None = None,
-        token_filter: TokenFilter | None = None,
+        coin_filter: CoinFilter | None = None,
     ):
         """
         Initialize the data fetcher.
@@ -90,12 +90,12 @@ class DataFetcher:
             client: CryptoCompare API client (default: new instance)
             cache: File cache for API responses (default: new instance)
             price_cache: Price data cache (default: new instance)
-            token_filter: Token filter (default: new instance)
+            coin_filter: Coin filter (default: new instance)
         """
         self.client = client or CryptoCompareClient()
         self.cache = cache or FileCache()
         self.price_cache = price_cache or PriceDataCache()
-        self.token_filter = token_filter or TokenFilter()
+        self.coin_filter = coin_filter or CoinFilter()
 
         # Calculate the date range needed for all halving cycles
         # First halving minus DAYS_BEFORE to last halving plus DAYS_AFTER
@@ -112,7 +112,7 @@ class DataFetcher:
 
     def fetch_top_coins(
         self,
-        n: int = TOP_N_COINS,
+        n: int = TOP_N_BY_MARKETCAP_TO_FETCH,
         use_cache: bool = True,
         cache_key: str = "top_coins",
     ) -> list[dict[str, Any]]:
@@ -141,7 +141,7 @@ class DataFetcher:
 
     def fetch_and_filter_coins(
         self,
-        n: int = TOP_N_COINS,
+        n: int = TOP_N_BY_MARKETCAP_TO_FETCH,
         use_cache: bool = True,
         export_skipped: bool = True,
     ) -> FetchResult:
@@ -162,20 +162,20 @@ class DataFetcher:
         """
         try:
             # Reset filter to clear previous runs
-            self.token_filter.reset()
+            self.coin_filter.reset()
 
             # Fetch coins
             all_coins = self.fetch_top_coins(n=n, use_cache=use_cache)
 
             # Determine coins to download (includes BTC, skips stablecoins/wrapped/staked)
-            coins_to_download = self.token_filter.get_coins_to_download(
+            coins_to_download = self.coin_filter.get_coins_to_download(
                 all_coins,
                 record_skipped=True,
             )
 
             # Export skipped coins for review
             if export_skipped:
-                self.token_filter.export_skipped_coins_csv()
+                self.coin_filter.export_skipped_coins_csv()
 
             # Save coins to download list
             self._save_coins_to_download(coins_to_download)
@@ -184,7 +184,7 @@ class DataFetcher:
                 success=True,
                 message=f"Successfully fetched and filtered {len(coins_to_download)} coins",
                 coins_fetched=len(all_coins),
-                coins_filtered=len(self.token_filter.skipped_coins),
+                coins_filtered=len(self.coin_filter.skipped_coins),
                 coins_accepted=len(coins_to_download),
             )
 
@@ -492,8 +492,8 @@ class DataFetcher:
     def get_filter_summary(self) -> dict[str, Any]:
         """Get a summary of the last filtering operation."""
         return {
-            "skipped_count": len(self.token_filter.skipped_coins),
-            "by_reason": self.token_filter.get_skipped_summary(),
+            "skipped_count": len(self.coin_filter.skipped_coins),
+            "by_reason": self.coin_filter.get_skipped_summary(),
             "skipped_coins": [
                 {
                     "id": c.coin_id,
@@ -501,10 +501,10 @@ class DataFetcher:
                     "symbol": c.symbol,
                     "reason": c.reason,
                 }
-                for c in self.token_filter.skipped_coins
+                for c in self.coin_filter.skipped_coins
             ],
             # Backwards compatibility aliases
-            "filtered_count": len(self.token_filter.skipped_coins),
+            "filtered_count": len(self.coin_filter.skipped_coins),
             "filtered_tokens": [
                 {
                     "id": c.coin_id,
@@ -512,6 +512,6 @@ class DataFetcher:
                     "symbol": c.symbol,
                     "reason": c.reason,
                 }
-                for c in self.token_filter.skipped_coins
+                for c in self.coin_filter.skipped_coins
             ],
         }

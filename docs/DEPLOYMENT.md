@@ -64,9 +64,11 @@ This approach ensures:
 
 | File | Description |
 |------|-------------|
+| `btc_charts.html` | BTC charts index page |
 | `btc_usd_normalized.html` | BTC/USD normalized to halving day |
 | `btc_halving_cycles.html` | BTC/USD absolute values |
-| `total2_dual_normalized.html` | TOTAL2 vs USD and BTC side-by-side |
+| `total2_charts.html` | TOTAL2 charts index page |
+| `total2_dual_normalized.html` | TOTAL2/USD and TOTAL2/BTC side-by-side |
 | `total2_halving_cycles.html` | TOTAL2/BTC absolute values |
 | `total2_composition.html` | Redirect to latest month |
 | `total2_composition_YYYY_MM.html` | Monthly composition pages |
@@ -78,8 +80,8 @@ The TOTAL2 composition viewer is split into **monthly pages** to keep file sizes
 ```
 site/charts/
 ├── total2_composition.html          ← Redirect to latest month
-├── total2_composition_2014_09.html  ← September 2014
-├── total2_composition_2014_10.html  ← October 2014
+├── total2_composition_2013_09.html  ← September 2013
+├── total2_composition_2013_10.html  ← October 2013
 ├── ...
 ├── total2_composition_2025_11.html  ← November 2025
 └── total2_composition_2025_12.html  ← December 2025

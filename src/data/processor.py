@@ -8,6 +8,10 @@ This module re-exports classes from the processor submodules:
 - processor_total2b.py: Total2bProcessor for new TOTAL2b calculation
 """
 
+from config import (
+    TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
+    TOTAL2B_MIN_COINS_FOR_SCALING,
+)
 from data.processor_base import (
     MIN_VOLUME_FOR_OUTLIER_CHECK,
     OUTLIER_WINDOW_DAYS,
@@ -21,11 +25,7 @@ from data.processor_total2 import (
     MAX_DOD_INCREASE,
     Total2Processor,
 )
-from data.processor_total2b import (
-    FREEZE_PERIOD_DAYS,
-    MIN_COINS_FOR_SCALING,
-    Total2bProcessor,
-)
+from data.processor_total2b import Total2bProcessor
 
 
 def get_processor(
@@ -71,6 +71,6 @@ __all__ = [
     "MAX_DOD_INCREASE",
     "MAX_DOD_DECREASE",
     # Constants (TOTAL2b specific)
-    "FREEZE_PERIOD_DAYS",
-    "MIN_COINS_FOR_SCALING",
+    "TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS",
+    "TOTAL2B_MIN_COINS_FOR_SCALING",
 ]

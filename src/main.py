@@ -52,8 +52,8 @@ from config import (
     OUTPUT_DIR,
     PRICES_DIR,
     PROJECT_ROOT,
-    TOP_N_COINS,
-    TOP_N_FOR_TOTAL2,
+    TOP_N_BY_MARKETCAP_TO_FETCH,
+    TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2_INDEX_FILE,
 )
 from data.cache import FileCache, PriceDataCache
@@ -2029,8 +2029,8 @@ def main() -> int:
         "--top",
         "-n",
         type=int,
-        default=TOP_N_COINS,
-        help=f"Number of top coins to fetch (default: {TOP_N_COINS})",
+        default=TOP_N_BY_MARKETCAP_TO_FETCH,
+        help=f"Number of top coins to fetch (default: {TOP_N_BY_MARKETCAP_TO_FETCH})",
     )
     list_parser.add_argument(
         "--no-cache",
@@ -2087,8 +2087,8 @@ def main() -> int:
         "--top-n",
         "-n",
         type=int,
-        default=TOP_N_FOR_TOTAL2,
-        help=f"Number of coins in TOTAL2 (default: {TOP_N_FOR_TOTAL2})",
+        default=TOP_N_BY_VOLUME_FOR_TOTAL2,
+        help=f"Number of coins in TOTAL2 (default: {TOP_N_BY_VOLUME_FOR_TOTAL2})",
     )
     total2_parser.add_argument(
         "--volume-sma",
