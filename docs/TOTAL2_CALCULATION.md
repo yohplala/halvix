@@ -26,6 +26,7 @@ Halvix supports two methodologies for calculating the index:
 | **Volume outlier correction** | ✓ Yes | ✓ Yes |
 | **New coin integration** | 21-day entry warmup (post-entry) | 21-day freeze period (pre-entry) |
 | **Price adjustment (post-entry)** | Cap price changes during warmup | Scale by TOTAL2b_d-1/COIN_PRICE_d |
+| **Symbol replacement detection** | ✗ No | ✓ Yes (>100x price jump resets first_seen) |
 | **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
 
 ### Entry Timing Comparison
@@ -34,14 +35,15 @@ Both methodologies use a **21-day period** but apply it differently:
 
 | Aspect | TOTAL2 (Legacy) | TOTAL2b (New) |
 |--------|-----------------|---------------|
-| **When** | After coin enters TOP30 | After a coin is listed on Cryptocompare |
-| **Mechanism** | Entry warmup: cap price changes | Freeze period: coin not eligible yet for any volume calculation, coin cannot enter TOP30 |
+| **When** | After coin enters TOP30 | After first appearance on CryptoCompare (or after symbol replacement) |
+| **Mechanism** | Entry warmup: cap price changes | Freeze period: coin not eligible for inclusion, cannot enter TOP30 |
 | **Duration** | `TOTAL2_ENTRY_WARMUP_PERIOD_DAYS` (21 days) | `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` (21 days) |
 | **Effect** | Prevent index spikes from extreme prices | Ensure stable data before inclusion |
+| **Symbol replacement** | Not handled | Resets first_seen date, restarts freeze period |
 
 ### When to Use Each
 
-- **TOTAL2b (default)**: Recommended for new analyses, as this index is no longer entry of coins with high absolute price values.
+- **TOTAL2b (default)**: Recommended for new analyses, as this index is no longer distorted by coin entries with high absolute price values.
 - **TOTAL2 (legacy)**: For backward compatibility with existing analyses.
 
 ## Configuration
@@ -78,7 +80,14 @@ Additional configuration for **TOTAL2b** in `src/config.py`:
 ```python
 # TOTAL2b new coin entry settings (pre-entry freeze + scaling)
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21   # Days to wait before coin can join (3 weeks)
-TOTAL2B_MIN_COINS_FOR_SCALING = 30    # Only apply coin price scaling after index has this many coins
+TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has this many coins
+
+# Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
+# tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
+# or old "OMG" replaced by OmiseGO in July 2017 with a 633x jump).
+# When a coin's price jumps by more than this factor in a single day, we treat it
+# as a symbol replacement and reset the first_seen date to after the jump.
+TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 100  # 100x price change indicates symbol swap
 ```
 
 ## Calculation Algorithm
@@ -132,7 +141,7 @@ CryptoCompare occasionally has bad data points with impossible volume spikes. Th
 
 ## TOTAL2b Algorithm (New, Default)
 
-TOTAL2b uses a price scaling mechanism which makes it resistant to distorsion because of coin entry with slarge prices:
+TOTAL2b uses a price scaling mechanism which makes it resistant to distortion because of coin entry with large prices:
 
 ### 1. Freeze Period
 
@@ -141,36 +150,66 @@ When a coin first appears in CryptoCompare data, it must wait **21 days** before
 - Avoids launch-day volatility spikes
 - Provides time for accurate volume SMA calculation
 
-### 2. Price Scaling
+### 2. Symbol Replacement Detection
+
+CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024, or old "OMG" replaced by OmiseGO in July 2017). When detected, the `first_seen` date is reset, and a new freeze period and price scaling apply to the new token.
+
+**Detection criteria:**
+- Price jumps by **>100x** (or **<0.01x**) in a single day
+- Both the pre-jump and post-jump prices must be positive (not a coin starting to trade)
+- Takes the **last** detected jump (handles multiple replacements)
+
+**Effect:**
+- The `first_seen` date is reset to the replacement date
+- The freeze period restarts from this new date
+- Any old scaling factor is discarded
+- Price scaling is applied fresh when the "new" token enters the index
+
+**Example - HYPE symbol replacement:**
+- Original first-seen: 2018-05-15 (old worthless token)
+- Symbol replacement detected: 2024-12-02 (price jump from ~0 to $30+)
+- New first-seen: 2024-12-02
+- Freeze period: 2024-12-02 to 2024-12-23
+- Entry eligible: 2024-12-23 (with fresh price scaling)
+
+### 3. Price Scaling
 
 When a coin enters TOTAL2b (after passing the freeze period and reaching TOP30 by volume):
 
 ```python
-scaled_price = raw_price * TOTAL2b_d-1 / COIN_PRICE_d
+scaling_factor = TOTAL2b_d-1 / COIN_PRICE_d
+scaled_price = raw_price * scaling_factor
 ```
 
-Where
-- `TOTAL2b_d-1` is the index value from the previous day.
-- `COIN_PRICE_d` is the coin price on the day of entry.
+Where:
+- `TOTAL2b_d-1` is the index value from the previous day
+- `COIN_PRICE_d` is the coin's raw price on the day of entry
+- `scaling_factor` is stored and applied to all future prices for this coin
 
 **Why scaling works:**
 - Preserves the coin's **day-over-day price change factor**
 - Cancels any large absolute offsets in the index because of high coin price
 - Applies only when index already has 30+ coins (established baseline)
+- Persistent: once applied, the scaling factor remains for all subsequent days
 
-### 3. No TOTAL2 Series Smoothing
+### 4. No TOTAL2 Series Smoothing
 
-TOTAL2b does **not** apply TOTAL2 series smoothing (capping extreme index movements). The freeze period and price scaling provide sufficient protection against entry spikes, making additional smoothing unnecessary.
+TOTAL2b does **not** apply TOTAL2 series smoothing (capping extreme index movements). The freeze period, symbol replacement detection, and price scaling provide sufficient protection against entry spikes, making additional smoothing unnecessary.
 
 ### Algorithm Summary
 
 ```python
 for each day:
-    1. Filter eligible coins (passed freeze period + valid data)
-    2. Detect new entries (coins entering TOP30 today)
-    3. For new entries: apply price scaling (if index has 30+ coins)
-    4. Calculate volume-weighted average of TOP30
-    5. Record composition
+    1. Calculate first-seen dates for all coins
+       - Detect symbol replacements (>100x price jumps)
+       - Reset first_seen date if replacement detected
+    2. Filter eligible coins (passed freeze period + valid data)
+    3. Detect new entries (coins entering TOP30 today)
+    4. For new entries: apply price scaling (if index has 30+ coins)
+       - scaling_factor = prev_total2b / entry_day_price
+       - Apply to all future prices for this coin
+    5. Calculate volume-weighted average of TOP30 (using scaled prices)
+    6. Record composition
 ```
 
 ---
