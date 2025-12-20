@@ -1,6 +1,6 @@
-# Fetch cryptocurrency data and store in orphan 'data' branch
+# Fetch cryptocurrency price data and store in orphan 'raw-data' branch
 # This workflow is triggered manually from the GitHub Actions UI
-name: Fetch Data
+name: Fetch Raw Data
 
 on:
   # Manual trigger only - this is a heavy workflow
@@ -15,7 +15,7 @@ jobs:
   fetch-data:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required to push to data branch
+      contents: write  # Required to push to raw-data branch
 
     steps:
       - name: Checkout main branch
@@ -23,46 +23,49 @@ jobs:
         with:
           path: main
 
-      - name: Checkout data branch
-        id: checkout-data
+      - name: Checkout raw-data branch
+        id: checkout-raw-data
         uses: actions/checkout@v4
         with:
-          ref: data
-          path: data-branch
+          ref: raw-data
+          path: raw-data-branch
         continue-on-error: true  # Branch may not exist yet
 
-      - name: Initialize data branch if missing
-        if: steps.checkout-data.outcome == 'failure'
+      - name: Initialize raw-data branch if missing
+        if: steps.checkout-raw-data.outcome == 'failure'
         run: |
-          mkdir -p data-branch
-          cd data-branch
+          mkdir -p raw-data-branch
+          cd raw-data-branch
           git init
-          git checkout --orphan data
-          echo "# Halvix Data Cache" > README.md
+          git checkout --orphan raw-data
+          echo "# Halvix Raw Data" > README.md
           echo "" >> README.md
-          echo "This branch contains cached price data (parquet files)." >> README.md
+          echo "This branch contains raw price data (parquet files)." >> README.md
           echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
           echo "" >> README.md
           echo "**Do not manually edit files in this branch.**" >> README.md
           git add README.md
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Initialize data branch"
-          echo "Initialized new orphan data branch"
+          git commit -m "Initialize raw-data branch"
+          echo "Initialized new orphan raw-data branch"
 
       - name: Restore cached data to main workspace
         run: |
-          # Copy existing data from data branch to main workspace
-          if [ -d "data-branch/raw" ]; then
+          # Copy existing data from raw-data branch to main workspace
+          if [ -d "raw-data-branch/raw" ]; then
             mkdir -p main/data
-            cp -r data-branch/raw main/data/ 2>/dev/null || true
-            cp -r data-branch/processed main/data/ 2>/dev/null || true
-            cp -r data-branch/cache main/data/ 2>/dev/null || true
-            echo "Restored cached data from data branch"
+            cp -r raw-data-branch/raw main/data/ 2>/dev/null || true
+            cp -r raw-data-branch/cache main/data/ 2>/dev/null || true
+            # Copy coins_to_download.json and download_skipped.csv
+            mkdir -p main/data/processed
+            cp raw-data-branch/processed/coins_to_download.json main/data/processed/ 2>/dev/null || true
+            cp raw-data-branch/processed/download_skipped.csv main/data/processed/ 2>/dev/null || true
+            echo "Restored cached data from raw-data branch"
             echo "Price files found:"
             ls -la main/data/raw/prices/ 2>/dev/null | head -20 || echo "No price files yet"
           else
-            echo "No existing data in data branch (first run)"
+            echo "No existing data in raw-data branch (first run)"
             mkdir -p main/data/raw/prices
             mkdir -p main/data/processed
             mkdir -p main/data/cache
@@ -108,9 +111,9 @@ jobs:
         working-directory: main
         run: poetry run python -m main status
 
-      - name: Update data branch with new data
+      - name: Update raw-data branch with new data
         run: |
-          cd data-branch
+          cd raw-data-branch
 
           # Configure git
           git config user.name "github-actions[bot]"
@@ -119,24 +122,28 @@ jobs:
           # Remove old data files (but keep README and .git)
           find . -maxdepth 1 -type d ! -name '.' ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
 
-          # Copy new data from main workspace
+          # Copy raw data from main workspace
           if [ -d "../main/data/raw" ]; then
             cp -r ../main/data/raw . 2>/dev/null || true
             echo "Copied raw data"
-          fi
-          if [ -d "../main/data/processed" ]; then
-            cp -r ../main/data/processed . 2>/dev/null || true
-            echo "Copied processed data"
           fi
           if [ -d "../main/data/cache" ]; then
             cp -r ../main/data/cache . 2>/dev/null || true
             echo "Copied cache data"
           fi
+          # Copy only specific processed files (coins_to_download.json, download_skipped.csv)
+          mkdir -p processed
+          if [ -f "../main/data/processed/coins_to_download.json" ]; then
+            cp ../main/data/processed/coins_to_download.json processed/ 2>/dev/null || true
+          fi
+          if [ -f "../main/data/processed/download_skipped.csv" ]; then
+            cp ../main/data/processed/download_skipped.csv processed/ 2>/dev/null || true
+          fi
 
           # Update README with timestamp
-          echo "# Halvix Data Cache" > README.md
+          echo "# Halvix Raw Data" > README.md
           echo "" >> README.md
-          echo "This branch contains cached price data (parquet files)." >> README.md
+          echo "This branch contains raw price data (parquet files)." >> README.md
           echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
           echo "" >> README.md
           echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
@@ -150,8 +157,11 @@ jobs:
             count=$(ls raw/prices/*.parquet 2>/dev/null | wc -l)
             echo "- \`raw/prices/\`: $count coin price files" >> README.md
           fi
+          if [ -d "cache" ]; then
+            echo "- \`cache/\`: Coin list cache" >> README.md
+          fi
           if [ -d "processed" ]; then
-            echo "- \`processed/\`: Processed data files (accepted coins, rejected coins, TOTAL2 index)" >> README.md
+            echo "- \`processed/\`: Download metadata (coins_to_download.json, download_skipped.csv)" >> README.md
           fi
 
           # Show what we're about to commit
@@ -174,20 +184,19 @@ jobs:
           echo ""
 
           # Create a single commit (squash history by amending or resetting)
-          # Using --amend to keep only one commit in the orphan branch
           if git rev-parse HEAD >/dev/null 2>&1; then
             echo "Amending existing commit to squash history..."
-            git commit --amend -m "Update data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit --amend -m "Update raw data - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           else
             echo "Creating initial commit..."
-            git commit -m "Update data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit -m "Update raw data - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           fi
 
           # Force push to keep orphan branch with single commit
           git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || \
             git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
 
-          echo "Pushing to data branch..."
-          git push --force origin data
+          echo "Pushing to raw-data branch..."
+          git push --force origin raw-data
 
-          echo "=== Data branch updated successfully ==="
+          echo "=== Raw data branch updated successfully ==="
