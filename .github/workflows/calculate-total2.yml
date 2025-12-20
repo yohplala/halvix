@@ -1,0 +1,208 @@
+# Calculate TOTAL2 index and store in orphan 'processed-data' branch
+# This workflow is triggered manually from the GitHub Actions UI
+name: Calculate TOTAL2
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      index_type:
+        description: 'Index type (total2 or total2b)'
+        required: false
+        default: 'total2b'
+        type: choice
+        options:
+          - total2b
+          - total2
+
+jobs:
+  calculate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to push to processed-data branch
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Checkout raw-data branch
+        id: checkout-raw-data
+        uses: actions/checkout@v4
+        with:
+          ref: raw-data
+          path: raw-data-branch
+        continue-on-error: true
+
+      - name: Check raw-data branch exists
+        if: steps.checkout-raw-data.outcome == 'failure'
+        run: |
+          echo "❌ Error: raw-data branch does not exist."
+          echo "Please run the 'Fetch Raw Data' workflow first."
+          exit 1
+
+      - name: Checkout processed-data branch
+        id: checkout-processed-data
+        uses: actions/checkout@v4
+        with:
+          ref: processed-data
+          path: processed-data-branch
+        continue-on-error: true  # Branch may not exist yet
+
+      - name: Initialize processed-data branch if missing
+        if: steps.checkout-processed-data.outcome == 'failure'
+        run: |
+          mkdir -p processed-data-branch
+          cd processed-data-branch
+          git init
+          git checkout --orphan processed-data
+          echo "# Halvix Processed Data" > README.md
+          echo "" >> README.md
+          echo "This branch contains processed TOTAL2 index data." >> README.md
+          echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
+          echo "" >> README.md
+          echo "**Do not manually edit files in this branch.**" >> README.md
+          git add README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Initialize processed-data branch"
+          echo "Initialized new orphan processed-data branch"
+
+      - name: Restore data to main workspace
+        run: |
+          mkdir -p main/data/raw
+          mkdir -p main/data/processed
+          mkdir -p main/data/cache
+
+          # Copy raw data (prices, cache) from raw-data branch
+          if [ -d "raw-data-branch/raw" ]; then
+            cp -r raw-data-branch/raw/* main/data/raw/ 2>/dev/null || true
+            echo "Restored raw data from raw-data branch"
+          fi
+          if [ -d "raw-data-branch/cache" ]; then
+            cp -r raw-data-branch/cache/* main/data/cache/ 2>/dev/null || true
+            echo "Restored cache from raw-data branch"
+          fi
+
+          # Copy existing processed data (for future incremental calculations)
+          if [ -d "processed-data-branch/processed" ]; then
+            cp -r processed-data-branch/processed/* main/data/processed/ 2>/dev/null || true
+            echo "Restored existing processed data from processed-data branch"
+          fi
+
+          echo "Price files found:"
+          ls -la main/data/raw/prices/ 2>/dev/null | head -20 || echo "No price files"
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v4
+        with:
+          path: main/.venv
+          key: venv-total2-${{ runner.os }}-3.13-${{ hashFiles('main/**/pyproject.toml') }}
+
+      - name: Install dependencies
+        working-directory: main
+        run: poetry install --no-interaction
+
+      - name: Calculate TOTAL2 index
+        working-directory: main
+        run: |
+          poetry run python -m main calculate-total2 --index-type ${{ github.event.inputs.index_type }}
+
+      - name: Show data status
+        working-directory: main
+        run: poetry run python -m main status
+
+      - name: Update processed-data branch
+        run: |
+          cd processed-data-branch
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Remove old data files (but keep README and .git)
+          find . -maxdepth 1 -type d ! -name '.' ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
+
+          # Copy processed data from main workspace
+          mkdir -p processed
+          if [ -f "../main/data/processed/total2_index.parquet" ]; then
+            cp ../main/data/processed/total2_index.parquet processed/
+            echo "Copied total2_index.parquet"
+          fi
+          if [ -f "../main/data/processed/total2_daily_composition.parquet" ]; then
+            cp ../main/data/processed/total2_daily_composition.parquet processed/
+            echo "Copied total2_daily_composition.parquet"
+          fi
+          if [ -f "../main/data/processed/total2_max_weight_change.json" ]; then
+            cp ../main/data/processed/total2_max_weight_change.json processed/
+            echo "Copied total2_max_weight_change.json"
+          fi
+
+          # Update README with timestamp and index type
+          echo "# Halvix Processed Data" > README.md
+          echo "" >> README.md
+          echo "This branch contains processed TOTAL2 index data." >> README.md
+          echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
+          echo "" >> README.md
+          echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
+          echo "**Index type:** ${{ github.event.inputs.index_type }}" >> README.md
+          echo "" >> README.md
+          echo "**Do not manually edit files in this branch.**" >> README.md
+          echo "" >> README.md
+          echo "## Contents" >> README.md
+          echo "" >> README.md
+          echo "- \`processed/total2_index.parquet\`: TOTAL2 index time series" >> README.md
+          echo "- \`processed/total2_daily_composition.parquet\`: Daily coin composition" >> README.md
+          echo "- \`processed/total2_max_weight_change.json\`: Statistics and metadata" >> README.md
+
+          # Show what we're about to commit
+          echo "=== Files to commit ==="
+          ls -la
+          ls -la processed/ 2>/dev/null || true
+          echo ""
+
+          # Stage all changes
+          git add -A
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Show staged changes summary
+          echo "=== Staged changes ==="
+          git diff --staged --stat
+          echo ""
+
+          # Create a single commit (squash history)
+          if git rev-parse HEAD >/dev/null 2>&1; then
+            echo "Amending existing commit to squash history..."
+            git commit --amend -m "Update TOTAL2 index (${{ github.event.inputs.index_type }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          else
+            echo "Creating initial commit..."
+            git commit -m "Update TOTAL2 index (${{ github.event.inputs.index_type }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          fi
+
+          # Force push to keep orphan branch with single commit
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || \
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
+
+          echo "Pushing to processed-data branch..."
+          git push --force origin processed-data
+
+          echo "=== Processed data branch updated successfully ==="

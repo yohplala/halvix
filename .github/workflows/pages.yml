@@ -1,15 +1,9 @@
-# Deploy Halvix documentation to GitHub Pages
+# Generate charts and deploy to GitHub Pages
+# This workflow generates charts from data branches and deploys to GitHub Pages
 name: Deploy to GitHub Pages
 
 on:
-  # Runs on pushes targeting the default branch
-  push:
-    branches: ["main"]
-    paths:
-      - "site/**"
-      - ".github/workflows/pages.yml"
-
-  # Allows you to run this workflow manually from the Actions tab
+  # Manual trigger only
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -18,19 +12,105 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  # Build job
+  # Build job - generates charts from data and prepares for deployment
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout main branch
         uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Checkout raw-data branch
+        id: checkout-raw-data
+        uses: actions/checkout@v4
+        with:
+          ref: raw-data
+          path: raw-data-branch
+        continue-on-error: true
+
+      - name: Check raw-data branch exists
+        if: steps.checkout-raw-data.outcome == 'failure'
+        run: |
+          echo "⚠️ Warning: raw-data branch does not exist."
+          echo "Charts requiring price data may fail."
+
+      - name: Checkout processed-data branch
+        id: checkout-processed-data
+        uses: actions/checkout@v4
+        with:
+          ref: processed-data
+          path: processed-data-branch
+        continue-on-error: true
+
+      - name: Check processed-data branch exists
+        if: steps.checkout-processed-data.outcome == 'failure'
+        run: |
+          echo "❌ Error: processed-data branch does not exist."
+          echo "Please run the 'Calculate TOTAL2' workflow first."
+          exit 1
+
+      - name: Restore data to main workspace
+        run: |
+          mkdir -p main/data/raw
+          mkdir -p main/data/processed
+          mkdir -p main/data/cache
+
+          # Copy raw data (prices, cache) from raw-data branch
+          if [ -d "raw-data-branch/raw" ]; then
+            cp -r raw-data-branch/raw/* main/data/raw/ 2>/dev/null || true
+            echo "Restored raw data from raw-data branch"
+          fi
+          if [ -d "raw-data-branch/cache" ]; then
+            cp -r raw-data-branch/cache/* main/data/cache/ 2>/dev/null || true
+            echo "Restored cache from raw-data branch"
+          fi
+
+          # Copy processed data from processed-data branch
+          if [ -d "processed-data-branch/processed" ]; then
+            cp -r processed-data-branch/processed/* main/data/processed/ 2>/dev/null || true
+            echo "Restored processed data from processed-data branch"
+          fi
+
+          echo "Data files restored:"
+          ls -la main/data/raw/prices/ 2>/dev/null | head -10 || echo "No price files"
+          ls -la main/data/processed/ 2>/dev/null || echo "No processed files"
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v4
+        with:
+          path: main/.venv
+          key: venv-pages-${{ runner.os }}-3.13-${{ hashFiles('main/**/pyproject.toml') }}
+
+      - name: Install dependencies
+        working-directory: main
+        run: poetry install --no-interaction
+
+      - name: Generate charts
+        working-directory: main
+        run: |
+          poetry run python -m main generate-charts
+          echo "Charts generated in site/"
+          ls -la site/charts/ | head -20
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -38,8 +118,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload site directory as-is (user generates HTML locally)
-          path: "site"
+          # Upload generated site directory
+          path: "main/site"
 
   # Deployment job
   deploy:

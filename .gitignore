@@ -79,19 +79,14 @@ venv.bak/
 *.swo
 *~
 
-# Project-specific
-data/raw/
-data/processed/
-data/cache/
-output/charts/
-output/reports/
+# Project-specific data directories
+data/
 
-# Keep directory structure
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/cache/.gitkeep
-!output/charts/.gitkeep
-!output/reports/.gitkeep
+# Generated site (charts are generated in CI)
+site/
+
+# Output directory
+output/
 
 # OS files
 .DS_Store
@@ -100,6 +95,3 @@ Thumbs.db
 # Log files
 *.log
 logs/
-
-# Note: site/charts/ files are tracked and deployed to GitHub Pages
-# They are generated locally with: poetry run python -m main generate-charts
