@@ -111,6 +111,7 @@ class BaseTotal2Processor(ABC):
         self,
         coin_ids: list[str] | None = None,
         show_progress: bool = True,
+        columns: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
         """
         Load price data for all cached coins.
@@ -118,6 +119,8 @@ class BaseTotal2Processor(ABC):
         Args:
             coin_ids: Optional list of coin IDs to load (default: all cached)
             show_progress: Show progress bar
+            columns: Optional list of columns to load (memory optimization).
+                     Default: ["close", "volume_to"] for TOTAL2 calculation.
 
         Returns:
             Dictionary mapping coin_id to price DataFrame
@@ -125,11 +128,15 @@ class BaseTotal2Processor(ABC):
         if coin_ids is None:
             coin_ids = self.price_cache.list_cached_coins(self.quote_currency)
 
+        # Default to only loading columns needed for TOTAL2 calculation
+        if columns is None:
+            columns = ["close", "volume_to"]
+
         data = {}
         iterator = tqdm(coin_ids, desc="Loading price data") if show_progress else coin_ids
 
         for coin_id in iterator:
-            df = self.price_cache.get_prices(coin_id, self.quote_currency)
+            df = self.price_cache.get_prices(coin_id, self.quote_currency, columns=columns)
             if df is not None and not df.empty:
                 data[coin_id] = df
 

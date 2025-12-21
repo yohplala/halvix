@@ -242,7 +242,12 @@ class PriceDataCache:
             return self._get_legacy_price_path(coin_id).exists()
         return False
 
-    def get_prices(self, coin_id: str, quote_currency: str = "BTC") -> pd.DataFrame | None:
+    def get_prices(
+        self,
+        coin_id: str,
+        quote_currency: str = "BTC",
+        columns: list[str] | None = None,
+    ) -> pd.DataFrame | None:
         """
         Get cached price data for a coin-pair.
 
@@ -251,9 +256,11 @@ class PriceDataCache:
         Args:
             coin_id: Coin ID (lowercase symbol)
             quote_currency: Quote currency (e.g., "BTC", "USD")
+            columns: Optional list of columns to load. If None, loads all columns.
+                     For TOTAL2 calculation, use ["close", "volume_to"] to reduce memory.
 
         Returns:
-            DataFrame with DatetimeIndex and OHLCV columns, or None
+            DataFrame with DatetimeIndex and requested columns, or None
         """
         # Try new format first
         filepath = self._get_price_path(coin_id, quote_currency)
@@ -266,7 +273,11 @@ class PriceDataCache:
             return None
 
         try:
-            df = pd.read_parquet(filepath)
+            # Only load requested columns if specified (memory optimization)
+            if columns:
+                df = pd.read_parquet(filepath, columns=columns)
+            else:
+                df = pd.read_parquet(filepath)
 
             # Ensure normalized DatetimeIndex for consistent lookups
             if not isinstance(df.index, pd.DatetimeIndex):
