@@ -15,6 +15,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from config import (
+    BTC_CYCLE_BOTTOMS,
+    BTC_CYCLE_PEAKS,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
@@ -304,6 +306,75 @@ def _write_chart_with_template(
         f.write(full_html)
 
 
+def _add_cycle_extremes_lines(
+    fig: go.Figure,
+    halving_date: date,
+    xref: str = "x",
+    yref: str = "paper",
+) -> None:
+    """
+    Add vertical lines for BTC cycle peaks (green) and bottoms (red) to a chart.
+
+    Only adds lines for peaks/bottoms that fall within the cycle window.
+
+    Args:
+        fig: Plotly figure to add lines to
+        halving_date: The halving date for this cycle
+        xref: X-axis reference (e.g., "x", "x2" for subplots)
+        yref: Y-axis reference (default: "paper" for full height)
+    """
+    cycle_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
+    cycle_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
+
+    # Add peak lines (translucent green)
+    for peak_date in BTC_CYCLE_PEAKS:
+        if cycle_start <= peak_date <= cycle_end:
+            days_from_halving = (peak_date - halving_date).days
+            fig.add_shape(
+                type="line",
+                x0=days_from_halving,
+                x1=days_from_halving,
+                y0=0,
+                y1=1,
+                xref=xref,
+                yref=yref,
+                line={"dash": "solid", "color": "rgba(63, 185, 80, 0.4)", "width": 2},
+            )
+            fig.add_annotation(
+                x=days_from_halving,
+                y=0.02,
+                yref=yref,
+                xref=xref,
+                text="📈",
+                showarrow=False,
+                font={"size": 10},
+            )
+
+    # Add bottom lines (translucent red)
+    for bottom_date in BTC_CYCLE_BOTTOMS:
+        if cycle_start <= bottom_date <= cycle_end:
+            days_from_halving = (bottom_date - halving_date).days
+            fig.add_shape(
+                type="line",
+                x0=days_from_halving,
+                x1=days_from_halving,
+                y0=0,
+                y1=1,
+                xref=xref,
+                yref=yref,
+                line={"dash": "solid", "color": "rgba(248, 81, 73, 0.4)", "width": 2},
+            )
+            fig.add_annotation(
+                x=days_from_halving,
+                y=0.02,
+                yref=yref,
+                xref=xref,
+                text="📉",
+                showarrow=False,
+                font={"size": 10},
+            )
+
+
 def get_cycle_data(
     df: pd.DataFrame,
     halving_date: date,
@@ -465,6 +536,10 @@ def create_btc_usd_normalized_chart(
 
     # Add horizontal line at 1.0
     fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"})
+
+    # Add cycle peak/bottom lines for each halving cycle
+    for halving_date in HALVING_DATES:
+        _add_cycle_extremes_lines(fig, halving_date, xref="x", yref="paper")
 
     if output_path:
         _write_chart_with_template(
@@ -675,6 +750,11 @@ def create_total2_dual_chart(
     fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
     fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=2)
 
+    # Add cycle peak/bottom lines for each halving cycle (both subplots)
+    for halving_date in HALVING_DATES:
+        _add_cycle_extremes_lines(fig, halving_date, xref="x1", yref="paper")
+        _add_cycle_extremes_lines(fig, halving_date, xref="x2", yref="paper")
+
     if output_path:
         _write_chart_with_template(
             fig,
@@ -822,6 +902,10 @@ def create_total2_halving_chart(
         font={"color": "rgba(180,180,180,0.8)", "size": 14},
     )
 
+    # Add cycle peak/bottom lines for each halving cycle
+    for halving_date in HALVING_DATES:
+        _add_cycle_extremes_lines(fig, halving_date, xref="x", yref="paper")
+
     if output_path:
         _write_chart_with_template(
             fig,
@@ -933,6 +1017,10 @@ def create_btc_usd_halving_chart(
         showarrow=False,
         font={"color": "rgba(180,180,180,0.8)", "size": 14},
     )
+
+    # Add cycle peak/bottom lines for each halving cycle
+    for halving_date in HALVING_DATES:
+        _add_cycle_extremes_lines(fig, halving_date, xref="x", yref="paper")
 
     if output_path:
         _write_chart_with_template(
@@ -1113,6 +1201,11 @@ def create_btc_combined_chart(
 
     # Add horizontal line at 1.0 for normalized chart
     fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
+
+    # Add cycle peak/bottom lines for each halving cycle (both subplots)
+    for halving_date in HALVING_DATES:
+        _add_cycle_extremes_lines(fig, halving_date, xref="x", yref="paper")
+        _add_cycle_extremes_lines(fig, halving_date, xref="x2", yref="paper")
 
     if output_path:
         _write_chart_with_template(
@@ -1297,6 +1390,11 @@ def create_total2_combined_chart(
 
     # Add horizontal line at 1.0 for normalized chart (row 1 only)
     fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
+
+    # Add cycle peak/bottom lines for each halving cycle (both subplots)
+    for halving_date in HALVING_DATES:
+        _add_cycle_extremes_lines(fig, halving_date, xref="x", yref="paper")
+        _add_cycle_extremes_lines(fig, halving_date, xref="x2", yref="paper")
 
     if output_path:
         _write_chart_with_template(

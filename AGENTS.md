@@ -139,7 +139,7 @@ from data.processor import Total2bProcessor
 
 ### Key Config Values (from `src/config.py`)
 ```python
-TOP_N_BY_MARKETCAP_TO_FETCH = 1000     # Coins to fetch (among those, downloads of some can be skipped)
+TOP_N_BY_MARKETCAP_TO_FETCH = 1200     # Coins to fetch (among those, downloads of some can be skipped)
 TOP_N_BY_VOLUME_FOR_TOTAL2 = 30        # Coins in index
 VOLUME_SMA_WINDOW = 120                # Days for volume smoothing
 DEFAULT_QUOTE_CURRENCY = "BTC"

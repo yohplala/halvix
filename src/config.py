@@ -37,11 +37,36 @@ HALVING_DATES: list[date] = [
 PROJECTED_5TH_HALVING = date(2028, 3, 15)
 
 # =============================================================================
+# BTC Cycle Peaks and Bottoms (verified from CryptoCompare data)
+# =============================================================================
+# These dates mark significant cycle extremes in BTC/USD price history.
+# Used for visualization to show where bottoms and peaks occurred relative to halvings.
+
+# BTC cycle peaks (bull market tops) - verified with +/-30 day accuracy
+# Note: Last peak is for current cycle and may change
+BTC_CYCLE_PEAKS: list[date] = [
+    # date(2011, 6, 8),  # Pre halving 1 peak: $29.60
+    # date(2013, 12, 4),  # Post halving 1 peak: $1,237.55
+    date(2017, 12, 16),  # Post halving 2 peak: $19,345.49
+    date(2021, 11, 8),  # Post halving 3 peak: $67,549.14
+    date(2025, 10, 6),  # Post halving 4 peak (projected/current)
+]
+
+# BTC cycle bottoms (bear market lows) - verified with +/-30 day accuracy
+# These mark the lowest points before the next bull run
+BTC_CYCLE_BOTTOMS: list[date] = [
+    # date(2011, 11, 18),  # Pre halving 1 bottom: $2.05
+    date(2015, 1, 14),  # Pre halving 2 bottom: $164.92
+    date(2018, 12, 15),  # Pre halving 3 bottom: $3,232.51
+    date(2022, 11, 21),  # Pre halving 4 bottom: $15,760.19
+]
+
+# =============================================================================
 # Time Window Configuration
 # =============================================================================
 
 DAYS_BEFORE_HALVING = 550
-DAYS_AFTER_HALVING = 880  # Extended to capture bear market phase following bull run
+DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
 TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1430 days
 
 
@@ -109,8 +134,8 @@ def get_regression_end_date() -> date:
 # Only process coins with data available before this date
 MIN_DATA_DATE = date(2024, 1, 10)
 
-# Number of top coins to fetch (increased to 1000 to include historical coins like XEM)
-TOP_N_BY_MARKETCAP_TO_FETCH = 1000
+# Number of top coins to fetch (increased to 1200 to include historical coins like XEM)
+TOP_N_BY_MARKETCAP_TO_FETCH = 1200
 
 # Number of top coins to use for TOTAL2 calculation
 TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
