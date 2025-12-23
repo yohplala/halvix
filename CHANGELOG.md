@@ -84,7 +84,7 @@ format YYYY.MM.patch.
 - **Fixed:** BTC is now downloaded (for charts) but excluded from TOTAL2 calculation
 - **Fixed:** Recent coins are included in TOTAL2 but marked as "not for individual analysis"
 - **Fixed:** End date for price fetching now dynamically set to yesterday instead of being capped at analysis end date (2025-10-21)
-- **Fixed:** Coins without price data before MIN_DATA_DATE (2024-01-10) are now automatically removed from accepted_coins.json after price fetching
+- **Fixed:** Coins without price data are now automatically removed from accepted_coins.json after price fetching
 - **Fixed:** Project structure in PROJECT_CONTEXT.md now correctly shows docs/ directory location
 - **Fixed:** Stablecoin exclusion reason updated from "no price movement vs BTC" to "stable vs fiat, not representative of crypto market trends"
 - **Updated:** README with charts section and GitHub Pages setup instructions

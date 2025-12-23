@@ -10,13 +10,23 @@ This document describes how data is fetched, processed, and deployed to GitHub P
 
 ## Overview
 
-Halvix uses a **fully automated CI pipeline** with three manually-triggered workflows and two data branches:
+Halvix uses a **fully automated CI pipeline** with:
 
-1. **Fetch Raw Data** → Stores price data in `raw-data` branch
-2. **Calculate TOTAL2** → Stores processed index in `processed-data` branch
-3. **Deploy to GitHub Pages** → Generates charts and deploys
+- **Daily Update** (scheduled) → Runs the full pipeline automatically at 6:00 AM UTC
+- Three **manually-triggered workflows** for on-demand runs
+- Two **data branches** (orphan) for storing raw and processed data
+
+### Workflows
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| **Daily Update** | ⏰ 6:00 AM UTC (scheduled) | Runs full pipeline: fetch → calculate → deploy |
+| Fetch Raw Data | 🖱️ Manual | Stores price data in `raw-data` branch |
+| Calculate TOTAL2 | 🖱️ Manual | Stores processed index in `processed-data` branch |
+| Deploy to GitHub Pages | 🖱️ Manual | Generates charts and deploys |
 
 This approach ensures:
+- **Automatic daily updates** with fresh data every morning
 - No local data generation required for production
 - Clean separation between raw data, processed data, and source code
 - Incremental updates (only fetch new data, reuse existing)
@@ -28,12 +38,11 @@ This approach ensures:
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │                        Halvix CI Pipeline                          │
-│                    (All workflows manually triggered)              │
+│          ⏰ Daily Update (6:00 AM UTC) or 🖱️ Manual Trigger        │
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
-│  WORKFLOW 1: Fetch Raw Data                                        │
+│  STEP 1: Fetch Raw Data                                            │
 │  ┌────────────────────────────────────────────────────────────┐    │
-│  │ • Manual trigger from GitHub Actions UI                    │    │
 │  │ • Runs: list-coins + fetch-prices                          │    │
 │  │ • Pushes to: raw-data branch (orphan)                      │    │
 │  └────────────────────────────────────────────────────────────┘    │
@@ -48,11 +57,10 @@ This approach ensures:
 │  └─────────────────────────────────────────────┘                   │
 │                              │                                     │
 │                              ▼                                     │
-│  WORKFLOW 2: Calculate TOTAL2                                      │
+│  STEP 2: Calculate TOTAL2                                          │
 │  ┌────────────────────────────────────────────────────────────┐    │
-│  │ • Manual trigger from GitHub Actions UI                    │    │
 │  │ • Pulls: raw-data branch                                   │    │
-│  │ • Runs: calculate-total2                                   │    │
+│  │ • Runs: calculate-total2 --index-type total2b              │    │
 │  │ • Pushes to: processed-data branch (orphan)                │    │
 │  └────────────────────────────────────────────────────────────┘    │
 │                              │                                     │
@@ -65,9 +73,8 @@ This approach ensures:
 │  └─────────────────────────────────────────────┘                   │
 │                              │                                     │
 │                              ▼                                     │
-│  WORKFLOW 3: Deploy to GitHub Pages                                │
+│  STEP 3: Deploy to GitHub Pages                                    │
 │  ┌────────────────────────────────────────────────────────────┐    │
-│  │ • Manual trigger from GitHub Actions UI                    │    │
 │  │ • Pulls: raw-data + processed-data branches                │    │
 │  │ • Runs: generate-charts                                    │    │
 │  │ • Deploys: site/ → GitHub Pages (artifact-based)           │    │
@@ -77,6 +84,7 @@ This approach ensures:
 │  ┌─────────────────────────────────────────────┐                   │
 │  │           GitHub Pages                      │                   │
 │  │  https://yohplala.github.io/halvix/         │                   │
+│  │  (Last updated timestamp shown in footer)   │                   │
 │  └─────────────────────────────────────────────┘                   │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
@@ -113,9 +121,36 @@ Contains calculated TOTAL2 index data:
 
 ## Workflows
 
-All three workflows are **manually triggered** from the GitHub Actions UI.
+### Daily Update (`daily-update.yml`) ⭐ Recommended
 
-### 1. Fetch Raw Data (`fetch-raw-data.yml`)
+The **Daily Update** workflow runs the complete pipeline automatically every day at **6:00 AM UTC**.
+
+**Trigger**: Scheduled (cron: `0 6 * * *`) + Manual (workflow_dispatch)
+
+**What it does**:
+1. **Fetch Data**: Fetches latest coin list and price data
+2. **Calculate TOTAL2**: Computes the TOTAL2b index
+3. **Deploy**: Generates charts and deploys to GitHub Pages
+
+**Inputs** (manual trigger only):
+| Input | Description | Default |
+|-------|-------------|---------|
+| `skip_fetch` | Skip fetching new data (use existing raw-data) | false |
+
+**To manually trigger**:
+1. Go to GitHub → Actions → "Daily Update"
+2. Click "Run workflow"
+3. Click "Run workflow" button
+
+> **Note**: The daily scheduled run uses `total2b` index type. Use the individual manual workflows if you need different options.
+
+---
+
+### Individual Workflows (Manual)
+
+The individual workflows are available for on-demand runs with custom options.
+
+#### 1. Fetch Raw Data (`fetch-raw-data.yml`)
 
 Fetches cryptocurrency price data from CryptoCompare API.
 
@@ -139,7 +174,7 @@ Fetches cryptocurrency price data from CryptoCompare API.
 3. Optionally set a coin limit
 4. Click "Run workflow" button
 
-### 2. Calculate TOTAL2 (`calculate-total2.yml`)
+#### 2. Calculate TOTAL2 (`calculate-total2.yml`)
 
 Calculates the TOTAL2/TOTAL2b market index from cached price data.
 
@@ -163,7 +198,7 @@ Calculates the TOTAL2/TOTAL2b market index from cached price data.
 3. Select index type (total2b recommended)
 4. Click "Run workflow" button
 
-### 3. Deploy to GitHub Pages (`pages.yml`)
+#### 3. Deploy to GitHub Pages (`pages.yml`)
 
 Generates charts and deploys to GitHub Pages.
 
@@ -216,8 +251,21 @@ site/charts/
 
 ## Quick Reference
 
-### Full Pipeline (from GitHub UI)
+### Automatic Daily Updates
 
+The pipeline runs automatically every day at **6:00 AM UTC** via the "Daily Update" workflow.
+
+All generated pages display a "Last updated" timestamp in the footer.
+
+### Manual Full Pipeline (from GitHub UI)
+
+**Option A**: Run the unified "Daily Update" workflow (recommended)
+```
+Run "Daily Update" workflow
+   └── Fetches prices → Calculates index → Deploys to GitHub Pages
+```
+
+**Option B**: Run individual workflows
 ```
 1. Run "Fetch Raw Data" workflow
    └── Fetches prices → raw-data branch
@@ -283,9 +331,15 @@ Ensure the repository has GitHub Actions permissions set to "Read and write":
 
 ### Data seems outdated
 
-The orphan branches only keep the latest commit. To see when data was last updated:
+All generated pages display a **"Last updated"** timestamp in the footer.
+
+To see when data branches were last updated:
 1. Go to the `raw-data` or `processed-data` branch on GitHub
 2. Check the README.md which shows the last update timestamp
+
+The Daily Update workflow runs automatically at 6:00 AM UTC. If data appears stale:
+1. Check the GitHub Actions tab for failed runs
+2. Manually trigger the "Daily Update" workflow
 
 ---
 

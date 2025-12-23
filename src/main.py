@@ -48,7 +48,6 @@ from config import (
     COINS_TO_DOWNLOAD_JSON,
     CRYPTOCOMPARE_COIN_URL,
     DOWNLOAD_SKIPPED_CSV,
-    MIN_DATA_DATE,
     OUTPUT_DIR,
     PRICES_DIR,
     PROJECT_ROOT,
@@ -1755,38 +1754,6 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         logger.info("  Cached (%s):    %d coins", currency, len(cached_coins))
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
-
-    # Report coins without sufficient history for individual analysis
-    # Note: These coins ARE downloaded and WILL be used for TOTAL2
-    # They just won't be analyzed individually (halving cycle comparison)
-    logger.info("-" * 60)
-    logger.info(
-        "Checking data availability for individual analysis (MIN_DATA_DATE: %s)...", MIN_DATA_DATE
-    )
-
-    coins_with_history = fetcher.get_coins_with_data_before(
-        MIN_DATA_DATE, coins, quote_currency="BTC"
-    )
-    recent_coins = [c for c in coins if c not in coins_with_history]
-
-    if recent_coins:
-        logger.info(
-            "Found %d recent coins (data starts after %s):", len(recent_coins), MIN_DATA_DATE
-        )
-        logger.info("  → These ARE used for TOTAL2 calculation")
-        logger.info("  → These will NOT be analyzed individually (insufficient history)")
-
-        for coin in recent_coins[:10]:
-            df = fetcher.price_cache.get_prices(coin["id"], "BTC")
-            if df is not None and not df.empty:
-                start_date = df.index.min().date()
-                logger.info("  - %s (%s): data starts %s", coin["symbol"], coin["id"], start_date)
-        if len(recent_coins) > 10:
-            logger.info("  ... and %d more", len(recent_coins) - 10)
-    else:
-        logger.info("All %d coins have data before %s", len(coins), MIN_DATA_DATE)
-
-    logger.info("Coins suitable for individual analysis: %d", len(coins_with_history))
 
     # Migrate legacy files to pair format if needed
     migrated = fetcher.price_cache.migrate_to_pair_format()

@@ -17,9 +17,6 @@ Two-stage filtering:
 2. INDIVIDUAL ANALYSIS FILTER:
    After downloading, excludes from individual halving cycle analysis:
    - Bitcoin (base currency - we compare coins TO BTC)
-   - Coins without sufficient historical data (before MIN_DATA_DATE)
-
-   DOES NOT EXCLUDE from TOTAL2: recent coins (they ARE used for TOTAL2)
 """
 
 import csv
@@ -63,8 +60,7 @@ class CoinFilter:
        Includes: All coins including recent ones (for index immutability)
 
     3. For INDIVIDUAL ANALYSIS:
-       Excludes: BTC, coins without data before MIN_DATA_DATE
-       (handled in fetcher after price data is downloaded)
+       Excludes: BTC (handled in fetcher after price data is downloaded)
 
     Maintains a list of skipped coins for export and review.
     """

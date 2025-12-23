@@ -312,10 +312,6 @@ Halvix saves the daily composition to `data/processed/total2_daily_composition.p
 - **USD stablecoins**: USDT, USDC, DAI, FRAX, GHO, etc.
 - **EUR stablecoins**: EURS, EURC, EURT, AGEUR
 
-### NOT Excluded: Recent Coins
-
-**Important:** Recent coins (those without data before `MIN_DATA_DATE`) are **included** in TOTAL2 calculation. The `MIN_DATA_DATE` filter only applies to individual coin analysis.
-
 ### Never Excluded (Allowed List)
 
 Some tokens with pattern-matching names are explicitly allowed:
