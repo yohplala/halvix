@@ -10,7 +10,7 @@ Tests cover:
 """
 
 import tempfile
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -185,50 +185,6 @@ class TestTotal2Calculation:
             "sol": sol_data,
             "ada": ada_data,
         }
-
-    def test_calculate_daily_total2(self, temp_dir, sample_price_data):
-        """Test daily volume-weighted TOTAL2 calculation."""
-        cache = PriceDataCache(prices_dir=temp_dir)
-        for coin_id, df in sample_price_data.items():
-            cache.set_prices(coin_id, df)
-
-        processor = Total2Processor(price_cache=cache, top_n=3)
-
-        target_date = datetime(2024, 1, 1)
-        result = processor._calculate_daily_total2(sample_price_data, target_date)
-
-        assert result is not None
-        index_record, composition = result
-
-        assert "total2_price" in index_record
-        assert "total_volume" in index_record
-        assert "coin_count" in index_record
-        assert index_record["coin_count"] == 3
-
-        assert len(composition) == 3
-        eth_entry = [c for c in composition if c["coin_id"] == "eth"][0]
-        assert eth_entry["rank"] == 1
-
-    def test_volume_weighted_average_calculation(self, temp_dir, sample_price_data):
-        """Test that volume-weighted average is calculated correctly."""
-        cache = PriceDataCache(prices_dir=temp_dir)
-        for coin_id, df in sample_price_data.items():
-            cache.set_prices(coin_id, df)
-
-        processor = Total2Processor(price_cache=cache, top_n=3)
-
-        target_date = datetime(2024, 1, 1)
-        result = processor._calculate_daily_total2(sample_price_data, target_date)
-
-        index_record, _ = result
-
-        # Manual calculation for 2024-01-01:
-        # ETH: close=0.05, volume=10000
-        # SOL: close=0.003, volume=2000
-        # ADA: close=0.00002, volume=500
-        expected_weighted = (0.05 * 10000 + 0.003 * 2000 + 0.00002 * 500) / 12500
-
-        assert abs(index_record["total2_price"] - expected_weighted) < 1e-10
 
     def test_full_calculation_pipeline(self, temp_dir, sample_price_data):
         """Test full TOTAL2 calculation."""

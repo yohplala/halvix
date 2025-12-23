@@ -104,11 +104,6 @@ def _load_skipped_coins() -> list[dict]:
     return skipped
 
 
-# Backwards compatibility aliases
-_load_accepted_coins = _load_coins_to_download
-_load_rejected_coins = _load_skipped_coins
-
-
 def _append_insufficient_history_to_skipped(
     removed_coins: list[dict],
     price_cache: PriceDataCache,
@@ -167,10 +162,6 @@ def _append_insufficient_history_to_skipped(
             writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
         for entry in new_entries:
             writer.writerow(entry)
-
-
-# Backwards compatibility alias
-_append_insufficient_history_to_rejected = _append_insufficient_history_to_skipped
 
 
 def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
@@ -1663,9 +1654,9 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     fetcher = DataFetcher()
 
-    # Load accepted coins
+    # Load coins to download
     try:
-        coins = fetcher.load_accepted_coins()
+        coins = fetcher.load_coins_to_download()
     except Exception as e:
         logger.error("Failed to load coins: %s", e)
         logger.info("Run 'python -m main list-coins' first to generate the coin list.")

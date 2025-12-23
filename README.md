@@ -45,7 +45,7 @@ poetry run python -m main status
 
 ### 📋 References
 - **[AI Agent Context](AGENTS.md)** - Full project specification for AI agents and developers
-- **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching
+- **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching, data pipeline
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
 - **[Deployment](docs/DEPLOYMENT.md)** - Charts generation and GitHub Pages deployment workflow
 - **[Changelog](CHANGELOG.md)** - Version history and release notes

@@ -128,7 +128,7 @@ class TestWrappedStakedTokenFiltering:
             {"id": "btc", "name": "Bitcoin", "symbol": "BTC"},  # BTC should be included
         ]
 
-        filtered = coin_filter.filter_coins_for_download(coins)
+        filtered = coin_filter.get_coins_to_download(coins)
 
         # Should have 4 coins: ETH, SOL, SUI, BTC (BTC is included for download)
         assert len(filtered) == 4
@@ -148,7 +148,7 @@ class TestWrappedStakedTokenFiltering:
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        coin_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.get_coins_to_download(coins, record_skipped=True)
 
         assert len(coin_filter.skipped_coins) == 2
         skipped_ids = {c.coin_id for c in coin_filter.skipped_coins}
@@ -194,7 +194,7 @@ class TestStablecoinFiltering:
             {"id": "sol", "name": "Solana", "symbol": "SOL"},
         ]
 
-        filtered = coin_filter.filter_coins_for_download(coins)
+        filtered = coin_filter.get_coins_to_download(coins)
 
         assert len(filtered) == 2
         filtered_ids = {c["id"] for c in filtered}
@@ -247,7 +247,7 @@ class TestCSVExport:
             {"id": "steth", "name": "Lido Staked Ether", "symbol": "STETH"},
         ]
 
-        coin_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.get_coins_to_download(coins, record_skipped=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "skipped.csv"
@@ -269,7 +269,7 @@ class TestCSVExport:
             {"id": "wbtc", "name": "Wrapped Bitcoin", "symbol": "WBTC"},
         ]
 
-        coin_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.get_coins_to_download(coins, record_skipped=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "skipped.csv"
@@ -300,7 +300,7 @@ class TestSkippedSummary:
             {"id": "usdc", "name": "USD Coin", "symbol": "USDC"},
         ]
 
-        coin_filter.filter_coins_for_download(coins, record_filtered=True)
+        coin_filter.get_coins_to_download(coins, record_skipped=True)
 
         summary = coin_filter.get_skipped_summary()
 

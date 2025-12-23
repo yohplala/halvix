@@ -13,7 +13,6 @@
 | **Tutorial & CLI usage** | [docs/TUTORIAL.md](docs/TUTORIAL.md) |
 | **CryptoCompare API details** | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) |
 | **TOTAL2/TOTAL2b calculation** | [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md) |
-| **Edge cases & solutions** | [docs/EDGE_CASES.md](docs/EDGE_CASES.md) |
 | **Deployment (GitHub Pages)** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
 ---
