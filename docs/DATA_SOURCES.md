@@ -15,7 +15,7 @@ Halvix uses **CryptoCompare** as its single data source:
 | **Top coins by market cap** | `/data/top/mktcapfull` endpoint |
 | **Historical prices** | `/data/v2/histoday` endpoint |
 | **Volume data** | Included in historical data for TOTAL2 weighting |
-| **Rate limit** | 10 calls/second (free tier) |
+| **Rate limit** | Free tier: 10/sec; Halvix uses conservative 2/sec (120/min) |
 | **Historical depth** | **Unlimited** - full history available |
 
 This single-source approach provides:
@@ -41,7 +41,8 @@ This single-source approach provides:
 
 | Tier | Rate Limit | Notes |
 |------|------------|-------|
-| **Free** | 10 calls/second | No API key required |
+| **Free** | 10 calls/second (600/min) | No API key required |
+| **Halvix default** | 2 calls/second (120/min) | Conservative to avoid issues |
 | Professional | 50 calls/second | Paid |
 | Enterprise | Custom | Contact sales |
 
@@ -49,7 +50,8 @@ This single-source approach provides:
 
 ```python
 # src/config.py
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30  # Conservative (could go to 600)
+# Free tier allows 10/sec (600/min), we use conservative 2/sec (120/min)
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Max days per request
 ```
 
@@ -272,13 +274,17 @@ All API settings are in `src/config.py`:
 # CryptoCompare
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30  # Very conservative
+# Free tier allows 10/sec (600/min), we use conservative 2/sec (120/min)
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Days per request
 
 # Retry configuration
 API_MAX_RETRIES = 5
 API_RETRY_MIN_WAIT = 1         # seconds
 API_RETRY_MAX_WAIT = 60        # seconds
+
+# Data completeness - this is a fixed constant ensuring only complete daily data is fetched
+USE_YESTERDAY_AS_END_DATE = True
 ```
 
 ---

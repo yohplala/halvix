@@ -71,12 +71,6 @@ class CoinFilter:
             re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS
         ]
 
-    # Property for backwards compatibility
-    @property
-    def filtered_tokens(self) -> list[SkippedCoin]:
-        """Backwards compatibility alias for skipped_coins."""
-        return self.skipped_coins
-
     def reset(self):
         """Clear the skipped coins list."""
         self.skipped_coins = []
@@ -279,16 +273,6 @@ class CoinFilter:
 
         return (False, "")
 
-    # Backwards compatibility alias
-    def should_exclude_from_download(
-        self,
-        coin_id: str,
-        name: str = "",
-        symbol: str = "",
-    ) -> tuple[bool, str]:
-        """Backwards compatibility alias for should_skip_download."""
-        return self.should_skip_download(coin_id, name, symbol)
-
     def should_exclude_from_total2(
         self,
         coin_id: str,
@@ -377,15 +361,6 @@ class CoinFilter:
 
         return to_download
 
-    # Backwards compatibility alias
-    def filter_coins_for_download(
-        self,
-        coins: list[dict],
-        record_filtered: bool = True,
-    ) -> list[dict]:
-        """Backwards compatibility alias for get_coins_to_download."""
-        return self.get_coins_to_download(coins, record_skipped=record_filtered)
-
     def filter_coins_for_total2(
         self,
         coins: list[dict],
@@ -440,11 +415,6 @@ class CoinFilter:
 
         return filepath
 
-    # Backwards compatibility alias
-    def export_rejected_coins_csv(self, filepath: Path | None = None) -> Path:
-        """Backwards compatibility alias for export_skipped_coins_csv."""
-        return self.export_skipped_coins_csv(filepath)
-
     def get_skipped_summary(self) -> dict:
         """
         Get a summary of skipped coins by reason.
@@ -457,8 +427,3 @@ class CoinFilter:
             reason = coin.reason
             summary[reason] = summary.get(reason, 0) + 1
         return summary
-
-    # Backwards compatibility alias
-    def get_filtered_summary(self) -> dict:
-        """Backwards compatibility alias for get_skipped_summary."""
-        return self.get_skipped_summary()

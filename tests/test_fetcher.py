@@ -412,9 +412,9 @@ class TestDataFetcherGetFilterSummary:
 
         summary = fetcher.get_filter_summary()
 
-        assert "filtered_count" in summary
+        assert "skipped_count" in summary
         assert "by_reason" in summary
-        assert "filtered_tokens" in summary
-        assert isinstance(summary["filtered_count"], int)
+        assert "skipped_coins" in summary
+        assert isinstance(summary["skipped_count"], int)
         assert isinstance(summary["by_reason"], dict)
-        assert isinstance(summary["filtered_tokens"], list)
+        assert isinstance(summary["skipped_coins"], list)

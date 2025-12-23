@@ -18,9 +18,6 @@ PRICES_DIR = RAW_DATA_DIR / "prices"
 PROCESSED_DIR = DATA_DIR / "processed"
 CACHE_DIR = DATA_DIR / "cache"
 OUTPUT_DIR = PROJECT_ROOT / "output"
-CHARTS_DIR = OUTPUT_DIR / "charts"
-INDIVIDUAL_CHARTS_DIR = CHARTS_DIR / "individual"
-REPORTS_DIR = OUTPUT_DIR / "reports"
 
 # =============================================================================
 # Bitcoin Halving Dates
@@ -156,14 +153,14 @@ VOLUME_SMA_WINDOW = 120
 #
 # CASE 1 - ZEC (2016-10-28): Listed AND entered TOTAL2 on same day
 #   - Day 0 (before): Use corrected TOTAL2 (~0.01 BTC) as baseline
-#   - Day 1: Actual 27.8 BTC → Cap at 1.8x = 0.018 BTC
-#   - Day 2: Actual 2.79 BTC → Cap at 1.8x = 0.032 BTC
+#   - Day 1: Actual 27.8 BTC → Cap at 1.7x = 0.017 BTC
+#   - Day 2: Actual 2.79 BTC → Cap at 1.7x = 0.029 BTC
 #   - ... converges to actual price (~1-2 BTC) in ~9 days
 #
 # CASE 2 - YFI (2020-09-14): Entered TOTAL2 45 days after listing
 #   - Day 0 (before): Use corrected TOTAL2 (~0.012 BTC) as baseline
-#   - Day 1: Actual 3.73 BTC → Cap at 1.8x = 0.022 BTC
-#   - Day 2: Actual 3.27 BTC → Cap at 1.8x = 0.039 BTC
+#   - Day 1: Actual 3.73 BTC → Cap at 1.7x = 0.020 BTC
+#   - Day 2: Actual 3.27 BTC → Cap at 1.7x = 0.034 BTC
 #   - ... converges to actual price (~3.7 BTC) in ~10 days
 #
 # Both cases gradually ramp up from market level, preventing artificial TOTAL2 spikes.
@@ -402,8 +399,9 @@ ALLOWED_TOKENS = {
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
-# Rate limiting (free tier: 10 calls/second, we stay conservative)
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 30
+# Rate limiting: Free tier allows 10 calls/second (600/min).
+# We use a conservative 120 calls/minute (2/sec) to avoid rate limits.
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
 
 # Maximum days per request (API limit)
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
@@ -442,14 +440,6 @@ CHART_TITLE_SIZE = 16
 CHART_LABEL_SIZE = 12
 
 # =============================================================================
-# Half-Monthly Aggregation
-# =============================================================================
-
-# Pandas frequency string for semi-monthly resampling
-# 'SMS' = Semi-Month Start frequency (1st and 15th)
-HALF_MONTHLY_FREQ = "SMS"
-
-# =============================================================================
 # Output Files
 # =============================================================================
 
@@ -458,10 +448,6 @@ HALF_MONTHLY_FREQ = "SMS"
 # download_skipped.csv - coins that are skipped with reason (stablecoins, wrapped tokens, etc.)
 COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"
 DOWNLOAD_SKIPPED_CSV = PROCESSED_DIR / "download_skipped.csv"
-
-# Legacy aliases for backwards compatibility
-ACCEPTED_COINS_JSON = COINS_TO_DOWNLOAD_JSON
-REJECTED_COINS_CSV = DOWNLOAD_SKIPPED_CSV
 
 # Analysis results
 REGRESSION_RESULTS_CSV = PROCESSED_DIR / "regression_results.csv"
@@ -473,6 +459,7 @@ TOTAL2_MAX_WEIGHT_CHANGE_FILE = PROCESSED_DIR / "total2_max_weight_change.json"
 # Data Fetching Configuration
 # =============================================================================
 
-# Always use yesterday as end date for price fetching
-# Today's data is incomplete (market hasn't closed yet)
+# Always use yesterday as end date for price fetching.
+# Today's data is incomplete (market hasn't closed yet).
+# This is a fixed constant - do not change as it ensures data consistency.
 USE_YESTERDAY_AS_END_DATE = True

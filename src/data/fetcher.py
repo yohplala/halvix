@@ -209,11 +209,6 @@ class DataFetcher:
 
         return COINS_TO_DOWNLOAD_JSON
 
-    # Backwards compatibility alias
-    def _save_accepted_coins(self, coins: list[dict]) -> Path:
-        """Backwards compatibility alias for _save_coins_to_download."""
-        return self._save_coins_to_download(coins)
-
     def load_coins_to_download(self) -> list[dict]:
         """Load the previously saved coins to download list."""
         if not COINS_TO_DOWNLOAD_JSON.exists():
@@ -221,11 +216,6 @@ class DataFetcher:
 
         with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
             return json.load(f)
-
-    # Backwards compatibility alias
-    def load_accepted_coins(self) -> list[dict]:
-        """Backwards compatibility alias for load_coins_to_download."""
-        return self.load_coins_to_download()
 
     def fetch_coin_prices(
         self,
@@ -340,7 +330,7 @@ class DataFetcher:
         Fetch price data for all accepted coins against multiple quote currencies.
 
         Fetches full historical data needed for halving cycle analysis
-        (from 550 days before first halving to 880 days after last halving).
+        (from 550 days before first halving to 950 days after last halving).
 
         Supports incremental updates: if cached data exists, only fetches
         new data from the last cached date to yesterday.
@@ -461,17 +451,6 @@ class DataFetcher:
             "skipped_count": len(self.coin_filter.skipped_coins),
             "by_reason": self.coin_filter.get_skipped_summary(),
             "skipped_coins": [
-                {
-                    "id": c.coin_id,
-                    "name": c.name,
-                    "symbol": c.symbol,
-                    "reason": c.reason,
-                }
-                for c in self.coin_filter.skipped_coins
-            ],
-            # Backwards compatibility aliases
-            "filtered_count": len(self.coin_filter.skipped_coins),
-            "filtered_tokens": [
                 {
                     "id": c.coin_id,
                     "name": c.name,
