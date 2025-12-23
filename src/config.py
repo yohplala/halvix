@@ -67,7 +67,7 @@ BTC_CYCLE_BOTTOMS: list[date] = [
 
 DAYS_BEFORE_HALVING = 550
 DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
-TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1430 days
+TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1500 days
 
 
 def get_cycle_window(halving_date: date) -> tuple[date, date]:
@@ -129,10 +129,6 @@ def get_regression_end_date() -> date:
 # =============================================================================
 # Data Filtering Configuration
 # =============================================================================
-
-# Minimum date for coin data availability
-# Only process coins with data available before this date
-MIN_DATA_DATE = date(2024, 1, 10)
 
 # Number of top coins to fetch (increased to 1200 to include historical coins like XEM)
 TOP_N_BY_MARKETCAP_TO_FETCH = 1200

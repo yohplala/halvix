@@ -29,7 +29,6 @@ from config import (
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
-    MIN_DATA_DATE,
     PROCESSED_DIR,
     QUOTE_CURRENCIES,
     TOP_N_BY_MARKETCAP_TO_FETCH,
@@ -455,39 +454,6 @@ class DataFetcher:
             for coin_id, currency_data in nested.items()
             if vs_currency in currency_data
         }
-
-    def get_coins_with_data_before(
-        self,
-        cutoff_date: date = MIN_DATA_DATE,
-        coins: list[dict] | None = None,
-        quote_currency: str = "BTC",
-    ) -> list[dict]:
-        """
-        Filter coins to only those with price data before a cutoff date.
-
-        Args:
-            cutoff_date: Only include coins with data before this date
-            coins: List of coins to check (default: load accepted coins)
-            quote_currency: Quote currency to check (default: "BTC")
-
-        Returns:
-            Filtered list of coins with early data
-        """
-        if coins is None:
-            coins = self.load_accepted_coins()
-
-        valid_coins = []
-
-        for coin in coins:
-            coin_id = coin["id"]
-            df = self.price_cache.get_prices(coin_id, quote_currency)
-
-            if df is not None and not df.empty:
-                first_date = df.index.min().date()
-                if first_date < cutoff_date:
-                    valid_coins.append(coin)
-
-        return valid_coins
 
     def get_filter_summary(self) -> dict[str, Any]:
         """Get a summary of the last filtering operation."""
