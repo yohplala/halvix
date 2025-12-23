@@ -27,8 +27,10 @@ format YYYY.MM.patch.
   - New architecture diagram showing automated workflow
   - Quick reference section for automatic updates
   - Updated troubleshooting section
+- **Fixed:** `data_status.html` now saved to `raw-data` branch and restored during deploy
+  - Page was missing from GitHub Pages because it wasn't persisted between workflow jobs
 
-**Categories:** CI/CD, Features, Documentation
+**Categories:** CI/CD, Features, Documentation, Bug Fixes
 
 ### [2025.12.8] - 2025-12-19
 
