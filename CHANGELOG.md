@@ -12,6 +12,24 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.9] - 2025-12-23
+
+**Automated daily updates and refresh timestamps**
+
+- **Added:** Daily Update workflow (`daily-update.yml`) for automated pipeline execution
+  - Scheduled to run at 6:00 AM UTC every day
+  - Runs full pipeline: fetch data → calculate TOTAL2b → deploy to GitHub Pages
+  - Manual trigger option with `skip_fetch` parameter
+- **Added:** "Last updated" timestamp displayed in footer of all generated HTML pages
+  - Shows UTC datetime when charts were generated
+  - Visible on index page, chart pages, and composition viewer
+- **Updated:** `DEPLOYMENT.md` documentation with daily schedule information
+  - New architecture diagram showing automated workflow
+  - Quick reference section for automatic updates
+  - Updated troubleshooting section
+
+**Categories:** CI/CD, Features, Documentation
+
 ### [2025.12.8] - 2025-12-19
 
 **TOTAL2b processor: freeze period and price scaling**
