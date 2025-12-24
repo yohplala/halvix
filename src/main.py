@@ -1908,15 +1908,29 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         # Creating a new CryptoCompareClient() would reset _last_request_time
         # and potentially hit rate limits after the price fetching phase
         failed_coins_data = []
+        rate_limit_hit = False  # Stop making API calls once rate limit is hit
         for coin_id in tqdm(failed_coins, desc="Checking failed coins"):
             # Find the coin data
             coin_data = next((c for c in coins if c.get("id") == coin_id), {})
             coin_symbol = coin_data.get("symbol", coin_id.upper())
             coin_name = coin_data.get("name", coin_symbol)
-            # Check histoday availability to get the actual API error message
-            pair_info = fetcher.client.check_histoday_availability(coin_symbol, "BTC")
-            reason = pair_info["reason"]
             url = f"{CRYPTOCOMPARE_COIN_URL}/{coin_symbol.upper()}/overview"
+
+            if rate_limit_hit:
+                # Skip API calls once we've hit rate limit, use generic reason
+                reason = "Rate limit exceeded - skipped check"
+            else:
+                # Check histoday availability to get the actual API error message
+                pair_info = fetcher.client.check_histoday_availability(coin_symbol, "BTC")
+                reason = pair_info["reason"]
+                # Detect if we hit rate limit and stop further checks
+                if "rate limit" in reason.lower():
+                    rate_limit_hit = True
+                    logger.warning(
+                        "Rate limit hit - skipping remaining %d coin checks",
+                        len(failed_coins) - len(failed_coins_data) - 1,
+                    )
+
             failed_coins_data.append(
                 {
                     "id": coin_id,

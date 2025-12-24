@@ -8,14 +8,14 @@ This document details the API strategy used by Halvix for cryptocurrency data re
 
 ## Overview
 
-Halvix uses **CryptoCompare** as its single data source:
+Halvix uses **CryptoCompare** (now part of CoinDesk) as its single data source:
 
 | Feature | Details |
 |---------|---------|
 | **Top coins by market cap** | `/data/top/mktcapfull` endpoint |
 | **Historical prices** | `/data/v2/histoday` endpoint |
 | **Volume data** | Included in historical data for TOTAL2 weighting |
-| **Rate limit** | Free tier: 10/sec; Halvix uses conservative 2/sec (120/min) |
+| **Rate limit** | Dynamic - adapts to API quota status |
 | **Historical depth** | **Unlimited** - full history available |
 
 This single-source approach provides:
@@ -28,59 +28,88 @@ This single-source approach provides:
 
 ## CryptoCompare API
 
+**API Documentation**: https://developers.coindesk.com/documentation/
+
 ### Endpoints Used
 
-| Data Type | Endpoint | CLI Command |
-|-----------|----------|-------------|
-| Top N coins by market cap | `/data/top/mktcapfull` | `python -m main list-coins` |
-| Daily OHLCV prices | `/data/v2/histoday` | `python -m main fetch-prices` |
-| Full historical prices (with pagination) | `/data/v2/histoday` | `python -m main fetch-prices` |
-| API connectivity check | `/data/v2/histoday` | `python -m main status` |
+| Data Type | Endpoint | Documentation | CLI Command |
+|-----------|----------|---------------|-------------|
+| Top N coins by market cap | `/data/top/mktcapfull` | [asset_v1_top_list](https://developers.coindesk.com/documentation/data-api/asset_v1_top_list) | `python -m main list-coins` |
+| Daily OHLCV prices | `/data/v2/histoday` | [spot_v1_historical_days](https://developers.coindesk.com/documentation/data-api/spot_v1_historical_days) | `python -m main fetch-prices` |
+| Rate limit status | `/stats/rate/limit` | [admin_v2_rate_limit](https://developers.coindesk.com/documentation/data-api/admin_v2_rate_limit) | (internal) |
 
-### Rate Limits
+**Note**: We use `/data/v2/histoday` for individual coin historical prices, not the index endpoint (`index_cc_v1_historical_days`) which is for market cap indices.
 
-| Tier | Rate Limit | Notes |
-|------|------------|-------|
-| **Free** | 10 calls/second (600/min) | No API key required |
-| **Halvix default** | 2 calls/second (120/min) | Conservative to avoid issues |
-| Professional | 50 calls/second | Paid |
-| Enterprise | Custom | Contact sales |
+### Rate Limiting - Dynamic Adaptive
+
+Halvix uses **dynamic rate limiting** that adapts to actual API quota usage:
+
+| Feature | Description |
+|---------|-------------|
+| **Status Checking** | Calls `/stats/rate/limit` to check remaining quota |
+| **Adaptive Waiting** | Automatically waits when approaching limits |
+| **Multi-tier Awareness** | Monitors second, minute, hour, and month quotas |
+| **Fallback Throttling** | Minimum interval between requests as safety net |
+
+```python
+# The client periodically checks quota and adapts:
+status = client.get_rate_limit_status()
+# status.calls_left_second, calls_left_minute, calls_left_hour, calls_left_month
+```
 
 ### Halvix Configuration
 
 ```python
 # src/config.py
-# Free tier allows 10/sec (600/min), we use conservative 2/sec (120/min)
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
-CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Max days per request
+
+# Fallback minimum interval between requests (used if rate limit status unavailable)
+# The client dynamically checks /stats/rate/limit and adapts accordingly
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
+
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Max days per API request
 ```
+
+The `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` constant serves as a **conservative fallback**. The client's primary rate limiting is dynamic, checking the actual API quota status. When quota is available, it can make requests faster; when the status endpoint is unavailable, it falls back to the safe 5-second interval.
 
 ### Implementation Details
 
 The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
-1. **Proactive Rate Limiting**: Waits between requests to stay under limits
+1. **Dynamic Rate Limit Status Checking**: Polls `/stats/rate/limit` endpoint
    ```python
-   self.min_interval = 60.0 / calls_per_minute  # 0.5 seconds at 120 calls/min
+   status = self.get_rate_limit_status()
+   if status.is_near_limit:
+       time.sleep(status.recommended_wait_seconds)
    ```
 
-2. **Automatic Retry with Exponential Backoff**: Uses `tenacity` library
+2. **Fallback Time-Based Throttling**: Conservative minimum interval between requests
+   ```python
+   self.min_interval = 60.0 / calls_per_minute  # 5 seconds at 12 calls/min (fallback)
+   ```
+
+3. **Automatic Retry with Exponential Backoff**: Uses `tenacity` library
    ```python
    @retry(
        retry=retry_if_exception_type(RateLimitError),
-       stop=stop_after_attempt(5),
-       wait=wait_exponential(multiplier=1, min=1, max=60),
+       stop=stop_after_attempt(10),  # 10 attempts
+       wait=wait_exponential(multiplier=2, min=2, max=120),  # Up to 2 min wait
    )
    ```
 
-3. **Automatic Pagination**: For requests exceeding 2000 days
+4. **Wait for Rate Limit Reset**: Polls status until quota available
+   ```python
+   def wait_for_rate_limit_reset(self, max_wait_seconds=120):
+       # Waits and polls until rate limit is no longer critical
+   ```
+
+5. **Automatic Pagination**: For requests exceeding 2000 days
    ```python
    def get_full_daily_history(self, symbol, vs_currency, start_date, end_date):
        # Automatically fetches in 2000-day chunks
        # Handles deduplication and chronological sorting
    ```
 
-4. **Top Coins by Market Cap**: Fetches current rankings with pagination
+6. **Top Coins by Market Cap**: Fetches current rankings with pagination
    ```python
    def get_top_coins_by_market_cap(self, n: int = 300):
        # Fetches coins in pages of 100
@@ -97,6 +126,7 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 | 2000 days per request | ✅ Efficient pagination |
 | Market cap rankings | ✅ Top coins discovery |
 | Volume data | ✅ Volume-weighted TOTAL2 calculation |
+| Rate limit status endpoint | ✅ Dynamic adaptive throttling |
 
 ---
 
@@ -298,21 +328,46 @@ Price data never expires because historical data doesn't change. Incremental mod
 
 ## Error Handling
 
-The client implements:
+The client implements robust rate limit handling using the CryptoCompare rate limit status endpoint:
+https://developers.coindesk.com/documentation/data-api/admin_v2_rate_limit
 
-1. **HTTP 429 Detection**: Catches rate limit responses
-2. **Automatic Retry**: Up to 5 attempts with exponential backoff
-3. **Graceful Degradation**: Returns empty data rather than crashing
-4. **Logging**: Errors are logged for debugging
+### Rate Limit Detection
+
+1. **HTTP 429 Detection**: Catches rate limit responses from HTTP status
+2. **JSON Body Rate Limit Detection**: Detects rate limit errors returned as HTTP 200 with error message in JSON body (e.g., "You are over your rate limit please upgrade your account!")
+3. **Dynamic Rate Limit Status**: Periodically checks `/stats/rate/limit` endpoint to monitor quota usage
+
+### Rate Limit Response
+
+```python
+# Rate limit status checking
+status = client.get_rate_limit_status()
+print(f"Calls left this second: {status.calls_left_second}")
+print(f"Calls left this minute: {status.calls_left_minute}")
+print(f"Calls left this hour: {status.calls_left_hour}")
+print(f"Calls left this month: {status.calls_left_month}")
+```
+
+### Automatic Retry and Wait
+
+- **Retry Configuration**: Up to 10 attempts with aggressive exponential backoff (2s, 4s, 8s, 16s... up to 120s)
+- **Smart Waiting**: When approaching rate limits, automatically waits before making more requests
+- **Wait for Reset**: `wait_for_rate_limit_reset()` method polls status and waits until quota is available
 
 ```python
 # Retry configuration
 @retry(
     retry=retry_if_exception_type(RateLimitError),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=1, max=60),
+    stop=stop_after_attempt(10),  # 10 attempts
+    wait=wait_exponential(multiplier=2, min=2, max=120),  # Aggressive backoff
 )
 ```
+
+### Graceful Degradation
+
+- Returns empty data rather than crashing
+- Logs all errors for debugging
+- Skips remaining failed coin checks once rate limit is hit
 
 ---
 
@@ -373,9 +428,22 @@ FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
 
 ### "Rate limit exceeded" errors
 
-1. Increase interval between calls in `config.py`
-2. Wait a few minutes before retrying
-3. Check if another process is using the same API
+CryptoCompare has multiple types of rate limits:
+- **Per-second limit**: Free tier allows ~10 requests/second (we use conservative 2/sec)
+- **Monthly/hourly quota**: Free tier has account-level quotas that may be exceeded
+
+If you see rate limit errors:
+
+1. **Wait before retrying**: The free tier may have hourly/daily quotas
+2. **Reduce fetch frequency**: Increase `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` in `config.py`
+3. **Use incremental fetching**: The `--incremental` flag only fetches new data since last cache
+4. **Consider API key**: Register for a free API key for higher limits
+5. **Check monthly usage**: CryptoCompare free tier has a monthly call limit (~100k calls)
+
+The client automatically:
+- Detects rate limits in both HTTP 429 responses AND JSON error messages
+- Retries up to 5 times with exponential backoff (1s, 2s, 4s, 8s, 16s)
+- Skips remaining failed coin checks once rate limit is hit
 
 ### "CCCAGG market does not exist for this coin pair" errors
 

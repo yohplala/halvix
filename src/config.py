@@ -373,9 +373,12 @@ ALLOWED_TOKENS = {
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
-# Rate limiting: Free tier allows 10 calls/second (600/min).
-# We use a conservative 120 calls/minute (2/sec) to avoid rate limits.
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
+# Rate limiting: The client uses dynamic rate limiting by checking the
+# /stats/rate/limit endpoint to monitor actual quota usage.
+# This constant serves as a FALLBACK minimum interval between requests,
+# used when rate limit status is unavailable or as a baseline throttle.
+# We use a very conservative fallback of 1 call every 5 seconds.
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
 
 # Maximum days per request (API limit)
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
