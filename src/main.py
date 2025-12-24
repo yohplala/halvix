@@ -1693,37 +1693,40 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     logger.info("Fetching historical price data from CryptoCompare...")
 
-    # Fetch prices for selected quote currencies
+    # Separate BTC from altcoins - BTC needs USD pair, not BTC pair
+    btc_coins = [c for c in coins if c.get("id", "").lower() == "btc"]
+    altcoins = [c for c in coins if c.get("id", "").lower() != "btc"]
+
+    # Fetch prices for altcoins with selected quote currencies
     results = fetcher.fetch_all_prices(
-        coins=coins,
+        coins=altcoins,
         vs_currencies=currencies_to_fetch,
         use_cache=not args.no_cache,
         incremental=incremental,
         show_progress=not args.quiet,
     )
 
-    # Always fetch BTC-USD (even in default mode) since BTC-BTC doesn't exist
-    if not args.all_pairs:
-        btc_coins = [c for c in coins if c.get("id", "").lower() == "btc"]
-        if btc_coins:
-            logger.info("Fetching BTC-USD (required since BTC-BTC doesn't exist)...")
-            fetcher.fetch_all_prices(
-                coins=btc_coins,
-                vs_currencies=["USD"],
-                use_cache=not args.no_cache,
-                incremental=incremental,
-                show_progress=False,
-            )
+    # Always fetch BTC-USD (BTC/BTC doesn't exist and wouldn't make sense)
+    if btc_coins:
+        logger.info("Fetching BTC-USD...")
+        btc_results = fetcher.fetch_all_prices(
+            coins=btc_coins,
+            vs_currencies=["USD"],
+            use_cache=not args.no_cache,
+            incremental=incremental,
+            show_progress=False,
+        )
+        # Merge BTC results into main results for consistent counting
+        results.update(btc_results)
 
     logger.info("-" * 60)
     logger.info("RESULTS")
     logger.info("-" * 60)
 
     # Count actually fetched (non-empty results)
-    # Note: BTC-BTC returns empty (skipped), BTC uses USD pair instead
+    # BTC is now fetched with USD pair directly, so no more "skipped" case
     successful_coins = []
     failed_coins = []
-    skipped_coins_list = []
 
     for coin in coins:
         coin_id = coin["id"]
@@ -1732,28 +1735,28 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
         if has_data:
             successful_coins.append(coin_id)
-        elif coin_id.lower() == "btc" and "BTC" in currencies_to_fetch:
-            # BTC with BTC quote is intentionally skipped (uses USD instead)
-            skipped_coins_list.append((coin_id, "BTC/BTC skipped, uses USD pair"))
         else:
-            # Coin failed to fetch or returned empty data
+            # Coin failed to fetch or returned empty data (no pair exists on CryptoCompare)
             failed_coins.append(coin_id)
 
     logger.info("  Coins processed: %d (attempted: %d)", len(successful_coins), len(coins))
 
-    # Log failed coins if any (excluding intentionally skipped ones)
+    # Log failed coins if any, with explanation of why they failed
     if failed_coins:
         logger.warning("  Failed/empty:    %d coins", len(failed_coins))
+        # Check each failed coin to explain why it failed
+        client = CryptoCompareClient()
         for coin_id in failed_coins[:10]:  # Show first 10
-            logger.warning("    - %s (no data returned)", coin_id)
+            # Find the symbol for this coin
+            coin_symbol = next(
+                (c.get("symbol", coin_id) for c in coins if c.get("id") == coin_id),
+                coin_id.upper(),
+            )
+            # Check histoday availability to get the actual API error message
+            pair_info = client.check_histoday_availability(coin_symbol, "BTC")
+            logger.warning("    - %s: %s", coin_id.upper(), pair_info["reason"])
         if len(failed_coins) > 10:
             logger.warning("    ... and %d more", len(failed_coins) - 10)
-
-    # Log skipped coins
-    if skipped_coins_list:
-        logger.info("  Skipped:         %d coins", len(skipped_coins_list))
-        for coin_id, reason in skipped_coins_list:
-            logger.info("    - %s (%s)", coin_id, reason)
 
     # Show cache stats per currency
     price_cache = PriceDataCache()
@@ -1770,7 +1773,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         btc_usd_cached = price_cache.has_prices("btc", "USD")
         total_cached = len(btc_cached) + (1 if btc_usd_cached else 0)
         if btc_usd_cached:
-            logger.info("  Cached (USD):    1 coin (BTC/USD, since BTC/BTC doesn't exist)")
+            logger.info("  Cached (USD):    1 coin (BTC/USD)")
         logger.info("  Total cached:    %d coins", total_cached)
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
