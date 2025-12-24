@@ -274,7 +274,8 @@ class TestDataFetcherFilterCoins:
         cache_dir, prices_dir, processed_dir = temp_dirs
 
         mock_client = MagicMock(spec=CryptoCompareClient)
-        mock_client.get_top_coins_by_market_cap.return_value = sample_coins
+        # Return tuple (coins, coins_without_data) when track_no_data=True
+        mock_client.get_top_coins_by_market_cap.return_value = (sample_coins, [])
 
         cache = FileCache(cache_dir=cache_dir)
         price_cache = PriceDataCache(prices_dir=prices_dir)
@@ -285,10 +286,11 @@ class TestDataFetcherFilterCoins:
             price_cache=price_cache,
         )
 
-        # Patch the output paths
+        # Patch the output paths and NO_USD_DATA_CSV
         with (
             patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", processed_dir / "accepted.json"),
             patch("data.fetcher.PROCESSED_DIR", processed_dir),
+            patch("data.fetcher.NO_USD_DATA_CSV", processed_dir / "no_usd_data.csv"),
         ):
             result = fetcher.fetch_and_filter_coins(
                 n=7,
@@ -298,6 +300,7 @@ class TestDataFetcherFilterCoins:
 
         assert result.success is True
         assert result.coins_fetched == 7
+        assert result.coins_no_usd_data == 0
         # Should filter: BTC, WBTC, STETH, USDT
         # Accept: ETH, SOL, SUI
         summary = fetcher.get_filter_summary()

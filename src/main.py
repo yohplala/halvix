@@ -50,6 +50,7 @@ from config import (
     DOWNLOAD_FAILED_CSV,
     DOWNLOAD_SKIPPED_CSV,
     FETCH_METADATA_JSON,
+    NO_USD_DATA_CSV,
     OUTPUT_DIR,
     PRICES_DIR,
     PROJECT_ROOT,
@@ -114,6 +115,17 @@ def _load_skipped_coins() -> list[dict]:
 def _load_failed_coins() -> list[dict]:
     """Load failed downloads (no BTC pair, etc.) from CSV file."""
     return _load_csv_coins(DOWNLOAD_FAILED_CSV)
+
+
+def _load_no_usd_data_coins() -> list[dict]:
+    """Load coins without USD data from CSV file."""
+    if not NO_USD_DATA_CSV.exists():
+        return []
+    try:
+        df = pd.read_csv(NO_USD_DATA_CSV)
+        return df.to_dict("records")
+    except Exception:
+        return []
 
 
 def _load_fetch_metadata() -> dict:
@@ -274,6 +286,7 @@ def _generate_html(
     coins_to_download: list[dict],
     skipped_coins: list[dict],
     failed_coins: list[dict],
+    no_usd_data_coins: list[dict],
     price_summaries: dict[str, dict],
     fetch_metadata: dict,
 ) -> str:
@@ -286,6 +299,7 @@ def _generate_html(
         coins_to_download: List of coins to download dictionaries
         skipped_coins: List of filtered coins (stablecoins, wrapped, etc.)
         failed_coins: List of coins that failed to download (no BTC pair, etc.)
+        no_usd_data_coins: List of coins without USD data from API
         price_summaries: Dictionary mapping coin_id to price data summary with quotes
         fetch_metadata: Metadata about the fetch operation
 
@@ -298,15 +312,19 @@ def _generate_html(
     footer_css = _get_footer_css()
     footer_html = _get_footer_html()
 
-    # Count statistics
-    # Use coins_returned from metadata, fallback to calculated value
-    coins_fetched = fetch_metadata.get(
-        "coins_returned", len(coins_to_download) + len(skipped_coins)
-    )
+    # Count statistics from metadata
     coins_requested = fetch_metadata.get("coins_requested", TOP_N_BY_MARKETCAP_TO_FETCH)
+    coins_with_usd = fetch_metadata.get("coins_fetched", 0)
+    coins_no_usd = fetch_metadata.get("coins_no_usd_data", 0)
+    coins_no_usd_accepted = fetch_metadata.get("coins_no_usd_accepted", 0)
+    total_accepted = fetch_metadata.get("coins_accepted", len(coins_to_download))
+
+    # Count coins with actual downloaded price data
     coins_with_data = sum(
         1 for c in coins_to_download if c.get("id", "").lower() in price_summaries
     )
+
+    # All skipped = filtered + failed downloads
     all_skipped = skipped_coins + failed_coins
     total_skipped = len(all_skipped)
 
@@ -610,11 +628,16 @@ def _generate_html(
             <div class="stat-card">
                 <div class="stat-value">{coins_requested}</div>
                 <div class="stat-label">Coins Requested</div>
-                <div class="stat-sublabel">{coins_fetched} returned by API</div>
+                <div class="stat-sublabel">{coins_with_usd} USD + {coins_no_usd} no-USD</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{total_accepted}</div>
+                <div class="stat-label">Coins Accepted</div>
+                <div class="stat-sublabel">{coins_no_usd_accepted} from no-USD (BTC only)</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value green">{coins_with_data}</div>
-                <div class="stat-label">Coins with Price Data</div>
+                <div class="stat-label">Coins Downloaded</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value red">{total_skipped}</div>
@@ -622,7 +645,7 @@ def _generate_html(
             </div>
             <div class="stat-card">
                 <div class="stat-value orange">{total_pairs}</div>
-                <div class="stat-label">Total Pairs Downloaded</div>
+                <div class="stat-label">Total Pairs</div>
             </div>
         </div>
 
@@ -630,7 +653,7 @@ def _generate_html(
             <h2>📊 Downloaded Price Data ({coins_with_data} coins)</h2>
             <p class="section-description">
                 Coins with price data downloaded from CryptoCompare.
-                Quote column shows available trading pairs: BTC for altcoins, USD for Bitcoin.
+                <strong>Source</strong>: "USD" coins have market cap data; "BTC-only" coins were discovered without USD data but have BTC trading pairs.
                 Click coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
@@ -640,6 +663,7 @@ def _generate_html(
                             <th>#</th>
                             <th>Symbol</th>
                             <th>Name</th>
+                            <th>Source</th>
                             <th>Quote(s)</th>
                             <th>Market Cap</th>
                             <th>Start Date</th>
@@ -650,24 +674,33 @@ def _generate_html(
                     <tbody>
 """
 
-    # Sort coins by market cap (descending) for consistent ranking
+    # Sort coins: first by has_usd_data (True first), then by market cap (descending)
     coins_sorted = sorted(
         [c for c in coins_to_download if c.get("id", "").lower() in price_summaries],
-        key=lambda c: c.get("market_cap", 0),
-        reverse=True,
+        key=lambda c: (not c.get("has_usd_data", True), -c.get("market_cap", 0)),
     )
 
     for i, coin in enumerate(coins_sorted, 1):
         coin_id = coin.get("id", "").lower()
         price_info = price_summaries.get(coin_id, {})
+        has_usd_data = coin.get("has_usd_data", True)
 
+        # Market cap display - N/A for coins without USD data
         market_cap = coin.get("market_cap", 0)
-        if market_cap >= 1_000_000_000:
+        if not has_usd_data or market_cap == 0:
+            market_cap_str = '<span style="color: var(--text-muted);">N/A</span>'
+        elif market_cap >= 1_000_000_000:
             market_cap_str = f"${market_cap / 1_000_000_000:.2f}B"
         elif market_cap >= 1_000_000:
             market_cap_str = f"${market_cap / 1_000_000:.2f}M"
         else:
             market_cap_str = f"${market_cap:,.0f}"
+
+        # Source indicator
+        if has_usd_data:
+            source_str = "USD"
+        else:
+            source_str = '<span style="color: var(--accent-orange);">BTC-only</span>'
 
         symbol = coin.get("symbol", "N/A")
         name = coin.get("name", "N/A")
@@ -682,6 +715,7 @@ def _generate_html(
                             <td>{i}</td>
                             <td class="coin-symbol">{symbol}</td>
                             <td class="coin-name"><a href="{coin_url}" target="_blank">{name}</a></td>
+                            <td>{source_str}</td>
                             <td>{quotes_str}</td>
                             <td class="market-cap">{market_cap_str}</td>
                             <td class="date-range">{start_date}</td>
@@ -763,11 +797,17 @@ def generate_docs() -> Path:
     coins_to_download = _load_coins_to_download()
     skipped_coins = _load_skipped_coins()
     failed_coins = _load_failed_coins()
+    no_usd_data_coins = _load_no_usd_data_coins()
     price_summaries = _get_all_price_summaries()
     fetch_metadata = _load_fetch_metadata()
 
     html_content = _generate_html(
-        coins_to_download, skipped_coins, failed_coins, price_summaries, fetch_metadata
+        coins_to_download,
+        skipped_coins,
+        failed_coins,
+        no_usd_data_coins,
+        price_summaries,
+        fetch_metadata,
     )
     output_file = DOCS_SITE_DIR / "data_status.html"
 
@@ -1701,22 +1741,34 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info("-" * 60)
     logger.info("RESULTS")
     logger.info("-" * 60)
-    logger.info("  Coins fetched:    %d", result.coins_fetched)
-    logger.info("  Coins filtered:   %d", result.coins_filtered)
-    logger.info("  Coins accepted:   %d", result.coins_accepted)
+    logger.info("  Coins requested:  %d", result.coins_requested)
+    logger.info("")
+    logger.info("  With USD data:    %d", result.coins_fetched)
+    logger.info("    - Filtered:     %d (stablecoins, wrapped, etc.)", result.coins_filtered)
+    usd_accepted = result.coins_fetched - result.coins_filtered
+    logger.info("    - Accepted:     %d", usd_accepted)
+    logger.info("")
+    logger.info("  Without USD data: %d (BTC pairs only)", result.coins_no_usd_data)
+    logger.info("    - Filtered:     %d", result.coins_no_usd_filtered)
+    logger.info("    - Accepted:     %d", result.coins_no_usd_accepted)
+    logger.info("")
+    logger.info("  Total accepted:   %d coins", result.coins_accepted)
 
-    # Print filter breakdown
+    # Print filter breakdown (from USD coins)
     summary = fetcher.get_filter_summary()
     if summary["by_reason"]:
-        logger.info("Filtered by reason:")
+        logger.info("Filtered by reason (USD coins):")
         for reason, count in sorted(summary["by_reason"].items()):
             logger.info("  - %s: %d", reason, count)
 
     # Save fetch metadata for the data status page
     _save_fetch_metadata(
         {
-            "coins_requested": n,
-            "coins_returned": result.coins_fetched,
+            "coins_requested": result.coins_requested,
+            "coins_fetched": result.coins_fetched,
+            "coins_no_usd_data": result.coins_no_usd_data,
+            "coins_no_usd_filtered": result.coins_no_usd_filtered,
+            "coins_no_usd_accepted": result.coins_no_usd_accepted,
             "coins_filtered": result.coins_filtered,
             "coins_accepted": result.coins_accepted,
             "timestamp": datetime.now().isoformat(),

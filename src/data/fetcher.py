@@ -29,6 +29,7 @@ from config import (
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
+    NO_USD_DATA_CSV,
     PROCESSED_DIR,
     QUOTE_CURRENCIES,
     TOP_N_BY_MARKETCAP_TO_FETCH,
@@ -53,9 +54,13 @@ class FetchResult:
 
     success: bool
     message: str
-    coins_fetched: int = 0
-    coins_filtered: int = 0
-    coins_accepted: int = 0
+    coins_requested: int = 0  # How many coins we asked the API for
+    coins_fetched: int = 0  # How many coins had USD data and were returned
+    coins_no_usd_data: int = 0  # How many coins were missing USD data from API
+    coins_no_usd_filtered: int = 0  # How many no-USD coins were filtered (stablecoins, etc.)
+    coins_no_usd_accepted: int = 0  # How many no-USD coins were accepted (BTC pairs only)
+    coins_filtered: int = 0  # How many USD coins were filtered out (stablecoins, wrapped, etc.)
+    coins_accepted: int = 0  # Total coins accepted for download (USD + no-USD)
     errors: list[str] | None = None
 
 
@@ -114,7 +119,8 @@ class DataFetcher:
         n: int = TOP_N_BY_MARKETCAP_TO_FETCH,
         use_cache: bool = True,
         cache_key: str = "top_coins",
-    ) -> list[dict[str, Any]]:
+        track_no_data: bool = False,
+    ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], list[dict]]:
         """
         Fetch top N coins by market cap.
 
@@ -122,21 +128,29 @@ class DataFetcher:
             n: Number of coins to fetch
             use_cache: Whether to use cached data if available
             cache_key: Key for caching the coin list
+            track_no_data: If True, also return coins without USD data
 
         Returns:
-            List of coin dictionaries
+            If track_no_data=False: List of coin dictionaries
+            If track_no_data=True: Tuple of (coin_dicts, coins_without_usd_data)
         """
-        if use_cache:
+        if use_cache and not track_no_data:
             cached = self.cache.get_json(f"{cache_key}_{n}")
             if cached is not None:
                 return cached
 
-        coins = self.client.get_top_coins_by_market_cap(n=n)
-        coin_dicts = [coin.to_dict() for coin in coins]
+        result = self.client.get_top_coins_by_market_cap(n=n, track_no_data=track_no_data)
 
-        self.cache.set_json(f"{cache_key}_{n}", coin_dicts)
-
-        return coin_dicts
+        if track_no_data:
+            coins, coins_without_data = result
+            coin_dicts = [coin.to_dict() for coin in coins]
+            self.cache.set_json(f"{cache_key}_{n}", coin_dicts)
+            return coin_dicts, coins_without_data
+        else:
+            coins = result
+            coin_dicts = [coin.to_dict() for coin in coins]
+            self.cache.set_json(f"{cache_key}_{n}", coin_dicts)
+            return coin_dicts
 
     def fetch_and_filter_coins(
         self,
@@ -147,9 +161,13 @@ class DataFetcher:
         """
         Fetch top N coins and determine which should be downloaded.
 
-        Uses get_coins_to_download which:
+        Two sources of coins:
+        1. Coins WITH USD data: have market cap, can be ranked, filtered, and downloaded
+        2. Coins WITHOUT USD data: no market cap from API, but may have BTC pairs available
+
+        For both sources, applies the same filtering:
         - Skips: stablecoins, wrapped/staked/bridged, BTC derivatives
-        - Downloads: BTC (needed for BTC vs USD chart) and all other coins
+        - Downloads: BTC (USD pair) and all other coins (BTC pairs)
 
         Args:
             n: Number of coins to fetch
@@ -163,28 +181,60 @@ class DataFetcher:
             # Reset filter to clear previous runs
             self.coin_filter.reset()
 
-            # Fetch coins
-            all_coins = self.fetch_top_coins(n=n, use_cache=use_cache)
+            # Fetch coins with tracking of coins without USD data
+            result = self.fetch_top_coins(n=n, use_cache=use_cache, track_no_data=True)
+            all_coins, coins_without_usd = result
 
-            # Determine coins to download (includes BTC, skips stablecoins/wrapped/staked)
+            # --- Process coins WITH USD data ---
             coins_to_download = self.coin_filter.get_coins_to_download(
                 all_coins,
                 record_skipped=True,
             )
+            usd_coins_filtered = len(self.coin_filter.skipped_coins)
 
-            # Export skipped coins for review
+            # Mark these coins as having USD data
+            for coin in coins_to_download:
+                coin["has_usd_data"] = True
+
+            # --- Process coins WITHOUT USD data ---
+            # Convert to same dict format and filter using same logic
+            no_usd_coins_as_dicts = self._convert_no_usd_coins(coins_without_usd)
+
+            # Use a fresh filter instance to get separate counts
+            no_usd_filter = self.coin_filter.__class__()
+            no_usd_accepted = no_usd_filter.get_coins_to_download(
+                no_usd_coins_as_dicts,
+                record_skipped=True,
+            )
+            no_usd_filtered = len(no_usd_filter.skipped_coins)
+
+            # Mark these coins as NOT having USD data (will use BTC pairs only)
+            for coin in no_usd_accepted:
+                coin["has_usd_data"] = False
+
+            # Combine both lists
+            all_coins_to_download = coins_to_download + no_usd_accepted
+
+            # Export skipped coins for review (from USD coins only, main source)
             if export_skipped:
                 self.coin_filter.export_skipped_coins_csv()
 
-            # Save coins to download list
-            self._save_coins_to_download(coins_to_download)
+            # Save combined coins to download list
+            self._save_coins_to_download(all_coins_to_download)
+
+            # Save coins without USD data for documentation (before filtering)
+            self._save_coins_without_usd_data(coins_without_usd)
 
             return FetchResult(
                 success=True,
-                message=f"Successfully fetched and filtered {len(coins_to_download)} coins",
+                message=f"Successfully fetched and filtered {len(all_coins_to_download)} coins",
+                coins_requested=n,
                 coins_fetched=len(all_coins),
-                coins_filtered=len(self.coin_filter.skipped_coins),
-                coins_accepted=len(coins_to_download),
+                coins_no_usd_data=len(coins_without_usd),
+                coins_no_usd_filtered=no_usd_filtered,
+                coins_no_usd_accepted=len(no_usd_accepted),
+                coins_filtered=usd_coins_filtered,
+                coins_accepted=len(all_coins_to_download),
             )
 
         except CryptoCompareError as e:
@@ -200,6 +250,34 @@ class DataFetcher:
                 errors=[str(e)],
             )
 
+    def _convert_no_usd_coins(self, coins_without_usd: list[dict]) -> list[dict]:
+        """
+        Convert coins without USD data to the standard coin dict format.
+
+        These coins came from the market cap API but had no USD price data.
+        We convert them to match the format from Coin.to_dict() so they can
+        be processed by the same filtering logic.
+
+        Args:
+            coins_without_usd: List of dicts with {symbol, name, rank}
+
+        Returns:
+            List of coin dicts in standard format with has_usd_data=False
+        """
+        return [
+            {
+                "id": coin["symbol"].lower(),
+                "symbol": coin["symbol"],
+                "name": coin["name"],
+                "market_cap": 0,  # Unknown - no USD data
+                "market_cap_rank": coin.get("rank", 0),
+                "current_price": 0,
+                "volume_24h": 0,
+                "circulating_supply": 0,
+            }
+            for coin in coins_without_usd
+        ]
+
     def _save_coins_to_download(self, coins: list[dict]) -> Path:
         """Save the coins to download list to JSON."""
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
@@ -208,6 +286,19 @@ class DataFetcher:
             json.dump(coins, f, indent=2)
 
         return COINS_TO_DOWNLOAD_JSON
+
+    def _save_coins_without_usd_data(self, coins: list[dict]) -> Path:
+        """Save coins that were returned by API but without USD price data."""
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+        if coins:
+            df = pd.DataFrame(coins)
+            df.to_csv(NO_USD_DATA_CSV, index=False)
+        else:
+            # Write empty CSV with headers
+            pd.DataFrame(columns=["symbol", "name", "rank"]).to_csv(NO_USD_DATA_CSV, index=False)
+
+        return NO_USD_DATA_CSV
 
     def load_coins_to_download(self) -> list[dict]:
         """Load the previously saved coins to download list."""

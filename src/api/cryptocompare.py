@@ -335,7 +335,8 @@ class CryptoCompareClient:
         self,
         n: int = 300,
         vs_currency: str = "USD",
-    ) -> list[Coin]:
+        track_no_data: bool = False,
+    ) -> list[Coin] | tuple[list[Coin], list[dict]]:
         """
         Get top N coins by market capitalization.
 
@@ -344,13 +345,17 @@ class CryptoCompareClient:
         Args:
             n: Number of top coins to fetch (default: 300)
             vs_currency: Quote currency for prices (default: "USD")
+            track_no_data: If True, also return coins without price data
 
         Returns:
-            List of Coin objects sorted by market cap rank
+            If track_no_data=False: List of Coin objects sorted by market cap rank
+            If track_no_data=True: Tuple of (coins, coins_without_data)
         """
         coins: list[Coin] = []
+        coins_without_data: list[dict] = []
         page = 0
         per_page = 100  # CryptoCompare returns 100 per page max
+        total_seen = 0
 
         while len(coins) < n:
             data = self._request(
@@ -367,10 +372,20 @@ class CryptoCompareClient:
                 break
 
             for coin_data in coin_data_list:
+                total_seen += 1
                 coin_info = coin_data.get("CoinInfo", {})
                 raw_data = coin_data.get("RAW", {}).get(vs_currency.upper(), {})
 
                 if not raw_data:
+                    # Track coins without price data
+                    if track_no_data:
+                        coins_without_data.append(
+                            {
+                                "symbol": coin_info.get("Name", ""),
+                                "name": coin_info.get("FullName", ""),
+                                "rank": total_seen,
+                            }
+                        )
                     continue
 
                 coins.append(
@@ -394,6 +409,8 @@ class CryptoCompareClient:
             if len(coin_data_list) < per_page:
                 break
 
+        if track_no_data:
+            return coins[:n], coins_without_data
         return coins[:n]
 
     def ping(self) -> bool:

@@ -51,9 +51,9 @@ This approach ensures:
 │  ┌─────────────────────────────────────────────┐                   │
 │  │          raw-data branch (orphan)           │                   │
 │  │  • raw/prices/*.parquet (price data)        │                   │
-│  │  • cache/top_coins_1000.json (coin list)    │                   │
-│  │  • processed/coins_to_download.json         │                   │
-│  │  • processed/download_skipped.csv           │                   │
+│  │  • cache/top_coins_*.json (coin list cache) │                   │
+│  │  • processed/ (coins list, metadata, etc.)  │                   │
+│  │  • site/data_status.html                    │                   │
 │  └─────────────────────────────────────────────┘                   │
 │                              │                                     │
 │                              ▼                                     │
@@ -101,9 +101,13 @@ Contains raw price data fetched from CryptoCompare API:
 | Path | Description |
 |------|-------------|
 | `raw/prices/*.parquet` | Daily OHLCV price data for each coin |
-| `cache/top_coins_1000.json` | Cached top 1000 coins by market cap |
-| `processed/coins_to_download.json` | List of coins selected for download |
-| `processed/download_skipped.csv` | Coins skipped during download |
+| `cache/top_coins_*.json` | Cached coin list from market cap API |
+| `processed/coins_to_download.json` | List of coins selected for download (with `has_usd_data` flag) |
+| `processed/download_skipped.csv` | Coins filtered out (stablecoins, wrapped, etc.) |
+| `processed/download_failed.csv` | Coins that failed to download (no BTC pair) |
+| `processed/no_usd_data.csv` | Coins without USD data from API (before filtering) |
+| `processed/fetch_metadata.json` | Fetch statistics (counts, timestamp) |
+| `site/data_status.html` | Generated data status page |
 
 ### `processed-data` branch (orphan)
 Contains calculated TOTAL2 index data:
