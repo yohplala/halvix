@@ -446,8 +446,12 @@ CHART_LABEL_SIZE = 12
 # Coin lists for download phase
 # coins_to_download.json - coins that will have price data fetched
 # download_skipped.csv - coins that are skipped with reason (stablecoins, wrapped tokens, etc.)
+# download_failed.csv - coins that failed to download (no BTC pair on CryptoCompare, etc.)
+# fetch_metadata.json - metadata about the fetch operation (counts, timestamp)
 COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"
 DOWNLOAD_SKIPPED_CSV = PROCESSED_DIR / "download_skipped.csv"
+DOWNLOAD_FAILED_CSV = PROCESSED_DIR / "download_failed.csv"
+FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
 
 # Analysis results
 REGRESSION_RESULTS_CSV = PROCESSED_DIR / "regression_results.csv"

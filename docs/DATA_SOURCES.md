@@ -109,25 +109,29 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 │                                                                │
 │  Step 1: Discover Coins (CryptoCompare)                        │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ GET /data/top/mktcapfull?limit=100&page=0..2             │  │
+│  │ GET /data/top/mktcapfull?limit=100&page=0..11            │  │
+│  │ Requests: TOP_N_BY_MARKETCAP_TO_FETCH = 1200 coins       │  │
 │  │ Returns: symbol, name, market_cap, price, volume         │  │
 │  │ Output: data/processed/coins_to_download.json            │  │
+│  │         data/processed/fetch_metadata.json               │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                 │
 │                              ▼                                 │
 │  Step 2: Filter Coins (Local)                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Remove: wrapped, staked, bridged, stablecoins, BTC       │  │
+│  │ Remove: wrapped, staked, bridged, stablecoins            │  │
+│  │ Keep: BTC (for BTC/USD chart)                            │  │
 │  │ Output: data/processed/download_skipped.csv              │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                 │
 │                              ▼                                 │
 │  Step 3: Fetch Historical Prices (CryptoCompare)               │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ GET /data/v2/histoday?fsym=ETH&tsym=BTC&limit=2000       │  │
+│  │ Altcoins: GET /data/v2/histoday?fsym=ETH&tsym=BTC        │  │
+│  │ BTC: GET /data/v2/histoday?fsym=BTC&tsym=USD             │  │
 │  │ Pagination: Multiple requests for 4000+ days             │  │
-│  │ Returns: date, open, high, low, close, volume            │  │
-│  │ Output: data/raw/prices/{symbol}.parquet                 │  │
+│  │ Output: data/raw/prices/{coin}-{quote}.parquet           │  │
+│  │         data/processed/download_failed.csv (if any)      │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                 │
 │                              ▼                                 │
@@ -139,6 +143,60 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Data Status Page
+
+The pipeline generates a `data_status.html` page (at `site/data_status.html`) that provides a comprehensive view of the data:
+
+### Statistics Cards
+
+| Card | Description |
+|------|-------------|
+| **Coins Requested** | Number requested from API (`TOP_N_BY_MARKETCAP_TO_FETCH = 1200`), with sublabel showing actual returned count |
+| **Coins with Price Data** | Coins that have downloaded price data in cache |
+| **Skipped / Failed** | Filtered coins (stablecoins, wrapped) + failed downloads (no BTC pair) |
+| **Total Pairs Downloaded** | Sum of all quote pairs (BTC + USD) across all coins |
+
+### Downloaded Coins Table
+
+Lists all coins with price data, including:
+- Symbol and name (linked to CryptoCompare)
+- **Quote(s)** column: Shows available pairs (BTC, USD, or both)
+- Market cap
+- Date range and days of data
+
+### Skipped / Failed Table
+
+Lists all excluded coins with reasons:
+- **Stablecoin**: USDT, USDC, DAI, etc.
+- **Wrapped/Staked/Bridged token**: WBTC, stETH, etc.
+- **No BTC pair**: Coins like KET that have no direct BTC trading pair on CryptoCompare
+
+---
+
+## Output Files
+
+### Processed Data Files
+
+| File | Description |
+|------|-------------|
+| `coins_to_download.json` | Coins accepted for price fetching |
+| `download_skipped.csv` | Coins filtered out (stablecoins, wrapped, etc.) |
+| `download_failed.csv` | Coins that failed to download (no BTC pair on CryptoCompare) |
+| `fetch_metadata.json` | Metadata: coins_requested, coins_returned, timestamp |
+| `total2_index.parquet` | Calculated TOTAL2 index |
+
+### Price Data Files
+
+```
+data/raw/prices/
+├── eth-btc.parquet    # ETH priced in BTC
+├── btc-usd.parquet    # BTC priced in USD (special case)
+├── xrp-btc.parquet
+└── ... (one file per coin-pair)
 ```
 
 ---
@@ -278,6 +336,9 @@ CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Days per request
 
+# Coin fetching
+TOP_N_BY_MARKETCAP_TO_FETCH = 1200  # Request top 1200 coins by market cap
+
 # Retry configuration
 API_MAX_RETRIES = 5
 API_RETRY_MIN_WAIT = 1         # seconds
@@ -285,6 +346,12 @@ API_RETRY_MAX_WAIT = 60        # seconds
 
 # Data completeness - this is a fixed constant ensuring only complete daily data is fetched
 USE_YESTERDAY_AS_END_DATE = True
+
+# Output files
+COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"
+DOWNLOAD_SKIPPED_CSV = PROCESSED_DIR / "download_skipped.csv"
+DOWNLOAD_FAILED_CSV = PROCESSED_DIR / "download_failed.csv"
+FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
 ```
 
 ---
@@ -297,19 +364,28 @@ USE_YESTERDAY_AS_END_DATE = True
 2. Wait a few minutes before retrying
 3. Check if another process is using the same API
 
-### "Market does not exist" errors
+### "CCCAGG market does not exist for this coin pair" errors
 
-- The coin symbol may not be listed on CryptoCompare
-- Coin will be excluded from analysis automatically
+This error occurs when a coin doesn't have a direct trading pair on CryptoCompare's aggregated exchanges. For example, KET has no direct KET/BTC pair.
+
+- These coins are logged during `fetch-prices` and saved to `download_failed.csv`
+- They appear in the "Skipped / Failed" section of `data_status.html`
+- The coin may still have a USD pair (current price), but no historical BTC data
 
 ### Empty historical data
 
 - Coin may be too new (created after requested start date)
 - Check CryptoCompare directly: `https://min-api.cryptocompare.com/data/v2/histoday?fsym=ETH&tsym=BTC&limit=10`
 
+### Discrepancy between requested and returned coins
+
+- `TOP_N_BY_MARKETCAP_TO_FETCH` (default: 1200) is the number requested
+- The API may return fewer coins if some don't have USD price data
+- The `fetch_metadata.json` file records both values for transparency
+
 ---
 
-*Last updated: 2025-12-03*
+*Last updated: 2025-12-24*
 
 ---
 

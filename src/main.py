@@ -47,7 +47,9 @@ from api.cryptocompare import CryptoCompareClient
 from config import (
     COINS_TO_DOWNLOAD_JSON,
     CRYPTOCOMPARE_COIN_URL,
+    DOWNLOAD_FAILED_CSV,
     DOWNLOAD_SKIPPED_CSV,
+    FETCH_METADATA_JSON,
     OUTPUT_DIR,
     PRICES_DIR,
     PROJECT_ROOT,
@@ -80,19 +82,19 @@ def _load_coins_to_download() -> list[dict]:
         return json.load(f)
 
 
-def _load_skipped_coins() -> list[dict]:
-    """Load skipped coins from CSV file."""
-    if not DOWNLOAD_SKIPPED_CSV.exists():
+def _load_csv_coins(filepath: Path) -> list[dict]:
+    """Load coins from a semicolon-delimited CSV file."""
+    if not filepath.exists():
         return []
 
-    skipped = []
-    with open(DOWNLOAD_SKIPPED_CSV, encoding="utf-8") as f:
+    coins = []
+    with open(filepath, encoding="utf-8") as f:
         lines = f.readlines()
         if len(lines) > 1:
             for line in lines[1:]:  # Skip header
                 parts = line.strip().split(";")
                 if len(parts) >= 5:
-                    skipped.append(
+                    coins.append(
                         {
                             "id": parts[0],
                             "name": parts[1],
@@ -101,7 +103,56 @@ def _load_skipped_coins() -> list[dict]:
                             "url": parts[4],
                         }
                     )
-    return skipped
+    return coins
+
+
+def _load_skipped_coins() -> list[dict]:
+    """Load filtered coins (stablecoins, wrapped, etc.) from CSV file."""
+    return _load_csv_coins(DOWNLOAD_SKIPPED_CSV)
+
+
+def _load_failed_coins() -> list[dict]:
+    """Load failed downloads (no BTC pair, etc.) from CSV file."""
+    return _load_csv_coins(DOWNLOAD_FAILED_CSV)
+
+
+def _load_fetch_metadata() -> dict:
+    """Load fetch metadata (counts, timestamp) from JSON file."""
+    if not FETCH_METADATA_JSON.exists():
+        return {}
+    with open(FETCH_METADATA_JSON, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_fetch_metadata(metadata: dict) -> None:
+    """Save fetch metadata to JSON file."""
+    FETCH_METADATA_JSON.parent.mkdir(parents=True, exist_ok=True)
+    with open(FETCH_METADATA_JSON, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+
+def _save_failed_coins(failed_coins: list[dict]) -> None:
+    """Save failed downloads to CSV file."""
+    if not failed_coins:
+        # Clear the file if no failed coins
+        if DOWNLOAD_FAILED_CSV.exists():
+            DOWNLOAD_FAILED_CSV.unlink()
+        return
+
+    DOWNLOAD_FAILED_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with open(DOWNLOAD_FAILED_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
+        for coin in failed_coins:
+            writer.writerow(
+                [
+                    coin.get("id", ""),
+                    coin.get("name", ""),
+                    coin.get("symbol", ""),
+                    coin.get("reason", ""),
+                    coin.get("url", ""),
+                ]
+            )
 
 
 def _append_insufficient_history_to_skipped(
@@ -164,17 +215,15 @@ def _append_insufficient_history_to_skipped(
             writer.writerow(entry)
 
 
-def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
+def _get_all_price_summaries() -> dict[str, dict]:
     """
-    Get summary of price data for each coin.
-
-    Args:
-        quote_currency: Quote currency to filter by (default: "BTC")
+    Get summary of all downloaded price data with quote information.
 
     Returns:
-        Dictionary mapping coin_id to price data summary
+        Dictionary mapping coin_id to price data summary including quotes available.
+        Example: {"eth": {"quotes": ["BTC"], "start_date": "2015-08-07", ...}}
     """
-    summaries = {}
+    summaries: dict[str, dict] = {}
 
     if not PRICES_DIR.exists():
         return summaries
@@ -187,31 +236,34 @@ def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
             parts = filename.rsplit("-", 1)
             if len(parts) == 2:
                 coin_id, quote = parts
-                # Special case: BTC should use USD quote since BTC-BTC doesn't make sense
-                if coin_id.lower() == "btc":
-                    if quote.upper() != "USD":
-                        continue
-                elif quote.upper() != quote_currency.upper():
-                    continue
+                quote = quote.upper()
             else:
                 coin_id = filename
+                quote = "BTC"
         else:
             # Legacy format - assume BTC quote
             coin_id = filename
-            if quote_currency.upper() != "BTC":
-                continue
+            quote = "BTC"
 
         try:
             df = pd.read_parquet(parquet_file)
             if not df.empty:
                 start_date = df.index.min()
                 end_date = df.index.max()
-                summaries[coin_id] = {
-                    "coin_id": coin_id,
-                    "start_date": start_date.strftime("%Y-%m-%d"),
-                    "end_date": end_date.strftime("%Y-%m-%d"),
-                    "days": len(df),
-                }
+
+                if coin_id not in summaries:
+                    summaries[coin_id] = {
+                        "coin_id": coin_id,
+                        "quotes": [],
+                        "start_date": start_date.strftime("%Y-%m-%d"),
+                        "end_date": end_date.strftime("%Y-%m-%d"),
+                        "days": len(df),
+                    }
+
+                # Add this quote to the list
+                if quote not in summaries[coin_id]["quotes"]:
+                    summaries[coin_id]["quotes"].append(quote)
+
         except Exception:
             pass
 
@@ -221,7 +273,9 @@ def _get_price_data_summary(quote_currency: str = "BTC") -> dict[str, dict]:
 def _generate_html(
     coins_to_download: list[dict],
     skipped_coins: list[dict],
+    failed_coins: list[dict],
     price_summaries: dict[str, dict],
+    fetch_metadata: dict,
 ) -> str:
     """
     Generate the complete HTML documentation page.
@@ -230,8 +284,10 @@ def _generate_html(
 
     Args:
         coins_to_download: List of coins to download dictionaries
-        skipped_coins: List of skipped coin dictionaries
-        price_summaries: Dictionary mapping coin_id to price data summary
+        skipped_coins: List of filtered coins (stablecoins, wrapped, etc.)
+        failed_coins: List of coins that failed to download (no BTC pair, etc.)
+        price_summaries: Dictionary mapping coin_id to price data summary with quotes
+        fetch_metadata: Metadata about the fetch operation
 
     Returns:
         Complete HTML string
@@ -242,10 +298,20 @@ def _generate_html(
     footer_css = _get_footer_css()
     footer_html = _get_footer_html()
 
-    # Count coins with downloaded price data
+    # Count statistics
+    # Use coins_returned from metadata, fallback to calculated value
+    coins_fetched = fetch_metadata.get(
+        "coins_returned", len(coins_to_download) + len(skipped_coins)
+    )
+    coins_requested = fetch_metadata.get("coins_requested", TOP_N_BY_MARKETCAP_TO_FETCH)
     coins_with_data = sum(
         1 for c in coins_to_download if c.get("id", "").lower() in price_summaries
     )
+    all_skipped = skipped_coins + failed_coins
+    total_skipped = len(all_skipped)
+
+    # Count pairs downloaded (sum of all quotes for all coins)
+    total_pairs = sum(len(s.get("quotes", [])) for s in price_summaries.values())
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -375,6 +441,12 @@ def _generate_html(
             margin-top: 0.5rem;
         }}
 
+        .stat-sublabel {{
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-top: 0.25rem;
+        }}
+
         section {{
             margin-bottom: 3rem;
         }}
@@ -451,6 +523,7 @@ def _generate_html(
         .reason-btc {{ background: #2d1e3f; color: #a371f7; }}
         .reason-stablecoin {{ background: #1e2d3f; color: #58a6ff; }}
         .reason-history {{ background: #2d3f1e; color: #7ee68f; }}
+        .reason-nopair {{ background: #3f1e1e; color: #f85149; }}
 
         .date-range {{
             font-family: 'Monaco', 'Menlo', monospace;
@@ -535,28 +608,29 @@ def _generate_html(
         <p class="update-time">Last updated: {update_time}</p>
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-value">{len(coins_to_download) + len(skipped_coins)}</div>
-                <div class="stat-label">Total Coins Fetched</div>
+                <div class="stat-value">{coins_requested}</div>
+                <div class="stat-label">Coins Requested</div>
+                <div class="stat-sublabel">{coins_fetched} returned by API</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value green">{coins_with_data}</div>
-                <div class="stat-label">Downloaded BTC-pairs Data</div>
+                <div class="stat-label">Coins with Price Data</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value red">{len(skipped_coins)}</div>
-                <div class="stat-label">Skipped (Not Downloaded)</div>
+                <div class="stat-value red">{total_skipped}</div>
+                <div class="stat-label">Skipped / Failed</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value orange">{len(coins_to_download)}</div>
-                <div class="stat-label">Coins to Download</div>
+                <div class="stat-value orange">{total_pairs}</div>
+                <div class="stat-label">Total Pairs Downloaded</div>
             </div>
         </div>
 
         <section id="downloaded">
-            <h2>📊 Downloaded BTC-pairs Data ({coins_with_data} coins)</h2>
+            <h2>📊 Downloaded Price Data ({coins_with_data} coins)</h2>
             <p class="section-description">
-                Coins with BTC-pair data downloaded from CryptoCompare. Excludes wrapped, staked, bridged tokens, and stablecoins. BTC itself uses USD pair.
-                Data spans from before the first Bitcoin halving to yesterday.
+                Coins with price data downloaded from CryptoCompare.
+                Quote column shows available trading pairs: BTC for altcoins, USD for Bitcoin.
                 Click coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
@@ -566,6 +640,7 @@ def _generate_html(
                             <th>#</th>
                             <th>Symbol</th>
                             <th>Name</th>
+                            <th>Quote(s)</th>
                             <th>Market Cap</th>
                             <th>Start Date</th>
                             <th>End Date</th>
@@ -597,6 +672,8 @@ def _generate_html(
         symbol = coin.get("symbol", "N/A")
         name = coin.get("name", "N/A")
         coin_url = f"https://www.cryptocompare.com/coins/{symbol.upper()}/overview"
+        quotes = price_info.get("quotes", [])
+        quotes_str = ", ".join(quotes) if quotes else "N/A"
         start_date = price_info.get("start_date", "N/A")
         end_date = price_info.get("end_date", "N/A")
         days = price_info.get("days", 0)
@@ -605,6 +682,7 @@ def _generate_html(
                             <td>{i}</td>
                             <td class="coin-symbol">{symbol}</td>
                             <td class="coin-name"><a href="{coin_url}" target="_blank">{name}</a></td>
+                            <td>{quotes_str}</td>
                             <td class="market-cap">{market_cap_str}</td>
                             <td class="date-range">{start_date}</td>
                             <td class="date-range">{end_date}</td>
@@ -619,11 +697,11 @@ def _generate_html(
         </section>
 
         <section id="skipped">
-            <h2>⏭️ Skipped ("""
-        + str(len(skipped_coins))
+            <h2>⏭️ Skipped / Failed ("""
+        + str(total_skipped)
         + """)</h2>
             <p class="section-description">
-                These coins were skipped from download: stablecoins, and wrapped/staked/bridged tokens.
+                Coins excluded from analysis: stablecoins, wrapped/staked/bridged tokens, and coins without available trading pairs on CryptoCompare.
                 Click the coin name to view on CryptoCompare.
             </p>
             <div class="table-container">
@@ -640,7 +718,7 @@ def _generate_html(
 """
     )
 
-    for i, coin in enumerate(skipped_coins, 1):
+    for i, coin in enumerate(all_skipped, 1):
         reason = coin.get("reason", "Unknown")
         reason_class = "reason-wrapped"
         if "BTC" in reason or "Bitcoin" in reason:
@@ -649,6 +727,8 @@ def _generate_html(
             reason_class = "reason-stablecoin"
         elif "historical" in reason.lower() or "Insufficient" in reason:
             reason_class = "reason-history"
+        elif "CCCAGG" in reason or "pair" in reason.lower() or "market" in reason.lower():
+            reason_class = "reason-nopair"
 
         html += f"""                        <tr>
                             <td>{i}</td>
@@ -682,9 +762,13 @@ def generate_docs() -> Path:
 
     coins_to_download = _load_coins_to_download()
     skipped_coins = _load_skipped_coins()
-    price_summaries = _get_price_data_summary()
+    failed_coins = _load_failed_coins()
+    price_summaries = _get_all_price_summaries()
+    fetch_metadata = _load_fetch_metadata()
 
-    html_content = _generate_html(coins_to_download, skipped_coins, price_summaries)
+    html_content = _generate_html(
+        coins_to_download, skipped_coins, failed_coins, price_summaries, fetch_metadata
+    )
     output_file = DOCS_SITE_DIR / "data_status.html"
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -1628,6 +1712,21 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
         for reason, count in sorted(summary["by_reason"].items()):
             logger.info("  - %s: %d", reason, count)
 
+    # Save fetch metadata for the data status page
+    _save_fetch_metadata(
+        {
+            "coins_requested": n,
+            "coins_returned": result.coins_fetched,
+            "coins_filtered": result.coins_filtered,
+            "coins_accepted": result.coins_accepted,
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+
+    # Clear any previous failed downloads (will be populated during fetch-prices)
+    if DOWNLOAD_FAILED_CSV.exists():
+        DOWNLOAD_FAILED_CSV.unlink()
+
     logger.info("Output files:")
     logger.info("  - Coins to download: %s", COINS_TO_DOWNLOAD_JSON)
     logger.info("  - Skipped coins: %s", DOWNLOAD_SKIPPED_CSV)
@@ -1741,22 +1840,42 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     logger.info("  Coins processed: %d (attempted: %d)", len(successful_coins), len(coins))
 
-    # Log failed coins if any, with explanation of why they failed
+    # Log and save failed coins with explanation of why they failed
     if failed_coins:
         logger.warning("  Failed/empty:    %d coins", len(failed_coins))
-        # Check each failed coin to explain why it failed
+        # Check each failed coin to explain why it failed and save to CSV
         client = CryptoCompareClient()
-        for coin_id in failed_coins[:10]:  # Show first 10
-            # Find the symbol for this coin
-            coin_symbol = next(
-                (c.get("symbol", coin_id) for c in coins if c.get("id") == coin_id),
-                coin_id.upper(),
-            )
+        failed_coins_data = []
+        for coin_id in failed_coins:
+            # Find the coin data
+            coin_data = next((c for c in coins if c.get("id") == coin_id), {})
+            coin_symbol = coin_data.get("symbol", coin_id.upper())
+            coin_name = coin_data.get("name", coin_symbol)
             # Check histoday availability to get the actual API error message
             pair_info = client.check_histoday_availability(coin_symbol, "BTC")
-            logger.warning("    - %s: %s", coin_id.upper(), pair_info["reason"])
-        if len(failed_coins) > 10:
-            logger.warning("    ... and %d more", len(failed_coins) - 10)
+            reason = pair_info["reason"]
+            url = f"{CRYPTOCOMPARE_COIN_URL}/{coin_symbol.upper()}/overview"
+            failed_coins_data.append(
+                {
+                    "id": coin_id,
+                    "name": coin_name,
+                    "symbol": coin_symbol,
+                    "reason": reason,
+                    "url": url,
+                }
+            )
+
+        # Log first 10
+        for coin in failed_coins_data[:10]:
+            logger.warning("    - %s: %s", coin["symbol"], coin["reason"])
+        if len(failed_coins_data) > 10:
+            logger.warning("    ... and %d more", len(failed_coins_data) - 10)
+
+        # Save to CSV for the data status page
+        _save_failed_coins(failed_coins_data)
+    else:
+        # Clear any previous failed coins
+        _save_failed_coins([])
 
     # Show cache stats per currency
     price_cache = PriceDataCache()
