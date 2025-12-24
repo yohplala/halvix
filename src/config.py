@@ -100,30 +100,6 @@ def get_all_cycle_windows() -> list[tuple[int, date, date, date]]:
 CYCLE_WINDOWS = get_all_cycle_windows()
 
 # =============================================================================
-# Linear Regression Configuration
-# =============================================================================
-
-# Could be 2 1st weeks of Sept 23 or 2 1st weeks of Sept 24
-REGRESSION_START_DATE = date(2023, 11, 1)
-
-# Minimum number of data points required for regression
-MIN_REGRESSION_POINTS = 30
-
-
-def get_regression_end_date() -> date:
-    """
-    Get the regression end date.
-
-    Returns today's date at call time to handle applications
-    running across midnight.
-
-    Returns:
-        Current date
-    """
-    return date.today()
-
-
-# =============================================================================
 # Data Filtering Configuration
 # =============================================================================
 
@@ -132,9 +108,6 @@ TOP_N_BY_MARKETCAP_TO_FETCH = 1200
 
 # Number of top coins to use for TOTAL2 calculation
 TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
-
-# Number of top performers to show in summary chart
-TOP_N_SUMMARY = 10
 
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
@@ -189,7 +162,8 @@ TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this ma
 # When a coin's price jumps by more than this factor in a single day, we treat it
 # as a symbol replacement and reset the first_seen date to after the jump.
 # This prevents old scaling factors from being incorrectly applied to new tokens.
-TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 100  # 100x price change indicates symbol swap
+# Note: 30x is used because a 30x daily gain is extremely unusual even for volatile altcoins.
+TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 30  # 30x price change indicates symbol swap
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
@@ -415,31 +389,6 @@ API_RETRY_MAX_WAIT = 60  # seconds
 CACHE_EXPIRY_SECONDS = 86400
 
 # =============================================================================
-# Visualization Configuration
-# =============================================================================
-
-COLORS = {
-    "coin_candle_up": "#E67E22",  # Dark orange (bullish)
-    "coin_candle_down": "#D35400",  # Darker orange (bearish)
-    "coin_line": "#E67E22",  # Dark orange for line plots
-    "total2_line": "#CCCCCC",  # Light grey
-    "regression_line": "#1B4F72",  # Dark blue
-    "background": "#FFFFFF",
-    "grid": "#F0F0F0",
-    "text": "#333333",
-}
-
-# Chart dimensions
-CHART_WIDTH = 1400
-CHART_HEIGHT_PER_CYCLE = 400
-CHART_DPI = 150
-
-# Font settings
-CHART_FONT_FAMILY = "Arial, sans-serif"
-CHART_TITLE_SIZE = 16
-CHART_LABEL_SIZE = 12
-
-# =============================================================================
 # Output Files
 # =============================================================================
 
@@ -456,7 +405,6 @@ NO_USD_DATA_CSV = PROCESSED_DIR / "no_usd_data.csv"
 FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
 
 # Analysis results
-REGRESSION_RESULTS_CSV = PROCESSED_DIR / "regression_results.csv"
 TOTAL2_INDEX_FILE = PROCESSED_DIR / "total2_index.parquet"
 TOTAL2_COMPOSITION_FILE = PROCESSED_DIR / "total2_daily_composition.parquet"
 TOTAL2_MAX_WEIGHT_CHANGE_FILE = PROCESSED_DIR / "total2_max_weight_change.json"

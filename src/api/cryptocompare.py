@@ -9,6 +9,7 @@ CryptoCompare offers free access to:
 API Documentation: https://min-api.cryptocompare.com/documentation
 """
 
+import logging
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -28,6 +29,9 @@ from config import (
     CRYPTOCOMPARE_API_CALLS_PER_MINUTE,
     CRYPTOCOMPARE_BASE_URL,
 )
+
+# Module logger for API debugging
+logger = logging.getLogger(__name__)
 
 
 def get_version() -> str:
@@ -167,11 +171,22 @@ class CryptoCompareClient:
 
         url = f"{self.base_url}{endpoint}"
 
+        # Build a readable description of what we're fetching for debug logging
+        param_info = ""
+        if params:
+            if "fsym" in params and "tsym" in params:
+                param_info = f" [{params['fsym']}/{params['tsym']}]"
+            elif "page" in params:
+                param_info = f" [page {params['page']}]"
+
+        logger.debug("API request: %s%s", endpoint, param_info)
+
         try:
             response = self.session.get(url, params=params, timeout=30)
             self._last_request_time = time.time()
 
             if response.status_code == 429:
+                logger.warning("Rate limit hit: %s%s", endpoint, param_info)
                 raise RateLimitError("Rate limit exceeded")
 
             if response.status_code != 200:
@@ -181,7 +196,9 @@ class CryptoCompareClient:
 
             # CryptoCompare returns Response: "Error" for errors
             if data.get("Response") == "Error":
-                raise APIError(f"API error: {data.get('Message', 'Unknown error')}")
+                error_msg = data.get("Message", "Unknown error")
+                logger.debug("API error for %s%s: %s", endpoint, param_info, error_msg)
+                raise APIError(f"API error: {error_msg}")
 
             return data
 

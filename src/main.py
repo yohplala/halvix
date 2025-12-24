@@ -1904,7 +1904,9 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     if failed_coins:
         logger.warning("  Failed/empty:    %d coins", len(failed_coins))
         # Check each failed coin to explain why it failed and save to CSV
-        client = CryptoCompareClient()
+        # IMPORTANT: Reuse the fetcher's client to maintain rate limit state
+        # Creating a new CryptoCompareClient() would reset _last_request_time
+        # and potentially hit rate limits after the price fetching phase
         failed_coins_data = []
         for coin_id in tqdm(failed_coins, desc="Checking failed coins"):
             # Find the coin data
@@ -1912,7 +1914,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
             coin_symbol = coin_data.get("symbol", coin_id.upper())
             coin_name = coin_data.get("name", coin_symbol)
             # Check histoday availability to get the actual API error message
-            pair_info = client.check_histoday_availability(coin_symbol, "BTC")
+            pair_info = fetcher.client.check_histoday_availability(coin_symbol, "BTC")
             reason = pair_info["reason"]
             url = f"{CRYPTOCOMPARE_COIN_URL}/{coin_symbol.upper()}/overview"
             failed_coins_data.append(

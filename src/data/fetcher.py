@@ -440,7 +440,7 @@ class DataFetcher:
             Nested dictionary: {coin_id: {quote_currency: DataFrame}}
         """
         if coins is None:
-            coins = self.load_accepted_coins()
+            coins = self.load_coins_to_download()
 
         if vs_currencies is None:
             vs_currencies = QUOTE_CURRENCIES
