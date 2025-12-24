@@ -1751,9 +1751,13 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info("")
     logger.info("  Without USD data: %d (BTC pairs only)", result.coins_no_usd_data)
     logger.info("    - Filtered:     %d", result.coins_no_usd_filtered)
+    if result.coins_no_usd_capped > 0:
+        logger.info("    - Capped:       %d (excluded to meet limit)", result.coins_no_usd_capped)
     logger.info("    - Accepted:     %d", result.coins_no_usd_accepted)
     logger.info("")
-    logger.info("  Total accepted:   %d coins", result.coins_accepted)
+    logger.info(
+        "  Total accepted:   %d coins (capped at %d)", result.coins_accepted, result.coins_requested
+    )
 
     # Print filter breakdown for USD coins
     summary = fetcher.get_filter_summary()
@@ -1777,6 +1781,7 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
             "coins_no_usd_data": result.coins_no_usd_data,
             "coins_no_usd_filtered": result.coins_no_usd_filtered,
             "coins_no_usd_accepted": result.coins_no_usd_accepted,
+            "coins_no_usd_capped": result.coins_no_usd_capped,
             "coins_filtered": result.coins_filtered,
             "coins_accepted": result.coins_accepted,
             "timestamp": datetime.now().isoformat(),
