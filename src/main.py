@@ -1718,15 +1718,60 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     logger.info("-" * 60)
     logger.info("RESULTS")
     logger.info("-" * 60)
-    logger.info(
-        "  Prices fetched: %d coins × %d currencies", len(results), len(currencies_to_fetch)
-    )
+
+    # Count actually fetched (non-empty results)
+    # Note: BTC-BTC returns empty (skipped), BTC uses USD pair instead
+    successful_coins = []
+    failed_coins = []
+    skipped_coins_list = []
+
+    for coin in coins:
+        coin_id = coin["id"]
+        coin_data = results.get(coin_id, {})
+        has_data = any(not df.empty for df in coin_data.values())
+
+        if has_data:
+            successful_coins.append(coin_id)
+        elif coin_id.lower() == "btc" and "BTC" in currencies_to_fetch:
+            # BTC with BTC quote is intentionally skipped (uses USD instead)
+            skipped_coins_list.append((coin_id, "BTC/BTC skipped, uses USD pair"))
+        else:
+            # Coin failed to fetch or returned empty data
+            failed_coins.append(coin_id)
+
+    logger.info("  Coins processed: %d (attempted: %d)", len(successful_coins), len(coins))
+
+    # Log failed coins if any (excluding intentionally skipped ones)
+    if failed_coins:
+        logger.warning("  Failed/empty:    %d coins", len(failed_coins))
+        for coin_id in failed_coins[:10]:  # Show first 10
+            logger.warning("    - %s (no data returned)", coin_id)
+        if len(failed_coins) > 10:
+            logger.warning("    ... and %d more", len(failed_coins) - 10)
+
+    # Log skipped coins
+    if skipped_coins_list:
+        logger.info("  Skipped:         %d coins", len(skipped_coins_list))
+        for coin_id, reason in skipped_coins_list:
+            logger.info("    - %s (%s)", coin_id, reason)
 
     # Show cache stats per currency
     price_cache = PriceDataCache()
     for currency in currencies_to_fetch:
         cached_coins = price_cache.list_cached_coins(currency)
-        logger.info("  Cached (%s):    %d coins", currency, len(cached_coins))
+        logger.info(
+            "  Cached (%s):    %d coins (altcoin/%s pairs)", currency, len(cached_coins), currency
+        )
+
+    # Also show BTC-USD if we're in default mode (BTC pairs only)
+    total_cached = 0
+    if not args.all_pairs:
+        btc_cached = price_cache.list_cached_coins("BTC")
+        btc_usd_cached = price_cache.has_prices("btc", "USD")
+        total_cached = len(btc_cached) + (1 if btc_usd_cached else 0)
+        if btc_usd_cached:
+            logger.info("  Cached (USD):    1 coin (BTC/USD, since BTC/BTC doesn't exist)")
+        logger.info("  Total cached:    %d coins", total_cached)
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
 
