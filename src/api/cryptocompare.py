@@ -641,6 +641,7 @@ class CryptoCompareClient:
         page = 0
         per_page = 100  # CryptoCompare returns 100 per page max
         total_seen = 0
+        termination_reason = "unknown"
 
         while len(coins) < n:
             data = self._request(
@@ -654,6 +655,7 @@ class CryptoCompareClient:
 
             coin_data_list = data.get("Data", [])
             if not coin_data_list:
+                termination_reason = f"API returned empty data on page {page}"
                 break
 
             for coin_data in coin_data_list:
@@ -686,13 +688,32 @@ class CryptoCompareClient:
                 )
 
                 if len(coins) >= n:
+                    termination_reason = f"reached target of {n} coins with USD data"
                     break
 
             page += 1
 
             # Safety check - API may not have more data
             if len(coin_data_list) < per_page:
+                termination_reason = (
+                    f"API returned {len(coin_data_list)} coins on page {page - 1} "
+                    f"(less than {per_page})"
+                )
                 break
+        else:
+            # Loop completed normally (len(coins) >= n)
+            termination_reason = f"reached target of {n} coins with USD data"
+
+        # Log summary for debugging
+        logger.info(
+            "Top coins fetch complete: %d pages, %d total coins seen, "
+            "%d with USD data, %d without. Reason: %s",
+            page,
+            total_seen,
+            len(coins),
+            len(coins_without_data) if track_no_data else 0,
+            termination_reason,
+        )
 
         if track_no_data:
             return coins[:n], coins_without_data
