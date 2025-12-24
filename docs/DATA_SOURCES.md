@@ -192,10 +192,10 @@ The pipeline generates a `data_status.html` page (at `site/data_status.html`) th
 
 | Card | Description |
 |------|-------------|
-| **Coins Requested** | Number requested from API (1200), with sublabel showing breakdown: "886 USD + 490 no-USD" |
-| **Coins Accepted** | Total coins accepted for download, with sublabel showing how many from no-USD source |
+| **Coins Requested** | Number requested from API (1200), also the cap on total accepted coins |
+| **Coins Accepted** | Total coins accepted for download (≤ requested), with sublabel showing how many from no-USD source |
 | **Coins Downloaded** | Coins that have downloaded price data in cache |
-| **Skipped / Failed** | Filtered coins (stablecoins, wrapped) + failed downloads (no BTC pair) |
+| **Skipped / Failed** | Filtered coins (stablecoins, wrapped) + failed downloads (no BTC pair) + capped no-USD coins |
 | **Total Pairs** | Sum of all quote pairs (BTC + USD) across all coins |
 
 ### Downloaded Coins Table
@@ -458,20 +458,22 @@ This error occurs when a coin doesn't have a direct trading pair on CryptoCompar
 - Coin may be too new (created after requested start date)
 - Check CryptoCompare directly: `https://min-api.cryptocompare.com/data/v2/histoday?fsym=ETH&tsym=BTC&limit=10`
 
-### Discrepancy between requested and returned coins
+### Requested vs. returned coins
 
 The CryptoCompare market cap API returns coins in two categories:
 
 1. **Coins WITH USD data** (~886 of 1200): Have market cap, price, and volume data
-2. **Coins WITHOUT USD data** (~490 of 1200): Returned by API but missing USD price data
+2. **Coins WITHOUT USD data** (~490): Returned by API but missing USD price data
 
 Lower-ranked coins (smaller market cap) are more likely to lack USD data on CryptoCompare. These coins often still have BTC trading pairs available via the `histoday` endpoint.
 
-**Halvix now processes both categories:**
-- Filters both (removes stablecoins, wrapped, etc.)
+**Halvix processes both categories with a total cap:**
+- USD coins have priority (they have actual market cap data for ranking)
+- No-USD coins fill remaining slots up to the requested limit
+- Total accepted coins will never exceed `coins_requested`
+- Both are filtered (removes stablecoins, wrapped, etc.)
 - Marks each coin with `has_usd_data: true/false` in `coins_to_download.json`
-- Downloads BTC pairs for all altcoins (no change in behavior)
-- Shows "BTC-only" source in the data status page for coins without USD data
+- No-USD coins are sorted by their API position (CryptoCompare's internal ranking)
 
 The `fetch_metadata.json` file records the full breakdown:
 ```json
@@ -480,11 +482,18 @@ The `fetch_metadata.json` file records the full breakdown:
   "coins_fetched": 886,
   "coins_no_usd_data": 490,
   "coins_no_usd_filtered": 7,
-  "coins_no_usd_accepted": 483,
+  "coins_no_usd_accepted": 283,
+  "coins_no_usd_capped": 200,
   "coins_filtered": 31,
-  "coins_accepted": 1338
+  "coins_accepted": 1138
 }
 ```
+
+In this example:
+- 886 coins had USD data, 31 were filtered → 855 USD coins accepted
+- 490 coins had no USD data, 7 were filtered → 483 passed filtering
+- But only 283 no-USD coins were included (200 capped to meet the 1200 limit)
+- Total: 855 + 283 = 1138 ≤ 1200
 
 ---
 

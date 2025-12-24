@@ -188,6 +188,12 @@ class CryptoCompareClient:
             headers["authorization"] = f"Apikey {api_key}"
         self.session.headers.update(headers)
 
+        # Rate limit logging: track calls for periodic status logging
+        self._calls_since_last_log = 0
+        self._calls_log_interval = 50  # Log rate limit status every N calls
+        self._last_status_log_time: float | None = None
+        self._status_log_interval = 60.0  # Or every N seconds
+
     def get_rate_limit_status(self, use_cache: bool = True) -> RateLimitStatus:
         """
         Get current rate limit status from the API.
@@ -266,6 +272,53 @@ class CryptoCompareClient:
             logger.warning("Error checking rate limit status: %s", e)
             return RateLimitStatus()
 
+    def _log_rate_limit_status_if_needed(self, status: RateLimitStatus) -> None:
+        """Log rate limit status periodically (every N calls or N seconds)."""
+        self._calls_since_last_log += 1
+
+        should_log = False
+        reason = ""
+
+        # Log every N calls
+        if self._calls_since_last_log >= self._calls_log_interval:
+            should_log = True
+            reason = f"every {self._calls_log_interval} calls"
+
+        # Or log every N seconds
+        elif self._last_status_log_time is not None:
+            elapsed = time.time() - self._last_status_log_time
+            if elapsed >= self._status_log_interval:
+                should_log = True
+                reason = f"every {self._status_log_interval:.0f}s"
+
+        # Or log on first call (no previous log time)
+        elif self._last_status_log_time is None:
+            should_log = True
+            reason = "initial status"
+
+        if should_log:
+            self._calls_since_last_log = 0
+            self._last_status_log_time = time.time()
+
+            # Calculate totals for clearer logging
+            total_second = status.calls_made_second + status.calls_left_second
+            total_minute = status.calls_made_minute + status.calls_left_minute
+            total_hour = status.calls_made_hour + status.calls_left_hour
+            total_month = status.calls_made_month + status.calls_left_month
+
+            logger.info(
+                "Rate limit status (%s): " "second %d/%d, minute %d/%d, hour %d/%d, month %d/%d",
+                reason,
+                status.calls_made_second,
+                total_second,
+                status.calls_made_minute,
+                total_minute,
+                status.calls_made_hour,
+                total_hour,
+                status.calls_made_month,
+                total_month,
+            )
+
     def _wait_for_rate_limit(self) -> None:
         """
         Wait if necessary to respect rate limits.
@@ -281,6 +334,10 @@ class CryptoCompareClient:
 
         # Check rate limit status periodically
         status = self.get_rate_limit_status(use_cache=True)
+
+        # Log status periodically for visibility
+        self._log_rate_limit_status_if_needed(status)
+
         if status.is_near_limit:
             wait_time = status.recommended_wait_seconds
             if wait_time > 0:

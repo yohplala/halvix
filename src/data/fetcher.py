@@ -54,13 +54,14 @@ class FetchResult:
 
     success: bool
     message: str
-    coins_requested: int = 0  # How many coins we asked the API for
+    coins_requested: int = 0  # How many coins we asked the API for (also the cap)
     coins_fetched: int = 0  # How many coins had USD data and were returned
     coins_no_usd_data: int = 0  # How many coins were missing USD data from API
     coins_no_usd_filtered: int = 0  # How many no-USD coins were filtered (stablecoins, etc.)
-    coins_no_usd_accepted: int = 0  # How many no-USD coins were accepted (BTC pairs only)
+    coins_no_usd_accepted: int = 0  # How many no-USD coins were included (after cap)
+    coins_no_usd_capped: int = 0  # How many no-USD coins were excluded due to cap
     coins_filtered: int = 0  # How many USD coins were filtered out (stablecoins, wrapped, etc.)
-    coins_accepted: int = 0  # Total coins accepted for download (USD + no-USD)
+    coins_accepted: int = 0  # Total coins accepted for download (USD + no-USD, capped at requested)
     errors: list[str] | None = None
 
 
@@ -213,8 +214,23 @@ class DataFetcher:
             for coin in no_usd_accepted:
                 coin["has_usd_data"] = False
 
-            # Combine both lists
-            all_coins_to_download = coins_to_download + no_usd_accepted
+            # --- Cap total coins at n ---
+            # USD coins have priority (they have actual market cap data)
+            # No-USD coins fill remaining slots up to the requested limit
+            remaining_slots = max(0, n - len(coins_to_download))
+            no_usd_included = no_usd_accepted[:remaining_slots]
+            no_usd_capped = len(no_usd_accepted) - len(no_usd_included)
+
+            if no_usd_capped > 0:
+                logger.info(
+                    "Capped no-USD coins: %d included, %d excluded to meet limit of %d",
+                    len(no_usd_included),
+                    no_usd_capped,
+                    n,
+                )
+
+            # Combine both lists (respecting the cap)
+            all_coins_to_download = coins_to_download + no_usd_included
 
             # Export skipped coins for review (from USD coins only, main source)
             if export_skipped:
@@ -233,7 +249,8 @@ class DataFetcher:
                 coins_fetched=len(all_coins),
                 coins_no_usd_data=len(coins_without_usd),
                 coins_no_usd_filtered=no_usd_filtered,
-                coins_no_usd_accepted=len(no_usd_accepted),
+                coins_no_usd_accepted=len(no_usd_included),  # Only those actually included
+                coins_no_usd_capped=no_usd_capped,  # How many were excluded by cap
                 coins_filtered=usd_coins_filtered,
                 coins_accepted=len(all_coins_to_download),
             )
