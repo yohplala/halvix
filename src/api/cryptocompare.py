@@ -448,21 +448,15 @@ class CryptoCompareClient:
                 - 'reason': Human-readable explanation of why it failed (if applicable)
         """
         try:
-            # Make a minimal request to check if the pair exists
-            self._wait_for_rate_limit()
-            url = f"{self.base_url}/data/v2/histoday"
-            response = self.session.get(
-                url,
-                params={
+            # Use the standard _request method which has rate limiting and retry
+            data = self._request(
+                "/data/v2/histoday",
+                {
                     "fsym": symbol.upper(),
                     "tsym": vs_currency.upper(),
                     "limit": 1,
                 },
-                timeout=30,
             )
-            self._last_request_time = time.time()
-
-            data = response.json()
 
             if data.get("Response") == "Error":
                 # Return the actual API error message
@@ -485,6 +479,11 @@ class CryptoCompareClient:
                 "reason": f"{symbol}/{vs_currency} pair available",
             }
 
+        except RateLimitError:
+            return {
+                "available": False,
+                "reason": "Rate limit exceeded - unable to verify",
+            }
         except Exception as e:
             return {
                 "available": False,

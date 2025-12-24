@@ -42,6 +42,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
+from tqdm import tqdm
 
 from api.cryptocompare import CryptoCompareClient
 from config import (
@@ -1905,7 +1906,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         # Check each failed coin to explain why it failed and save to CSV
         client = CryptoCompareClient()
         failed_coins_data = []
-        for coin_id in failed_coins:
+        for coin_id in tqdm(failed_coins, desc="Checking failed coins"):
             # Find the coin data
             coin_data = next((c for c in coins if c.get("id") == coin_id), {})
             coin_symbol = coin_data.get("symbol", coin_id.upper())
