@@ -111,24 +111,31 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ GET /data/top/mktcapfull?limit=100&page=0..11            │  │
 │  │ Requests: TOP_N_BY_MARKETCAP_TO_FETCH = 1200 coins       │  │
-│  │ Returns: symbol, name, market_cap, price, volume         │  │
+│  │                                                          │  │
+│  │ Two sources of coins:                                    │  │
+│  │ • WITH USD data: ~886 coins (have market cap, price)     │  │
+│  │ • WITHOUT USD data: ~490 coins (no market cap from API)  │  │
+│  │                                                          │  │
 │  │ Output: data/processed/coins_to_download.json            │  │
+│  │         data/processed/no_usd_data.csv                   │  │
 │  │         data/processed/fetch_metadata.json               │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                 │
 │                              ▼                                 │
-│  Step 2: Filter Coins (Local)                                  │
+│  Step 2: Filter Coins (Local) - applies to BOTH sources        │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ Remove: wrapped, staked, bridged, stablecoins            │  │
 │  │ Keep: BTC (for BTC/USD chart)                            │  │
+│  │ Mark coins: has_usd_data=true/false                      │  │
 │  │ Output: data/processed/download_skipped.csv              │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                 │
 │                              ▼                                 │
 │  Step 3: Fetch Historical Prices (CryptoCompare)               │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Altcoins: GET /data/v2/histoday?fsym=ETH&tsym=BTC        │  │
-│  │ BTC: GET /data/v2/histoday?fsym=BTC&tsym=USD             │  │
+│  │ Altcoins (USD coins): GET ...?fsym=ETH&tsym=BTC          │  │
+│  │ Altcoins (no-USD):    GET ...?fsym=RYO&tsym=BTC          │  │
+│  │ BTC:                  GET ...?fsym=BTC&tsym=USD          │  │
 │  │ Pagination: Multiple requests for 4000+ days             │  │
 │  │ Output: data/raw/prices/{coin}-{quote}.parquet           │  │
 │  │         data/processed/download_failed.csv (if any)      │  │
@@ -155,18 +162,22 @@ The pipeline generates a `data_status.html` page (at `site/data_status.html`) th
 
 | Card | Description |
 |------|-------------|
-| **Coins Requested** | Number requested from API (`TOP_N_BY_MARKETCAP_TO_FETCH = 1200`), with sublabel showing actual returned count |
-| **Coins with Price Data** | Coins that have downloaded price data in cache |
+| **Coins Requested** | Number requested from API (1200), with sublabel showing breakdown: "886 USD + 490 no-USD" |
+| **Coins Accepted** | Total coins accepted for download, with sublabel showing how many from no-USD source |
+| **Coins Downloaded** | Coins that have downloaded price data in cache |
 | **Skipped / Failed** | Filtered coins (stablecoins, wrapped) + failed downloads (no BTC pair) |
-| **Total Pairs Downloaded** | Sum of all quote pairs (BTC + USD) across all coins |
+| **Total Pairs** | Sum of all quote pairs (BTC + USD) across all coins |
 
 ### Downloaded Coins Table
 
 Lists all coins with price data, including:
 - Symbol and name (linked to CryptoCompare)
+- **Source** column: "USD" for coins with market cap data, "BTC-only" for coins discovered without USD data
 - **Quote(s)** column: Shows available pairs (BTC, USD, or both)
-- Market cap
+- Market cap (shows "N/A" for BTC-only coins)
 - Date range and days of data
+
+Coins are sorted: USD coins first (by market cap descending), then BTC-only coins.
 
 ### Skipped / Failed Table
 
@@ -183,10 +194,11 @@ Lists all excluded coins with reasons:
 
 | File | Description |
 |------|-------------|
-| `coins_to_download.json` | Coins accepted for price fetching |
-| `download_skipped.csv` | Coins filtered out (stablecoins, wrapped, etc.) |
+| `coins_to_download.json` | Coins accepted for price fetching. Each coin has `has_usd_data` field (true/false) |
+| `download_skipped.csv` | Coins filtered out (stablecoins, wrapped, etc.) from USD coins |
 | `download_failed.csv` | Coins that failed to download (no BTC pair on CryptoCompare) |
-| `fetch_metadata.json` | Metadata: coins_requested, coins_returned, timestamp |
+| `no_usd_data.csv` | Coins returned by API without USD price data (before filtering) |
+| `fetch_metadata.json` | Metadata: coins_requested, coins_fetched, coins_no_usd_data, coins_accepted, etc. |
 | `total2_index.parquet` | Calculated TOTAL2 index |
 
 ### Price Data Files
@@ -351,6 +363,7 @@ USE_YESTERDAY_AS_END_DATE = True
 COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"
 DOWNLOAD_SKIPPED_CSV = PROCESSED_DIR / "download_skipped.csv"
 DOWNLOAD_FAILED_CSV = PROCESSED_DIR / "download_failed.csv"
+NO_USD_DATA_CSV = PROCESSED_DIR / "no_usd_data.csv"
 FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
 ```
 
@@ -379,9 +392,31 @@ This error occurs when a coin doesn't have a direct trading pair on CryptoCompar
 
 ### Discrepancy between requested and returned coins
 
-- `TOP_N_BY_MARKETCAP_TO_FETCH` (default: 1200) is the number requested
-- The API may return fewer coins if some don't have USD price data
-- The `fetch_metadata.json` file records both values for transparency
+The CryptoCompare market cap API returns coins in two categories:
+
+1. **Coins WITH USD data** (~886 of 1200): Have market cap, price, and volume data
+2. **Coins WITHOUT USD data** (~490 of 1200): Returned by API but missing USD price data
+
+Lower-ranked coins (smaller market cap) are more likely to lack USD data on CryptoCompare. These coins often still have BTC trading pairs available via the `histoday` endpoint.
+
+**Halvix now processes both categories:**
+- Filters both (removes stablecoins, wrapped, etc.)
+- Marks each coin with `has_usd_data: true/false` in `coins_to_download.json`
+- Downloads BTC pairs for all altcoins (no change in behavior)
+- Shows "BTC-only" source in the data status page for coins without USD data
+
+The `fetch_metadata.json` file records the full breakdown:
+```json
+{
+  "coins_requested": 1200,
+  "coins_fetched": 886,
+  "coins_no_usd_data": 490,
+  "coins_no_usd_filtered": 7,
+  "coins_no_usd_accepted": 483,
+  "coins_filtered": 31,
+  "coins_accepted": 1338
+}
+```
 
 ---
 
