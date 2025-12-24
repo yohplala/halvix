@@ -63,15 +63,26 @@ class TestCryptoCompareClientRateLimiting:
         assert client.min_interval == 2.0  # 60/30 = 2 seconds
 
     def test_wait_for_rate_limit_first_call(self):
-        """Test that first call doesn't wait."""
+        """Test that first call doesn't wait (when rate limit status is OK)."""
+        from api.cryptocompare import RateLimitStatus
+
         client = CryptoCompareClient()
 
-        start = time.time()
-        client._wait_for_rate_limit()
-        elapsed = time.time() - start
+        # Mock rate limit status to return plenty of quota
+        with patch.object(client, "get_rate_limit_status") as mock_status:
+            mock_status.return_value = RateLimitStatus(
+                calls_left_second=10,
+                calls_left_minute=100,
+                calls_left_hour=1000,
+                calls_left_month=10000,
+            )
 
-        # Should be nearly instant
-        assert elapsed < 0.1
+            start = time.time()
+            client._wait_for_rate_limit()
+            elapsed = time.time() - start
+
+            # Should be nearly instant when not near limit
+            assert elapsed < 0.1
 
 
 class TestCryptoCompareClientRequests:
@@ -94,15 +105,26 @@ class TestCryptoCompareClientRequests:
 
     def test_successful_request(self, client, mock_response):
         """Test a successful API request."""
-        with patch.object(client.session, "get") as mock_get:
-            mock_get.return_value = mock_response(
-                200, {"Response": "Success", "Data": {"Data": []}}
+        from api.cryptocompare import RateLimitStatus
+
+        # Mock rate limit status to avoid extra API calls
+        with patch.object(client, "get_rate_limit_status") as mock_status:
+            mock_status.return_value = RateLimitStatus(
+                calls_left_second=10,
+                calls_left_minute=100,
+                calls_left_hour=1000,
+                calls_left_month=10000,
             )
 
-            result = client._request("/test")
+            with patch.object(client.session, "get") as mock_get:
+                mock_get.return_value = mock_response(
+                    200, {"Response": "Success", "Data": {"Data": []}}
+                )
 
-            assert result["Response"] == "Success"
-            mock_get.assert_called_once()
+                result = client._request("/test")
+
+                assert result["Response"] == "Success"
+                mock_get.assert_called_once()
 
     def test_rate_limit_error_raised(self, client, mock_response):
         """Test that 429 response raises RateLimitError."""
@@ -123,6 +145,24 @@ class TestCryptoCompareClientRequests:
                 client._request("/test")
 
             assert "Invalid symbol" in str(exc_info.value)
+
+    def test_rate_limit_in_json_body_raises_rate_limit_error(self, client, mock_response):
+        """Test that rate limit error in JSON body raises RateLimitError (not APIError).
+
+        CryptoCompare sometimes returns rate limit errors as HTTP 200 with error in JSON body
+        (e.g., monthly quota exceeded) instead of HTTP 429. We need to detect these
+        and raise RateLimitError to trigger retry logic.
+        """
+        with patch.object(client.session, "get") as mock_get:
+            mock_get.return_value = mock_response(
+                200, {"Response": "Error", "Message": "You are over your rate limit"}
+            )
+
+            # Should raise RateLimitError, not APIError
+            with pytest.raises(RateLimitError) as exc_info:
+                client._request.__wrapped__(client, "/test")
+
+            assert "rate limit" in str(exc_info.value).lower()
 
 
 class TestCryptoCompareClientDailyHistory:
@@ -262,3 +302,96 @@ class TestCryptoCompareClientPing:
             mock_request.side_effect = CryptoCompareError("Connection failed")
 
             assert client.ping() is False
+
+
+class TestCryptoCompareClientRateLimitStatus:
+    """Tests for rate limit status checking."""
+
+    def test_get_rate_limit_status_parses_response(self):
+        """Test that rate limit status is correctly parsed from API response."""
+
+        client = CryptoCompareClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "Data": {
+                "calls_made": {
+                    "second": 1,
+                    "minute": 10,
+                    "hour": 100,
+                    "day": 500,
+                    "month": 5000,
+                },
+                "calls_left": {
+                    "second": 9,
+                    "minute": 90,
+                    "hour": 900,
+                    "day": 4500,
+                    "month": 95000,
+                },
+            }
+        }
+
+        with patch.object(client.session, "get", return_value=mock_response):
+            status = client.get_rate_limit_status(use_cache=False)
+
+            assert status.calls_made_second == 1
+            assert status.calls_left_second == 9
+            assert status.calls_made_minute == 10
+            assert status.calls_left_minute == 90
+            assert status.calls_made_month == 5000
+            assert status.calls_left_month == 95000
+
+    def test_rate_limit_status_is_near_limit(self):
+        """Test that is_near_limit correctly identifies when we're approaching limits."""
+        from api.cryptocompare import RateLimitStatus
+
+        # Not near limit - plenty of quota
+        status_ok = RateLimitStatus(
+            calls_left_second=5,
+            calls_left_minute=50,
+            calls_left_hour=500,
+            calls_left_month=5000,
+        )
+        assert not status_ok.is_near_limit
+
+        # Near limit - almost out of seconds
+        status_second = RateLimitStatus(
+            calls_left_second=0,
+            calls_left_minute=50,
+            calls_left_hour=500,
+            calls_left_month=5000,
+        )
+        assert status_second.is_near_limit
+
+        # Near limit - almost out of minutes
+        status_minute = RateLimitStatus(
+            calls_left_second=5,
+            calls_left_minute=2,
+            calls_left_hour=500,
+            calls_left_month=5000,
+        )
+        assert status_minute.is_near_limit
+
+    def test_rate_limit_status_recommended_wait(self):
+        """Test that recommended_wait_seconds returns appropriate values."""
+        from api.cryptocompare import RateLimitStatus
+
+        # Near second limit - wait 1 second
+        status = RateLimitStatus(calls_left_second=0, calls_left_minute=50, calls_left_hour=500)
+        assert status.recommended_wait_seconds == 1.0
+
+        # Near minute limit - wait 10 seconds
+        status = RateLimitStatus(calls_left_second=5, calls_left_minute=2, calls_left_hour=500)
+        assert status.recommended_wait_seconds == 10.0
+
+        # Near hour limit - wait 60 seconds
+        status = RateLimitStatus(calls_left_second=5, calls_left_minute=50, calls_left_hour=20)
+        assert status.recommended_wait_seconds == 60.0
+
+        # Not near any limit - no wait needed
+        status = RateLimitStatus(
+            calls_left_second=5, calls_left_minute=50, calls_left_hour=500, calls_left_month=5000
+        )
+        assert status.recommended_wait_seconds == 0.0

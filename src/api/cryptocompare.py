@@ -1,12 +1,17 @@
 """
 CryptoCompare API client for cryptocurrency data.
 
-CryptoCompare offers free access to:
+CryptoCompare (now part of CoinDesk) offers free access to:
 - Full historical data (2000+ days per request) for halving cycle analysis
 - Top coins by market cap for coin discovery
 - No symbol mapping needed - single source of truth
 
-API Documentation: https://min-api.cryptocompare.com/documentation
+API Documentation: https://developers.coindesk.com/documentation/
+
+Endpoints used:
+- /data/v2/histoday - Daily OHLCV prices (spot_v1_historical_days)
+- /data/top/mktcapfull - Top coins by market cap (asset_v1_top_list)
+- /stats/rate/limit - Rate limit status (admin_v2_rate_limit)
 """
 
 import logging
@@ -99,11 +104,52 @@ class Coin:
         }
 
 
+@dataclass
+class RateLimitStatus:
+    """Current rate limit status from the API."""
+
+    calls_made_second: int = 0
+    calls_left_second: int = 0
+    calls_made_minute: int = 0
+    calls_left_minute: int = 0
+    calls_made_hour: int = 0
+    calls_left_hour: int = 0
+    calls_made_day: int = 0
+    calls_left_day: int = 0
+    calls_made_month: int = 0
+    calls_left_month: int = 0
+
+    @property
+    def is_near_limit(self) -> bool:
+        """Check if we're approaching any rate limit."""
+        # Consider "near limit" if less than 10% remaining on any tier
+        return (
+            self.calls_left_second < 1
+            or self.calls_left_minute < 5
+            or self.calls_left_hour < 50
+            or self.calls_left_month < 100
+        )
+
+    @property
+    def recommended_wait_seconds(self) -> float:
+        """Calculate recommended wait time based on current limits."""
+        if self.calls_left_second < 1:
+            return 1.0  # Wait 1 second
+        if self.calls_left_minute < 5:
+            return 10.0  # Wait 10 seconds
+        if self.calls_left_hour < 50:
+            return 60.0  # Wait 1 minute
+        return 0.0
+
+
 class CryptoCompareClient:
     """
     CryptoCompare API client for historical cryptocurrency prices.
 
     Free tier provides full historical data (no time limit).
+
+    Uses the rate limit status endpoint to dynamically manage request rate:
+    https://developers.coindesk.com/documentation/data-api/admin_v2_rate_limit
 
     Usage:
         client = CryptoCompareClient()
@@ -129,6 +175,9 @@ class CryptoCompareClient:
         self.calls_per_minute = calls_per_minute
         self.min_interval = 60.0 / calls_per_minute
         self._last_request_time: float | None = None
+        self._last_rate_check_time: float | None = None
+        self._cached_rate_status: RateLimitStatus | None = None
+        self._rate_check_interval = 30.0  # Check rate limit every 30 seconds
 
         self.session = requests.Session()
         headers = {
@@ -139,18 +188,165 @@ class CryptoCompareClient:
             headers["authorization"] = f"Apikey {api_key}"
         self.session.headers.update(headers)
 
+    def get_rate_limit_status(self, use_cache: bool = True) -> RateLimitStatus:
+        """
+        Get current rate limit status from the API.
+
+        Uses the /stats/rate/limit endpoint to check remaining quota.
+        See: https://developers.coindesk.com/documentation/data-api/admin_v2_rate_limit
+
+        Args:
+            use_cache: If True, return cached status if checked recently
+
+        Returns:
+            RateLimitStatus with current usage and remaining calls
+        """
+        # Return cached status if recent enough
+        if use_cache and self._cached_rate_status is not None:
+            if self._last_rate_check_time is not None:
+                elapsed = time.time() - self._last_rate_check_time
+                if elapsed < self._rate_check_interval:
+                    return self._cached_rate_status
+
+        try:
+            url = f"{self.base_url}/stats/rate/limit"
+            response = self.session.get(url, timeout=10)
+            self._last_rate_check_time = time.time()
+
+            if response.status_code != 200:
+                logger.warning("Failed to get rate limit status: HTTP %d", response.status_code)
+                return RateLimitStatus()
+
+            data = response.json()
+
+            # Parse the response - structure varies by endpoint
+            # The stats endpoint returns nested data by time period
+            def extract_calls(period_data: dict) -> tuple[int, int]:
+                """Extract calls_made and calls_left from period data."""
+                calls_made = period_data.get("calls_made", {}).get("Histo", 0)
+                calls_left = period_data.get("calls_left", {}).get("Histo", 0)
+                return calls_made, calls_left
+
+            status = RateLimitStatus()
+
+            if "Data" in data:
+                rate_data = data["Data"]
+
+                if "calls_made" in rate_data and "calls_left" in rate_data:
+                    # Flat structure
+                    calls_made = rate_data.get("calls_made", {})
+                    calls_left = rate_data.get("calls_left", {})
+
+                    status.calls_made_second = calls_made.get("second", 0)
+                    status.calls_left_second = calls_left.get("second", 0)
+                    status.calls_made_minute = calls_made.get("minute", 0)
+                    status.calls_left_minute = calls_left.get("minute", 0)
+                    status.calls_made_hour = calls_made.get("hour", 0)
+                    status.calls_left_hour = calls_left.get("hour", 0)
+                    status.calls_made_day = calls_made.get("day", 0)
+                    status.calls_left_day = calls_left.get("day", 0)
+                    status.calls_made_month = calls_made.get("month", 0)
+                    status.calls_left_month = calls_left.get("month", 0)
+
+            self._cached_rate_status = status
+            logger.debug(
+                "Rate limit status: %d/%d second, %d/%d minute, %d/%d hour, %d/%d month",
+                status.calls_made_second,
+                status.calls_made_second + status.calls_left_second,
+                status.calls_made_minute,
+                status.calls_made_minute + status.calls_left_minute,
+                status.calls_made_hour,
+                status.calls_made_hour + status.calls_left_hour,
+                status.calls_made_month,
+                status.calls_made_month + status.calls_left_month,
+            )
+            return status
+
+        except Exception as e:
+            logger.warning("Error checking rate limit status: %s", e)
+            return RateLimitStatus()
+
     def _wait_for_rate_limit(self) -> None:
-        """Wait if necessary to respect rate limits."""
+        """
+        Wait if necessary to respect rate limits.
+
+        Uses both time-based throttling and dynamic rate limit checking.
+        """
+        # First, apply basic time-based throttling
         if self._last_request_time is not None:
             elapsed = time.time() - self._last_request_time
             if elapsed < self.min_interval:
                 sleep_time = self.min_interval - elapsed
                 time.sleep(sleep_time)
 
+        # Check rate limit status periodically
+        status = self.get_rate_limit_status(use_cache=True)
+        if status.is_near_limit:
+            wait_time = status.recommended_wait_seconds
+            if wait_time > 0:
+                logger.info(
+                    "Approaching rate limit (second: %d left, minute: %d left, hour: %d left). "
+                    "Waiting %.1f seconds...",
+                    status.calls_left_second,
+                    status.calls_left_minute,
+                    status.calls_left_hour,
+                    wait_time,
+                )
+                time.sleep(wait_time)
+                # Invalidate cache after waiting
+                self._last_rate_check_time = None
+
+    def wait_for_rate_limit_reset(self, max_wait_seconds: float = 120.0) -> bool:
+        """
+        Wait until rate limit is no longer critical.
+
+        Polls the rate limit status and waits until we have sufficient quota.
+
+        Args:
+            max_wait_seconds: Maximum time to wait before giving up
+
+        Returns:
+            True if rate limit is now OK, False if max wait exceeded
+        """
+        start_time = time.time()
+        check_interval = 5.0  # Check every 5 seconds
+
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed >= max_wait_seconds:
+                logger.warning(
+                    "Max wait time exceeded (%.0fs), proceeding anyway", max_wait_seconds
+                )
+                return False
+
+            # Force fresh check
+            status = self.get_rate_limit_status(use_cache=False)
+
+            if not status.is_near_limit:
+                logger.info("Rate limit OK after %.1f seconds wait", elapsed)
+                return True
+
+            remaining_wait = max_wait_seconds - elapsed
+            wait_time = min(status.recommended_wait_seconds, remaining_wait, check_interval)
+
+            if wait_time <= 0:
+                return False
+
+            logger.info(
+                "Rate limit still constrained (second: %d, minute: %d, hour: %d left). "
+                "Waiting %.1f more seconds (%.0fs elapsed)...",
+                status.calls_left_second,
+                status.calls_left_minute,
+                status.calls_left_hour,
+                wait_time,
+                elapsed,
+            )
+            time.sleep(wait_time)
+
     @retry(
         retry=retry_if_exception_type(RateLimitError),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=1, max=60),
+        stop=stop_after_attempt(10),  # Increased from 5 to 10 attempts
+        wait=wait_exponential(multiplier=2, min=2, max=120),  # More aggressive backoff
     )
     def _request(
         self,
@@ -159,6 +355,8 @@ class CryptoCompareClient:
     ) -> dict:
         """
         Make a rate-limited request to the CryptoCompare API.
+
+        Uses dynamic rate limiting based on actual API quota status.
 
         Args:
             endpoint: API endpoint
@@ -186,8 +384,10 @@ class CryptoCompareClient:
             self._last_request_time = time.time()
 
             if response.status_code == 429:
-                logger.warning("Rate limit hit: %s%s", endpoint, param_info)
-                raise RateLimitError("Rate limit exceeded")
+                logger.warning("Rate limit hit (HTTP 429): %s%s", endpoint, param_info)
+                # Invalidate rate limit cache so we recheck
+                self._last_rate_check_time = None
+                raise RateLimitError("Rate limit exceeded (HTTP 429)")
 
             if response.status_code != 200:
                 raise APIError(f"API error {response.status_code}: {response.text}")
@@ -198,6 +398,17 @@ class CryptoCompareClient:
             if data.get("Response") == "Error":
                 error_msg = data.get("Message", "Unknown error")
                 logger.debug("API error for %s%s: %s", endpoint, param_info, error_msg)
+
+                # CryptoCompare sometimes returns rate limit errors in JSON body
+                # instead of HTTP 429 (e.g., monthly/hourly quota exceeded)
+                if "rate limit" in error_msg.lower():
+                    logger.warning(
+                        "Rate limit hit (JSON body): %s%s - %s", endpoint, param_info, error_msg
+                    )
+                    # Invalidate rate limit cache so we recheck
+                    self._last_rate_check_time = None
+                    raise RateLimitError(f"Rate limit exceeded: {error_msg}")
+
                 raise APIError(f"API error: {error_msg}")
 
             return data
@@ -448,6 +659,8 @@ class CryptoCompareClient:
         self,
         symbol: str,
         vs_currency: str = "BTC",
+        wait_for_rate_limit: bool = True,
+        max_wait_seconds: float = 120.0,
     ) -> dict[str, str]:
         """
         Check if historical daily data is available for a trading pair.
@@ -455,54 +668,78 @@ class CryptoCompareClient:
         Makes a minimal histoday request (limit=1) to verify the pair exists
         on CryptoCompare's CCCAGG aggregated exchange data.
 
+        If rate limited, will wait and retry (if wait_for_rate_limit=True).
+
         Args:
             symbol: Coin symbol (e.g., "KET", "ETH")
             vs_currency: Quote currency (e.g., "BTC", "USD")
+            wait_for_rate_limit: If True, wait for rate limit reset and retry
+            max_wait_seconds: Maximum time to wait for rate limit reset
 
         Returns:
             Dictionary with:
                 - 'available': True if histoday works, False otherwise
                 - 'reason': Human-readable explanation of why it failed (if applicable)
         """
-        try:
-            # Use the standard _request method which has rate limiting and retry
-            data = self._request(
-                "/data/v2/histoday",
-                {
-                    "fsym": symbol.upper(),
-                    "tsym": vs_currency.upper(),
-                    "limit": 1,
-                },
-            )
+        max_attempts = 3 if wait_for_rate_limit else 1
 
-            if data.get("Response") == "Error":
-                # Return the actual API error message
-                message = data.get("Message", "Unknown error")
+        for attempt in range(max_attempts):
+            try:
+                # Use the standard _request method which has rate limiting and retry
+                data = self._request(
+                    "/data/v2/histoday",
+                    {
+                        "fsym": symbol.upper(),
+                        "tsym": vs_currency.upper(),
+                        "limit": 1,
+                    },
+                )
+
+                if data.get("Response") == "Error":
+                    # Return the actual API error message
+                    message = data.get("Message", "Unknown error")
+                    return {
+                        "available": False,
+                        "reason": message,
+                    }
+
+                # Check if we got valid data
+                records = data.get("Data", {}).get("Data", [])
+                if not records:
+                    return {
+                        "available": False,
+                        "reason": f"No historical data returned for {symbol}/{vs_currency}",
+                    }
+
                 return {
-                    "available": False,
-                    "reason": message,
+                    "available": True,
+                    "reason": f"{symbol}/{vs_currency} pair available",
                 }
 
-            # Check if we got valid data
-            records = data.get("Data", {}).get("Data", [])
-            if not records:
+            except RateLimitError as e:
+                if wait_for_rate_limit and attempt < max_attempts - 1:
+                    logger.info(
+                        "Rate limit hit checking %s/%s (attempt %d/%d). Waiting for reset...",
+                        symbol,
+                        vs_currency,
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    # Wait for rate limit to reset
+                    self.wait_for_rate_limit_reset(max_wait_seconds=max_wait_seconds)
+                    continue
+                else:
+                    return {
+                        "available": False,
+                        "reason": f"Rate limit exceeded after {attempt + 1} attempts: {e}",
+                    }
+            except Exception as e:
                 return {
                     "available": False,
-                    "reason": f"No historical data returned for {symbol}/{vs_currency}",
+                    "reason": f"Error checking pair: {e}",
                 }
 
-            return {
-                "available": True,
-                "reason": f"{symbol}/{vs_currency} pair available",
-            }
-
-        except RateLimitError:
-            return {
-                "available": False,
-                "reason": "Rate limit exceeded - unable to verify",
-            }
-        except Exception as e:
-            return {
-                "available": False,
-                "reason": f"Error checking pair: {e}",
-            }
+        return {
+            "available": False,
+            "reason": "Max attempts exceeded",
+        }
