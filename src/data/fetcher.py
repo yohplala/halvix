@@ -100,6 +100,7 @@ class DataFetcher:
         self.cache = cache or FileCache()
         self.price_cache = price_cache or PriceDataCache()
         self.coin_filter = coin_filter or CoinFilter()
+        self.no_usd_filter: CoinFilter | None = None  # Filter for coins without USD data
 
         # Calculate the date range needed for all halving cycles
         # First halving minus DAYS_BEFORE to last halving plus DAYS_AFTER
@@ -201,12 +202,12 @@ class DataFetcher:
             no_usd_coins_as_dicts = self._convert_no_usd_coins(coins_without_usd)
 
             # Use a fresh filter instance to get separate counts
-            no_usd_filter = self.coin_filter.__class__()
-            no_usd_accepted = no_usd_filter.get_coins_to_download(
+            self.no_usd_filter = self.coin_filter.__class__()
+            no_usd_accepted = self.no_usd_filter.get_coins_to_download(
                 no_usd_coins_as_dicts,
                 record_skipped=True,
             )
-            no_usd_filtered = len(no_usd_filter.skipped_coins)
+            no_usd_filtered = len(self.no_usd_filter.skipped_coins)
 
             # Mark these coins as NOT having USD data (will use BTC pairs only)
             for coin in no_usd_accepted:
@@ -537,7 +538,7 @@ class DataFetcher:
         }
 
     def get_filter_summary(self) -> dict[str, Any]:
-        """Get a summary of the last filtering operation."""
+        """Get a summary of the last filtering operation (USD coins)."""
         return {
             "skipped_count": len(self.coin_filter.skipped_coins),
             "by_reason": self.coin_filter.get_skipped_summary(),
@@ -549,5 +550,23 @@ class DataFetcher:
                     "reason": c.reason,
                 }
                 for c in self.coin_filter.skipped_coins
+            ],
+        }
+
+    def get_no_usd_filter_summary(self) -> dict[str, Any]:
+        """Get a summary of the filtering operation for coins without USD data."""
+        if self.no_usd_filter is None:
+            return {"skipped_count": 0, "by_reason": {}, "skipped_coins": []}
+        return {
+            "skipped_count": len(self.no_usd_filter.skipped_coins),
+            "by_reason": self.no_usd_filter.get_skipped_summary(),
+            "skipped_coins": [
+                {
+                    "id": c.coin_id,
+                    "name": c.name,
+                    "symbol": c.symbol,
+                    "reason": c.reason,
+                }
+                for c in self.no_usd_filter.skipped_coins
             ],
         }

@@ -1744,7 +1744,7 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info("  Coins requested:  %d", result.coins_requested)
     logger.info("")
     logger.info("  With USD data:    %d", result.coins_fetched)
-    logger.info("    - Filtered:     %d (stablecoins, wrapped, etc.)", result.coins_filtered)
+    logger.info("    - Filtered:     %d", result.coins_filtered)
     usd_accepted = result.coins_fetched - result.coins_filtered
     logger.info("    - Accepted:     %d", usd_accepted)
     logger.info("")
@@ -1754,11 +1754,18 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info("")
     logger.info("  Total accepted:   %d coins", result.coins_accepted)
 
-    # Print filter breakdown (from USD coins)
+    # Print filter breakdown for USD coins
     summary = fetcher.get_filter_summary()
     if summary["by_reason"]:
         logger.info("Filtered by reason (USD coins):")
         for reason, count in sorted(summary["by_reason"].items()):
+            logger.info("  - %s: %d", reason, count)
+
+    # Print filter breakdown for BTC-only coins
+    no_usd_summary = fetcher.get_no_usd_filter_summary()
+    if no_usd_summary["by_reason"]:
+        logger.info("Filtered by reason (BTC-only coins):")
+        for reason, count in sorted(no_usd_summary["by_reason"].items()):
             logger.info("  - %s: %d", reason, count)
 
     # Save fetch metadata for the data status page
