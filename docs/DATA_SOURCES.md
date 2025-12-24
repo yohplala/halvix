@@ -61,7 +61,7 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
 
 1. **Proactive Rate Limiting**: Waits between requests to stay under limits
    ```python
-   self.min_interval = 60.0 / calls_per_minute  # 2 seconds at 30 calls/min
+   self.min_interval = 60.0 / calls_per_minute  # 0.5 seconds at 120 calls/min
    ```
 
 2. **Automatic Retry with Exponential Backoff**: Uses `tenacity` library

@@ -147,7 +147,7 @@ DEFAULT_QUOTE_CURRENCY = "BTC"
 ### Common Pitfalls
 1. Always use `poetry run` for commands
 2. Check `ALLOWED_TOKENS` before filtering tokens
-3. API rate limit: 30 calls/minute (CryptoCompare)
+3. API rate limit: 120 calls/minute (CryptoCompare)
 
 ---
 

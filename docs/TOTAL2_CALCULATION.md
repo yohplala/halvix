@@ -87,7 +87,7 @@ TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has thi
 # or old "OMG" replaced by OmiseGO in July 2017 with a 633x jump).
 # When a coin's price jumps by more than this factor in a single day, we treat it
 # as a symbol replacement and reset the first_seen date to after the jump.
-TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 100  # 100x price change indicates symbol swap
+TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 30  # 30x price change indicates symbol swap
 ```
 
 ## Calculation Algorithm
@@ -155,7 +155,7 @@ When a coin first appears in CryptoCompare data, it must wait **21 days** before
 CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024, or old "OMG" replaced by OmiseGO in July 2017). When detected, the `first_seen` date is reset, and a new freeze period and price scaling apply to the new token.
 
 **Detection criteria:**
-- Price jumps by **>100x** (or **<0.01x**) in a single day
+- Price jumps by **>30x** (or **<1/30x**) in a single day
 - Both the pre-jump and post-jump prices must be positive (not a coin starting to trade)
 - Takes the **last** detected jump (handles multiple replacements)
 
