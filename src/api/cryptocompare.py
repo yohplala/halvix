@@ -382,6 +382,9 @@ class CryptoCompareClient:
         self._log_rate_limit_status_if_needed(status)
 
         # Determine the interval to use based on available rate limit info
+        # Minimum interval of 0.5s to prevent burst limit triggers
+        MIN_INTERVAL_FLOOR = 0.5
+
         if self._dynamic_limits_available:
             # Use dynamic rate from API (per-minute limit converted to interval)
             total_minute = status.calls_made_minute + status.calls_left_minute
@@ -389,7 +392,8 @@ class CryptoCompareClient:
                 dynamic_interval = 60.0 / total_minute
             else:
                 dynamic_interval = self.min_interval  # Fallback if no data
-            effective_interval = dynamic_interval
+            # Apply floor to prevent burst triggers
+            effective_interval = max(dynamic_interval, MIN_INTERVAL_FLOOR)
         else:
             # Fallback to configured rate
             effective_interval = self.min_interval
