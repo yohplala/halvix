@@ -14,7 +14,6 @@ Endpoints used:
 - /stats/rate/limit - Rate limit status (admin_v2_rate_limit)
 """
 
-import logging
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -34,9 +33,10 @@ from config import (
     CRYPTOCOMPARE_API_CALLS_PER_MINUTE,
     CRYPTOCOMPARE_BASE_URL,
 )
+from utils.logging import get_logger
 
-# Module logger for API debugging
-logger = logging.getLogger(__name__)
+# Module logger for API debugging (uses halvix namespace for proper log propagation)
+logger = get_logger(__name__)
 
 
 def get_version() -> str:
@@ -193,6 +193,7 @@ class CryptoCompareClient:
         self._calls_log_interval = 50  # Log rate limit status every N calls
         self._last_status_log_time: float | None = None
         self._status_log_interval = 60.0  # Or every N seconds
+        self._dynamic_limits_available = False  # Track if API rate limit endpoint works
 
     def get_rate_limit_status(self, use_cache: bool = True) -> RateLimitStatus:
         """
@@ -221,6 +222,7 @@ class CryptoCompareClient:
 
             if response.status_code != 200:
                 logger.warning("Failed to get rate limit status: HTTP %d", response.status_code)
+                self._dynamic_limits_available = False
                 return RateLimitStatus()
 
             data = response.json()
@@ -255,6 +257,7 @@ class CryptoCompareClient:
                     status.calls_left_month = calls_left.get("month", 0)
 
             self._cached_rate_status = status
+            self._dynamic_limits_available = True  # Successfully got dynamic limits
             logger.debug(
                 "Rate limit status: %d/%d second, %d/%d minute, %d/%d hour, %d/%d month",
                 status.calls_made_second,
@@ -270,6 +273,7 @@ class CryptoCompareClient:
 
         except Exception as e:
             logger.warning("Error checking rate limit status: %s", e)
+            self._dynamic_limits_available = False
             return RateLimitStatus()
 
     def _log_rate_limit_status_if_needed(self, status: RateLimitStatus) -> None:
@@ -306,18 +310,49 @@ class CryptoCompareClient:
             total_hour = status.calls_made_hour + status.calls_left_hour
             total_month = status.calls_made_month + status.calls_left_month
 
-            logger.info(
-                "Rate limit status (%s): " "second %d/%d, minute %d/%d, hour %d/%d, month %d/%d",
-                reason,
-                status.calls_made_second,
-                total_second,
-                status.calls_made_minute,
-                total_minute,
-                status.calls_made_hour,
-                total_hour,
-                status.calls_made_month,
-                total_month,
-            )
+            # Determine which rate limit is currently applied
+            # Fallback is always applied as baseline (time between requests)
+            fallback_rate = self.calls_per_minute  # calls/min
+
+            if self._dynamic_limits_available and total_minute > 0:
+                # Dynamic limits available - determine effective rate
+                api_rate_per_min = total_minute
+                api_rate_per_sec = total_second * 60 if total_second > 0 else float("inf")
+
+                # The effective rate is the minimum of all constraints
+                effective_rate = min(fallback_rate, api_rate_per_min, api_rate_per_sec)
+
+                # Determine which constraint is active
+                if effective_rate == fallback_rate and fallback_rate <= api_rate_per_min:
+                    active_source = "fallback"
+                elif api_rate_per_sec <= api_rate_per_min:
+                    active_source = "API second"
+                    effective_rate = total_second * 60  # Show as calls/min
+                else:
+                    active_source = "API minute"
+
+                logger.info(
+                    "Rate limits (%s): ACTIVE=%s @ %d calls/min | "
+                    "API: %d/%d sec, %d/%d min, %d/%d hour, %d/%d month",
+                    reason,
+                    active_source,
+                    effective_rate,
+                    status.calls_made_second,
+                    total_second,
+                    status.calls_made_minute,
+                    total_minute,
+                    status.calls_made_hour,
+                    total_hour,
+                    status.calls_made_month,
+                    total_month,
+                )
+            else:
+                # Fallback only - no dynamic limits available
+                logger.info(
+                    "Rate limits (%s): ACTIVE=fallback @ %d calls/min | " "API status unavailable",
+                    reason,
+                    fallback_rate,
+                )
 
     def _wait_for_rate_limit(self) -> None:
         """
