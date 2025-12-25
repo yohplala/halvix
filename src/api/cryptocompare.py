@@ -311,32 +311,18 @@ class CryptoCompareClient:
             total_month = status.calls_made_month + status.calls_left_month
 
             # Determine which rate limit is currently applied
-            # Fallback is always applied as baseline (time between requests)
+            # Use dynamic API limits when available, fallback only when API unavailable
             fallback_rate = self.calls_per_minute  # calls/min
 
             if self._dynamic_limits_available and total_minute > 0:
-                # Dynamic limits available - determine effective rate
+                # Dynamic limits available - use API's per-minute rate
                 api_rate_per_min = total_minute
-                api_rate_per_sec = total_second * 60 if total_second > 0 else float("inf")
-
-                # The effective rate is the minimum of all constraints
-                effective_rate = min(fallback_rate, api_rate_per_min, api_rate_per_sec)
-
-                # Determine which constraint is active
-                if effective_rate == fallback_rate and fallback_rate <= api_rate_per_min:
-                    active_source = "fallback"
-                elif api_rate_per_sec <= api_rate_per_min:
-                    active_source = "API second"
-                    effective_rate = total_second * 60  # Show as calls/min
-                else:
-                    active_source = "API minute"
 
                 logger.info(
-                    "Rate limits (%s): ACTIVE=%s @ %d calls/min | "
-                    "API: %d/%d sec, %d/%d min, %d/%d hour, %d/%d month",
+                    "Rate limits (%s): ACTIVE=API @ %d calls/min | "
+                    "quota: %d/%d sec, %d/%d min, %d/%d hour, %d/%d month",
                     reason,
-                    active_source,
-                    effective_rate,
+                    api_rate_per_min,
                     status.calls_made_second,
                     total_second,
                     status.calls_made_minute,
@@ -346,10 +332,19 @@ class CryptoCompareClient:
                     status.calls_made_month,
                     total_month,
                 )
-            else:
-                # Fallback only - no dynamic limits available
+            elif self._dynamic_limits_available:
+                # API responded but returned 0 quota - use fallback
                 logger.info(
-                    "Rate limits (%s): ACTIVE=fallback @ %d calls/min | " "API status unavailable",
+                    "Rate limits (%s): ACTIVE=fallback @ %d calls/min | "
+                    "API returned no quota data (0 calls/min)",
+                    reason,
+                    fallback_rate,
+                )
+            else:
+                # API endpoint unavailable - use fallback
+                logger.info(
+                    "Rate limits (%s): ACTIVE=fallback @ %d calls/min | "
+                    "API status endpoint unavailable",
                     reason,
                     fallback_rate,
                 )
@@ -358,21 +353,35 @@ class CryptoCompareClient:
         """
         Wait if necessary to respect rate limits.
 
-        Uses both time-based throttling and dynamic rate limit checking.
+        Uses dynamic API rate limits when available, falls back to configured rate otherwise.
         """
-        # First, apply basic time-based throttling
-        if self._last_request_time is not None:
-            elapsed = time.time() - self._last_request_time
-            if elapsed < self.min_interval:
-                sleep_time = self.min_interval - elapsed
-                time.sleep(sleep_time)
-
         # Check rate limit status periodically
         status = self.get_rate_limit_status(use_cache=True)
 
         # Log status periodically for visibility
         self._log_rate_limit_status_if_needed(status)
 
+        # Determine the interval to use based on available rate limit info
+        if self._dynamic_limits_available:
+            # Use dynamic rate from API (per-minute limit converted to interval)
+            total_minute = status.calls_made_minute + status.calls_left_minute
+            if total_minute > 0:
+                dynamic_interval = 60.0 / total_minute
+            else:
+                dynamic_interval = self.min_interval  # Fallback if no data
+            effective_interval = dynamic_interval
+        else:
+            # Fallback to configured rate
+            effective_interval = self.min_interval
+
+        # Apply time-based throttling with the effective interval
+        if self._last_request_time is not None:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < effective_interval:
+                sleep_time = effective_interval - elapsed
+                time.sleep(sleep_time)
+
+        # Additional wait if approaching limits (near exhaustion)
         if status.is_near_limit:
             wait_time = status.recommended_wait_seconds
             if wait_time > 0:
@@ -477,8 +486,9 @@ class CryptoCompareClient:
 
             if response.status_code == 429:
                 logger.warning("Rate limit hit (HTTP 429): %s%s", endpoint, param_info)
-                # Invalidate rate limit cache so we recheck
+                # Invalidate rate limit cache and mark dynamic limits as unreliable
                 self._last_rate_check_time = None
+                self._dynamic_limits_available = False
                 raise RateLimitError("Rate limit exceeded (HTTP 429)")
 
             if response.status_code != 200:
@@ -497,8 +507,9 @@ class CryptoCompareClient:
                     logger.warning(
                         "Rate limit hit (JSON body): %s%s - %s", endpoint, param_info, error_msg
                     )
-                    # Invalidate rate limit cache so we recheck
+                    # Invalidate rate limit cache and mark dynamic limits as unreliable
                     self._last_rate_check_time = None
+                    self._dynamic_limits_available = False
                     raise RateLimitError(f"Rate limit exceeded: {error_msg}")
 
                 raise APIError(f"API error: {error_msg}")
