@@ -12,6 +12,23 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
+### [2025.12.10] - 2025-12-25
+
+**Codebase cleanup and rate limiting fixes**
+
+- **Fixed:** Rate limit `recommended_wait_seconds` logic to match test expectations
+  - Corrected wait times: second quota exhausted (1s), minute near limit (10s), hour near limit (60s)
+  - Removed unreachable code path in `recommended_wait_seconds` property
+- **Fixed:** All rate limiting tests now pass (17/17)
+- **Improved:** Comprehensive codebase review for consistency
+  - Verified no leftover refactoring artifacts (CoinGecko, symbol_mapping references)
+  - Confirmed all imports and dependencies are consistent
+  - Verified documentation matches code implementation
+  - Confirmed error handling and logging patterns are consistent
+- **Verified:** Code quality checks pass (no linter errors, all tests passing)
+
+**Categories:** Bug Fixes, Code Quality, Testing
+
 ### [2025.12.9] - 2025-12-23
 
 **Automated daily updates and refresh timestamps**
