@@ -151,14 +151,12 @@ class RateLimitStatus:
         if self.calls_left_minute == 0:
             return 60.0  # Wait 1 minute for minute quota to reset
         if self.calls_left_second == 0:
-            return 2.0  # Wait 2 seconds for second quota to reset
+            return 1.0  # Wait 1 second for second quota to reset
         # Near limit but not exhausted - shorter waits
-        if self.calls_left_second < 1:
-            return 1.0
         if self.calls_left_minute < 10:
-            return 15.0
+            return 10.0
         if self.calls_left_hour < 300:
-            return 30.0  # Slow down to conserve hourly quota
+            return 60.0  # Slow down to conserve hourly quota
         return 0.0
 
 
