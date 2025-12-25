@@ -120,25 +120,45 @@ class RateLimitStatus:
     calls_left_month: int = 0
 
     @property
+    def is_quota_exhausted(self) -> bool:
+        """Check if any quota tier is completely exhausted (0 left)."""
+        return (
+            self.calls_left_second == 0
+            or self.calls_left_minute == 0
+            or self.calls_left_hour == 0
+            or self.calls_left_month == 0
+        )
+
+    @property
     def is_near_limit(self) -> bool:
         """Check if we're approaching any rate limit."""
-        # Consider "near limit" if less than 10% remaining on any tier
+        # Trigger earlier for hourly limit (10% = 300 left) to avoid exhaustion
         return (
             self.calls_left_second < 1
-            or self.calls_left_minute < 5
-            or self.calls_left_hour < 50
-            or self.calls_left_month < 100
+            or self.calls_left_minute < 10
+            or self.calls_left_hour < 300  # 10% of 3000
+            or self.calls_left_month < 1000  # 2% of 50000
         )
 
     @property
     def recommended_wait_seconds(self) -> float:
         """Calculate recommended wait time based on current limits."""
+        # If quota is completely exhausted, wait much longer
+        if self.calls_left_hour == 0:
+            # Hourly quota exhausted - wait 5 minutes minimum
+            # (the hour resets gradually, not all at once)
+            return 300.0
+        if self.calls_left_minute == 0:
+            return 60.0  # Wait 1 minute for minute quota to reset
+        if self.calls_left_second == 0:
+            return 2.0  # Wait 2 seconds for second quota to reset
+        # Near limit but not exhausted - shorter waits
         if self.calls_left_second < 1:
-            return 1.0  # Wait 1 second
-        if self.calls_left_minute < 5:
-            return 10.0  # Wait 10 seconds
-        if self.calls_left_hour < 50:
-            return 60.0  # Wait 1 minute
+            return 1.0
+        if self.calls_left_minute < 10:
+            return 15.0
+        if self.calls_left_hour < 300:
+            return 30.0  # Slow down to conserve hourly quota
         return 0.0
 
 
@@ -381,8 +401,23 @@ class CryptoCompareClient:
                 sleep_time = effective_interval - elapsed
                 time.sleep(sleep_time)
 
-        # Additional wait if approaching limits (near exhaustion)
-        if status.is_near_limit:
+        # Handle rate limit constraints
+        if status.is_quota_exhausted:
+            # Quota completely exhausted - wait significantly longer
+            wait_time = status.recommended_wait_seconds
+            logger.warning(
+                "Rate quota EXHAUSTED (second: %d, minute: %d, hour: %d left). "
+                "Waiting %.0f seconds for quota to recover...",
+                status.calls_left_second,
+                status.calls_left_minute,
+                status.calls_left_hour,
+                wait_time,
+            )
+            time.sleep(wait_time)
+            # Invalidate cache to get fresh status after waiting
+            self._last_rate_check_time = None
+        elif status.is_near_limit:
+            # Approaching limit - shorter wait to slow down
             wait_time = status.recommended_wait_seconds
             if wait_time > 0:
                 logger.info(
@@ -446,8 +481,8 @@ class CryptoCompareClient:
 
     @retry(
         retry=retry_if_exception_type(RateLimitError),
-        stop=stop_after_attempt(10),  # Increased from 5 to 10 attempts
-        wait=wait_exponential(multiplier=2, min=2, max=120),  # More aggressive backoff
+        stop=stop_after_attempt(3),  # Reduced - rely on proactive rate limiting instead
+        wait=wait_exponential(multiplier=5, min=5, max=60),  # Wait 5s, 25s, then fail
     )
     def _request(
         self,
