@@ -18,6 +18,7 @@ packages = [
 python = "^3.13"
 pandas = "^2.1"
 numpy = "^2.0"
+scipy = "^1.14"
 plotly = "^5.18"
 requests = "^2.31"
 tqdm = "^4.65"
