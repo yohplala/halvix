@@ -8,9 +8,17 @@ analysis methods to project price targets for the next cycle:
 2. Fibonacci Extensions (127.2% level)
 3. Diminishing Returns Model
 
-IMPORTANT: This module uses TOTAL2 composition data to filter prices.
-Only price data from dates when a coin was actually in TOTAL2 is used,
-ensuring consistency with the TOTAL2 calculation methodology.
+COIN SELECTION:
+- Analyzes all coins that have been in TOTAL2 at any point in the past 2 years
+- This expanded selection allows analysis of coins even if they temporarily
+  dropped out of the TOTAL2 top 30
+
+DATA APPROACH:
+- Uses FULL price history for each coin (not just dates when in TOTAL2)
+- Applies TOTAL2-style filtering tools (volume outlier detection, SMA smoothing)
+  to ensure consistent data quality
+- This allows min/max points to be detected even when a coin is temporarily
+  outside the TOTAL2 index
 
 Returns are calculated as percentage gain from CURRENT PRICE to projected target.
 
@@ -41,8 +49,13 @@ from config import (
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
+    VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
+from data.price_filters import (
+    apply_volume_sma_smoothing,
+    correct_volume_outliers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,12 +150,20 @@ class CyclePatternAnalyzer:
     For cycle 5 (current, starting April 19, 2024), adds:
     - min1: minimum from halving to current date (or last available price if before halving)
 
-    IMPORTANT: For altcoins, only price data from dates when the coin was
-    actually in TOTAL2 is used. This ensures consistency with the TOTAL2
-    calculation methodology and avoids using unverified price data.
+    COIN SELECTION:
+    - Analyzes all coins that have been in TOTAL2 at any point in the past 2 years
+    - Coins must have been in TOTAL2 within the TOTAL2_LOOKBACK_YEARS period
+
+    DATA APPROACH:
+    - Uses FULL price history for each coin (not just TOTAL2 dates)
+    - Applies TOTAL2-style filtering: volume outlier detection and SMA smoothing
+    - This allows min/max points to be detected even when outside TOTAL2 index
 
     Then applies 3 projection methods and ranks by composite target.
     """
+
+    # How far back to look for coins in TOTAL2 (years)
+    TOTAL2_LOOKBACK_YEARS = 2
 
     def __init__(
         self,
@@ -185,7 +206,15 @@ class CyclePatternAnalyzer:
         return self._total2_composition
 
     def _get_total2_coins(self) -> set[str]:
-        """Get set of coins that have been in TOTAL2."""
+        """
+        Get set of coins that have been in TOTAL2 within the past TOTAL2_LOOKBACK_YEARS.
+
+        This expanded selection allows analysis of coins even if they temporarily
+        dropped out of the TOTAL2 top 30.
+
+        Returns:
+            Set of coin IDs (lowercase) that were in TOTAL2 within the lookback period
+        """
         if self._total2_coins is not None:
             return self._total2_coins
 
@@ -193,8 +222,29 @@ class CyclePatternAnalyzer:
 
         comp_df = self._load_total2_composition()
         if comp_df is not None:
-            self._total2_coins = set(comp_df["coin_id"].str.lower().unique())
-            logger.info("Found %d coins in TOTAL2 history", len(self._total2_coins))
+            # Filter to coins that were in TOTAL2 within the lookback period
+            lookback_cutoff = date.today() - timedelta(days=self.TOTAL2_LOOKBACK_YEARS * 365)
+
+            # Convert date column if needed
+            if "date" in comp_df.columns:
+                if hasattr(comp_df["date"].iloc[0], "date"):
+                    comp_df_dates = comp_df["date"].apply(lambda x: x.date() if hasattr(x, "date") else x)
+                else:
+                    comp_df_dates = pd.to_datetime(comp_df["date"]).dt.date
+
+                recent_mask = comp_df_dates >= lookback_cutoff
+                recent_coins = comp_df[recent_mask]["coin_id"].str.lower().unique()
+                self._total2_coins = set(recent_coins)
+
+                logger.info(
+                    "Found %d coins in TOTAL2 within past %d years (from %s)",
+                    len(self._total2_coins),
+                    self.TOTAL2_LOOKBACK_YEARS,
+                    lookback_cutoff.isoformat(),
+                )
+            else:
+                self._total2_coins = set(comp_df["coin_id"].str.lower().unique())
+                logger.info("Found %d coins in TOTAL2 history (no date filtering)", len(self._total2_coins))
 
         return self._total2_coins
 
@@ -230,14 +280,17 @@ class CyclePatternAnalyzer:
         self, df: pd.DataFrame, coin_id: str
     ) -> tuple[pd.DataFrame, date | None, date | None]:
         """
-        Filter price DataFrame to only include dates when coin was in TOTAL2.
+        Get TOTAL2 membership dates for a coin.
+
+        Note: This method is kept for compatibility but the pattern analyzer
+        now uses full price data with filtering tools applied.
 
         Args:
             df: Price DataFrame with DatetimeIndex
             coin_id: Lowercase coin ID
 
         Returns:
-            Tuple of (filtered DataFrame, first_date, last_date)
+            Tuple of (original DataFrame, first_total2_date, last_total2_date)
         """
         total2_dates = self._get_coin_total2_dates(coin_id)
 
@@ -245,18 +298,63 @@ class CyclePatternAnalyzer:
             # No TOTAL2 data - return empty
             return df.iloc[:0], None, None
 
-        # Filter to TOTAL2 dates
-        # Note: df.index.date returns numpy array, so use np.isin
-        mask = np.isin(df.index.date, list(total2_dates))
-        filtered = df[mask]
-
-        if filtered.empty:
-            return filtered, None, None
-
         first_date = min(total2_dates)
         last_date = max(total2_dates)
 
-        return filtered, first_date, last_date
+        # Return full DataFrame (not filtered to TOTAL2 dates)
+        # Pattern analysis uses full price history to find true min/max
+        return df, first_date, last_date
+
+    def _apply_price_filters(
+        self, df: pd.DataFrame, coin_id: str
+    ) -> pd.DataFrame:
+        """
+        Apply TOTAL2-style filtering tools to price data.
+
+        Uses the same data quality filters as TOTAL2 calculation:
+        - Volume outlier detection and correction
+        - Volume SMA smoothing (for volume-based analysis)
+
+        This ensures consistent data quality across pattern analysis
+        even when using full price history (not just TOTAL2 dates).
+
+        Args:
+            df: Price DataFrame with DatetimeIndex and 'close', 'volume_to' columns
+            coin_id: Lowercase coin ID (for logging)
+
+        Returns:
+            Filtered DataFrame with corrected volume data
+        """
+        if df.empty:
+            return df
+
+        result = df.copy()
+
+        # Apply volume outlier correction if volume data exists
+        if "volume_to" in result.columns:
+            volume_series = result["volume_to"].copy()
+
+            # Skip if all NaN
+            if volume_series.notna().any():
+                corrected_volume, corrections = correct_volume_outliers(volume_series)
+
+                if corrections:
+                    logger.debug(
+                        "%s: Corrected %d volume outliers",
+                        coin_id.upper(),
+                        len(corrections),
+                    )
+
+                result["volume_to"] = corrected_volume
+
+                # Also store smoothed volume for reference
+                result["volume_smoothed"] = apply_volume_sma_smoothing(
+                    corrected_volume,
+                    window=VOLUME_SMA_WINDOW,
+                    zero_pad=True,
+                )
+
+        return result
 
     def _find_local_extrema(
         self,
@@ -888,8 +986,12 @@ class CyclePatternAnalyzer:
         """
         Analyze pattern for a single altcoin vs BTC.
 
-        IMPORTANT: Only uses price data from dates when the coin was
-        actually in TOTAL2. This ensures consistency with TOTAL2 methodology.
+        Uses FULL price history to detect cycle min/max points (not just TOTAL2 dates).
+        This ensures accurate detection of true extremes even when a coin temporarily
+        drops out of the TOTAL2 index.
+
+        Applies TOTAL2-style filtering tools (volume outlier detection) to ensure
+        consistent data quality.
 
         Args:
             coin_id: Lowercase coin ID (e.g., "eth")
@@ -903,31 +1005,38 @@ class CyclePatternAnalyzer:
         if df is None or df.empty:
             return None
 
-        # Filter to only TOTAL2 dates
-        filtered_df, first_total2, last_total2 = self._filter_to_total2_dates(df, coin_id)
+        # Get TOTAL2 membership info (for reference, not filtering)
+        _, first_total2, last_total2 = self._filter_to_total2_dates(df, coin_id)
 
-        if filtered_df.empty:
+        if first_total2 is None:
             logger.debug("No TOTAL2 data for %s", coin_id)
             return None
 
-        # Require recent TOTAL2 data for meaningful projections
-        # Coins must be currently in TOTAL2 (within past week) to have valid current price
+        # Check that coin was in TOTAL2 within the lookback period
+        # This is now handled by _get_total2_coins, but double-check here
         if last_total2 is not None:
-            days_since_total2 = (date.today() - last_total2).days
-            if days_since_total2 > 7:
+            lookback_cutoff = date.today() - timedelta(days=self.TOTAL2_LOOKBACK_YEARS * 365)
+            if last_total2 < lookback_cutoff:
                 logger.debug(
-                    "%s: Last in TOTAL2 was %d days ago (threshold: 7), skipping",
+                    "%s: Last in TOTAL2 on %s, before lookback cutoff %s, skipping",
                     coin_id,
-                    days_since_total2,
+                    last_total2.isoformat(),
+                    lookback_cutoff.isoformat(),
                 )
                 return None
+
+        # Apply TOTAL2-style filtering tools to full price data
+        filtered_df = self._apply_price_filters(df, coin_id)
+
+        if filtered_df.empty:
+            return None
 
         result = CoinPatternResult(coin_id=coin_id)
         result.first_in_total2 = first_total2
         result.last_in_total2 = last_total2
         result.days_in_total2 = len(self._get_coin_total2_dates(coin_id))
 
-        # Find points for each halving cycle
+        # Find points for each halving cycle using FULL price data
         # Cycle 2 = 2016, Cycle 3 = 2020, Cycle 4 = 2024, Cycle 5 = current
         for halving_date in self.all_halvings:
             cycle_num = HALVING_DATES.index(halving_date) + 1
@@ -956,7 +1065,7 @@ class CyclePatternAnalyzer:
             result.confidence = "low"
 
         # Get current price (returns are calculated vs this price)
-        # Use last price in TOTAL2-filtered data
+        # Use last available price in full data
         result.current_price = float(filtered_df["close"].iloc[-1])
         result.current_date = filtered_df.index[-1].date()
 
@@ -1011,8 +1120,16 @@ class CyclePatternAnalyzer:
         """
         Analyze all available altcoins.
 
+        When filter_total2=True (default), only analyzes coins that have been
+        in TOTAL2 within the past TOTAL2_LOOKBACK_YEARS (default: 2 years).
+        This expanded selection allows analysis of coins even if they temporarily
+        dropped out of the TOTAL2 top 30.
+
+        Uses FULL price history for each coin with TOTAL2-style filtering tools
+        applied, allowing accurate min/max detection even outside TOTAL2 dates.
+
         Args:
-            filter_total2: If True, only analyze coins that have been in TOTAL2
+            filter_total2: If True, only analyze coins in TOTAL2 within past 2 years
             show_progress: If True, show progress bar
 
         Returns:
@@ -1022,11 +1139,13 @@ class CyclePatternAnalyzer:
         cached_coins = self.price_cache.list_cached_coins("BTC")
 
         if filter_total2:
+            # Get coins in TOTAL2 within past TOTAL2_LOOKBACK_YEARS
             total2_coins = self._get_total2_coins()
             coins_to_analyze = [c for c in cached_coins if c in total2_coins]
             logger.info(
-                "Analyzing %d coins (filtered to TOTAL2 from %d cached)",
+                "Analyzing %d coins (in TOTAL2 within past %d years, from %d cached)",
                 len(coins_to_analyze),
+                self.TOTAL2_LOOKBACK_YEARS,
                 len(cached_coins),
             )
         else:
