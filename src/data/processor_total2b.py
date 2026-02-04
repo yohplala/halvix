@@ -189,7 +189,7 @@ class Total2bProcessor(BaseTotal2Processor):
         # Create result
         date_range = (index_df.index.min().date(), index_df.index.max().date())
 
-        result = Total2Result(
+        result = Total2Result.create(
             index_df=index_df,
             composition_df=composition_df,
             coins_processed=len(price_data),
@@ -339,6 +339,54 @@ class Total2bProcessor(BaseTotal2Processor):
 
         return None
 
+    def _build_eligibility_mask(
+        self,
+        close_df: pd.DataFrame,
+        smoothed_volume_df: pd.DataFrame,
+        first_seen_dates: dict[str, pd.Timestamp],
+    ) -> pd.DataFrame:
+        """
+        Pre-compute eligibility mask for all coins across all dates.
+
+        A coin is eligible on a date if:
+        1. It has passed the freeze period (days since first_seen >= freeze_period_days)
+        2. It has a valid price > 0
+        3. It has a valid volume > 0
+
+        This vectorized pre-computation replaces the per-date inner loop,
+        providing significant performance improvement for large datasets.
+
+        Args:
+            close_df: DataFrame of close prices (dates × coins)
+            smoothed_volume_df: DataFrame of smoothed volumes (dates × coins)
+            first_seen_dates: Dictionary mapping coin_id to first-seen timestamp
+
+        Returns:
+            Boolean DataFrame (dates × coins) where True = eligible
+        """
+        # Create base eligibility mask: valid price > 0 and valid volume > 0
+        price_valid = (close_df > 0) & close_df.notna()
+        volume_valid = (smoothed_volume_df > 0) & smoothed_volume_df.notna()
+        base_eligible = price_valid & volume_valid
+
+        # Create freeze period mask: coin has passed freeze period on this date
+        # For each coin, calculate the date it becomes eligible
+        freeze_mask = pd.DataFrame(False, index=close_df.index, columns=close_df.columns)
+
+        for coin_id in close_df.columns:
+            first_seen = first_seen_dates.get(coin_id)
+            if first_seen is None:
+                continue
+
+            # Calculate eligibility date (first_seen + freeze_period)
+            eligibility_date = first_seen + pd.Timedelta(days=self.freeze_period_days)
+
+            # All dates >= eligibility_date are eligible for freeze period
+            freeze_mask[coin_id] = close_df.index >= eligibility_date
+
+        # Final eligibility: both freeze period passed AND valid price/volume
+        return base_eligible & freeze_mask
+
     def _calculate_total2b_iterative(
         self,
         close_df: pd.DataFrame,
@@ -350,8 +398,8 @@ class Total2bProcessor(BaseTotal2Processor):
         Calculate TOTAL2b iteratively with freeze period and price scaling.
 
         For each day:
-        1. Determine eligible coins (passed freeze period)
-        2. For coins entering today, apply price scaling
+        1. Determine eligible coins (passed freeze period) - using pre-computed mask
+        2. For coins entering today, record scaling info
         3. Calculate volume-weighted average of top-N eligible coins
         4. Record composition
 
@@ -362,6 +410,11 @@ class Total2bProcessor(BaseTotal2Processor):
         This ensures entry-day scaled price equals TOTAL2b_d-1, and
         preserves day-over-day price change factors thereafter.
 
+        Optimization notes:
+        - Eligibility mask is pre-computed once for all dates (vectorized)
+        - Per-date operations use numpy where possible
+        - Scaling factors are tracked in memory, applied on-the-fly
+
         Args:
             close_df: DataFrame of close prices
             smoothed_volume_df: DataFrame of smoothed volumes
@@ -371,6 +424,11 @@ class Total2bProcessor(BaseTotal2Processor):
         Returns:
             Tuple of (index_df, composition_records, scaling_events)
         """
+        # Pre-compute eligibility mask (vectorized - major optimization)
+        eligibility_mask = self._build_eligibility_mask(
+            close_df, smoothed_volume_df, first_seen_dates
+        )
+
         dates = close_df.index
         index_records = []
         composition_records = []
@@ -378,40 +436,36 @@ class Total2bProcessor(BaseTotal2Processor):
 
         # Track which coins are currently in the index (for entry detection)
         coins_in_index: set[str] = set()
-        # Track scaled prices (persist scaling across days)
-        scaled_close_df = close_df.copy()
-        # Track scaling factors applied to each coin
+        # Track scaling factors applied to each coin (for price lookups during iteration)
         coin_scaling_factors: dict[str, float] = {}
 
         prev_total2b = None
 
-        iterator = tqdm(dates, desc="TOTAL2b calculation") if show_progress else dates
+        # Pre-convert DataFrames to numpy for faster access in tight loop
+        close_values = close_df.values
+        volume_values = smoothed_volume_df.values
+        eligibility_values = eligibility_mask.values
+        coin_ids = close_df.columns.tolist()
+        coin_to_idx = {coin: i for i, coin in enumerate(coin_ids)}
 
-        for dt in iterator:
-            # Step 1: Determine eligible coins (passed freeze period)
-            eligible_coins = []
-            for coin_id in close_df.columns:
-                first_seen = first_seen_dates.get(coin_id)
-                if first_seen is None:
-                    continue
+        iterator = (
+            tqdm(range(len(dates)), desc="TOTAL2b calculation")
+            if show_progress
+            else range(len(dates))
+        )
 
-                # Check freeze period
-                days_since_first = (dt - first_seen).days
-                if days_since_first < self.freeze_period_days:
-                    continue
+        for date_idx in iterator:
+            dt = dates[date_idx]
 
-                # Check if has valid price and volume
-                price = close_df.loc[dt, coin_id]
-                volume = smoothed_volume_df.loc[dt, coin_id]
-
-                if pd.notna(price) and pd.notna(volume) and volume > 0 and price > 0:
-                    eligible_coins.append(coin_id)
+            # Step 1: Get eligible coins using pre-computed mask (vectorized lookup)
+            eligible_mask_row = eligibility_values[date_idx]
+            eligible_coins = [coin_ids[i] for i in range(len(coin_ids)) if eligible_mask_row[i]]
 
             if len(eligible_coins) < 3:
                 # Not enough coins yet
                 continue
 
-            # Step 2: Detect new entries and apply scaling
+            # Step 2: Detect new entries and collect scaling info
             new_entries = set(eligible_coins) - coins_in_index
 
             # Check if we should apply scaling (only after min_coins_for_scaling)
@@ -421,17 +475,12 @@ class Total2bProcessor(BaseTotal2Processor):
 
             for coin_id in new_entries:
                 if should_scale and prev_total2b > 0:
-                    # Apply scaling: multiply by TOTAL2b_d-1 / COIN_PRICE_d
-                    # This ensures entry-day scaled price = prev_total2b
-                    raw_price_at_entry = close_df.loc[dt, coin_id]
+                    # Record scaling info
+                    idx = coin_to_idx[coin_id]
+                    raw_price_at_entry = close_values[date_idx, idx]
                     if raw_price_at_entry > 0:
                         scaling_factor = prev_total2b / raw_price_at_entry
                         coin_scaling_factors[coin_id] = scaling_factor
-
-                        # Scale all prices for this coin from this date forward
-                        scaled_close_df.loc[dt:, coin_id] = (
-                            close_df.loc[dt:, coin_id] * scaling_factor
-                        )
 
                         scaling_events.append(
                             {
@@ -448,16 +497,20 @@ class Total2bProcessor(BaseTotal2Processor):
             # Update coins in index
             coins_in_index = set(eligible_coins)
 
-            # Step 3: Calculate volume-weighted average
-            # Use scaled prices for coins that have scaling applied
+            # Step 3: Calculate volume-weighted average using numpy arrays
+            # Build volumes list with (coin_id, volume, scaled_price)
             volumes = []
 
             for coin_id in eligible_coins:
-                vol = smoothed_volume_df.loc[dt, coin_id]
+                idx = coin_to_idx[coin_id]
+                vol = volume_values[date_idx, idx]
+                raw_price = close_values[date_idx, idx]
+
+                # Apply scaling factor if coin has one
                 if coin_id in coin_scaling_factors:
-                    price = scaled_close_df.loc[dt, coin_id]
+                    price = raw_price * coin_scaling_factors[coin_id]
                 else:
-                    price = close_df.loc[dt, coin_id]
+                    price = raw_price
 
                 volumes.append((coin_id, vol, price))
 

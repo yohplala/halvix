@@ -31,24 +31,28 @@ Usage:
 """
 
 import json
-import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.signal import argrelextrema
 
 from config import (
     BTC_CYCLE_BOTTOMS,
     BTC_CYCLE_PEAKS,
+    CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
+    DEFAULT_DIMINISHING_FACTOR,
+    DEFAULT_FIBONACCI_LEVEL,
     HALVING_DATES,
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
+    TRENDLINE_LOG_PRICE_LIMIT,
+    TRENDLINE_MAJOR_POINT_WEIGHT,
+    TRENDLINE_MINOR_POINT_WEIGHT,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -56,8 +60,9 @@ from data.price_filters import (
     apply_volume_sma_smoothing,
     correct_volume_outliers,
 )
+from utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -73,7 +78,13 @@ class CyclePoint:
 
 @dataclass
 class CoinPatternResult:
-    """Analysis result for a single coin."""
+    """
+    Analysis result for a single coin.
+
+    Note on mutability: The `points` field uses `field(default_factory=list)` to avoid
+    the mutable default argument pitfall in Python dataclasses. This ensures each
+    instance gets its own empty list instead of sharing a single list across all instances.
+    """
 
     coin_id: str
     points: list[CyclePoint] = field(default_factory=list)
@@ -112,10 +123,17 @@ class CoinPatternResult:
     last_in_total2: date | None = None
     days_in_total2: int = 0
 
+    # Rank in trendline prediction ranking (set after sorting)
+    rank: int | None = None
+
 
 @dataclass
 class BTCPatternResult:
-    """Analysis result for BTC (vs USD)."""
+    """
+    Analysis result for BTC (vs USD).
+
+    Note on mutability: Uses `field(default_factory=list)` to avoid shared mutable defaults.
+    """
 
     points: list[CyclePoint] = field(default_factory=list)
     num_cycles: int = 0
@@ -127,6 +145,7 @@ class BTCPatternResult:
     fib_target_pct: float | None = None
     dim_return_target: float | None = None
     dim_return_target_pct: float | None = None
+    dim_return_factor: float | None = None
     composite_target_pct: float | None = None
 
     # Current price (returns are calculated vs this price)
@@ -135,6 +154,8 @@ class BTCPatternResult:
 
     # Pattern
     pattern_type: str | None = None
+    upper_slope: float | None = None
+    lower_slope: float | None = None
 
 
 class CyclePatternAnalyzer:
@@ -180,9 +201,10 @@ class CyclePatternAnalyzer:
         self.price_cache = price_cache or PriceDataCache()
         self.min_cycles = min_cycles
 
-        # Use cycles 2, 3, 4, and 5 (indices 1-4)
-        # Cycle 5 is the current cycle starting April 19, 2024
-        self.all_halvings = HALVING_DATES[1:]  # 2016, 2020, 2024 halvings
+        # Use cycles 2, 3, 4, and 5
+        # Cycles 2-4 are completed/mostly completed halvings
+        # Cycle 5 is the current cycle (projected 2028 halving)
+        self.all_halvings = HALVING_DATES[1:] + [PROJECTED_5TH_HALVING]
 
         # Load TOTAL2 composition for filtering
         self._total2_composition: pd.DataFrame | None = None
@@ -228,7 +250,9 @@ class CyclePatternAnalyzer:
             # Convert date column if needed
             if "date" in comp_df.columns:
                 if hasattr(comp_df["date"].iloc[0], "date"):
-                    comp_df_dates = comp_df["date"].apply(lambda x: x.date() if hasattr(x, "date") else x)
+                    comp_df_dates = comp_df["date"].apply(
+                        lambda x: x.date() if hasattr(x, "date") else x
+                    )
                 else:
                     comp_df_dates = pd.to_datetime(comp_df["date"]).dt.date
 
@@ -244,7 +268,9 @@ class CyclePatternAnalyzer:
                 )
             else:
                 self._total2_coins = set(comp_df["coin_id"].str.lower().unique())
-                logger.info("Found %d coins in TOTAL2 history (no date filtering)", len(self._total2_coins))
+                logger.info(
+                    "Found %d coins in TOTAL2 history (no date filtering)", len(self._total2_coins)
+                )
 
         return self._total2_coins
 
@@ -305,9 +331,7 @@ class CyclePatternAnalyzer:
         # Pattern analysis uses full price history to find true min/max
         return df, first_date, last_date
 
-    def _apply_price_filters(
-        self, df: pd.DataFrame, coin_id: str
-    ) -> pd.DataFrame:
+    def _apply_price_filters(self, df: pd.DataFrame, coin_id: str) -> pd.DataFrame:
         """
         Apply TOTAL2-style filtering tools to price data.
 
@@ -355,35 +379,6 @@ class CyclePatternAnalyzer:
                 )
 
         return result
-
-    def _find_local_extrema(
-        self,
-        prices: pd.Series,
-        order: int = 5,
-    ) -> tuple[pd.DatetimeIndex, pd.DatetimeIndex]:
-        """
-        Find local minima and maxima in a price series.
-
-        Args:
-            prices: Price series with DatetimeIndex
-            order: Number of points on each side to compare
-
-        Returns:
-            Tuple of (minima_dates, maxima_dates)
-        """
-        if len(prices) < order * 2 + 1:
-            return pd.DatetimeIndex([]), pd.DatetimeIndex([])
-
-        values = prices.values
-
-        # Find indices of local extrema
-        min_idx = argrelextrema(values, np.less_equal, order=order)[0]
-        max_idx = argrelextrema(values, np.greater_equal, order=order)[0]
-
-        minima_dates = prices.index[min_idx]
-        maxima_dates = prices.index[max_idx]
-
-        return minima_dates, maxima_dates
 
     def _find_cycle_points(
         self,
@@ -472,8 +467,13 @@ class CyclePatternAnalyzer:
         if pre_data.empty:
             return points
 
-        # min1: absolute minimum in pre-halving window
-        min1_idx = pre_data["close"].idxmin()
+        # Filter out zero/negative prices before finding minima
+        valid_pre_data = pre_data[pre_data["close"] > 0]
+        if valid_pre_data.empty:
+            return points
+
+        # min1: absolute minimum in pre-halving window (excluding zeros)
+        min1_idx = valid_pre_data["close"].idxmin()
         min1_price = pre_data.loc[min1_idx, "close"]
         min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
 
@@ -549,6 +549,28 @@ class CyclePatternAnalyzer:
 
         return points
 
+    def _get_regression_date(self, point: CyclePoint) -> date:
+        """
+        Get the date to use for trendline regression for a given point.
+
+        For cycle 5 min1, uses an approximated date (PROJECTED_5TH_HALVING - 520 days)
+        instead of the actual detected date. This provides a stable reference point
+        for regression calculations since cycle 5 is ongoing and the actual bottom
+        may not have occurred yet.
+
+        For all other points, returns the actual date.
+
+        Args:
+            point: The cycle point
+
+        Returns:
+            Date to use for regression x-coordinate
+        """
+        if point.cycle_num == 5 and point.point_type == "min1":
+            # Use approximated date for cycle 5 min1
+            return PROJECTED_5TH_HALVING - timedelta(days=CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING)
+        return point.date
+
     def _fit_log_trendlines(
         self,
         points: list[CyclePoint],
@@ -556,70 +578,149 @@ class CyclePatternAnalyzer:
         """
         Fit log-linear trendlines through cycle min and max points.
 
+        Uses weighted least squares regression where:
+        - Major points (min1, max2) get higher weight (true cycle extremes)
+        - Minor points (max1, min2) get lower weight (intermediate points)
+
+        With only 2 points per category, weights have no effect since a line
+        through 2 points is uniquely determined. With 3+ points, weights
+        affect which points the regression line fits more closely.
+
+        Note: For cycle 5 min1, an approximated date is used (520 days before
+        the projected 5th halving) instead of the actual detected date. This
+        provides a stable reference for regression since cycle 5 is ongoing.
+
         Returns:
             Tuple of (upper_slope, upper_intercept, lower_slope, lower_intercept)
             or (None, None, None, None) if insufficient data
         """
-        # Separate peaks (max1, max2) and troughs (min1, min2)
-        peaks = [p for p in points if "max" in p.point_type]
-        troughs = [p for p in points if "min" in p.point_type]
+        # Separate peaks and troughs, filtering out zero/negative prices
+        peaks = [p for p in points if "max" in p.point_type and p.price > 0]
+        troughs = [p for p in points if "min" in p.point_type and p.price > 0]
 
-        if len(peaks) < 2 or len(troughs) < 2:
+        if not peaks or not troughs:
             return None, None, None, None
 
-        # Filter out any points with zero or negative prices
-        peaks = [p for p in peaks if p.price > 0]
-        troughs = [p for p in troughs if p.price > 0]
+        # Count major extrema: max2 (true peaks) and min1 (true bottoms)
+        major_peaks = [p for p in peaks if p.point_type == "max2"]
+        major_troughs = [p for p in troughs if p.point_type == "min1"]
 
-        if len(peaks) < 2 or len(troughs) < 2:
-            return None, None, None, None
+        has_enough_peaks = len(major_peaks) >= 2
+        has_enough_troughs = len(major_troughs) >= 2
 
-        # Require minimum data span for BOTH peaks and troughs individually
-        # This prevents fitting a line on just 2 points and extrapolating years ahead
-        # Require at least 1200 days (~3.3 years) span for each trendline
-        # This ensures we're capturing multi-cycle patterns, not just within-cycle moves
-        MIN_TRENDLINE_SPAN_DAYS = 1200
-        peak_dates = [p.date for p in peaks]
-        trough_dates = [p.date for p in troughs]
-        peak_span = (max(peak_dates) - min(peak_dates)).days
-        trough_span = (max(trough_dates) - min(trough_dates)).days
-
-        if peak_span < MIN_TRENDLINE_SPAN_DAYS:
+        # Need at least one side with 2+ major extrema
+        if not has_enough_peaks and not has_enough_troughs:
             logger.debug(
-                "Peak data span too short for trendline: %d days (need %d)",
-                peak_span,
-                MIN_TRENDLINE_SPAN_DAYS,
-            )
-            return None, None, None, None
-
-        if trough_span < MIN_TRENDLINE_SPAN_DAYS:
-            logger.debug(
-                "Trough data span too short for trendline: %d days (need %d)",
-                trough_span,
-                MIN_TRENDLINE_SPAN_DAYS,
+                "Insufficient major extrema for trendline: %d max2, %d min1 (need 2+ on at least one side)",
+                len(major_peaks),
+                len(major_troughs),
             )
             return None, None, None, None
 
         # Convert to arrays with days as x-axis (days from first halving date)
         # Use HALVING_DATES[1] (2016) as reference
+        # Note: Cycle 5 min1 uses approximated date via _get_regression_date()
         reference_date = HALVING_DATES[1]
 
-        peak_x = np.array([(p.date - reference_date).days for p in peaks]).reshape(-1, 1)
+        peak_x = np.array(
+            [(self._get_regression_date(p) - reference_date).days for p in peaks]
+        ).reshape(-1, 1)
         peak_y = np.log10([p.price for p in peaks])
 
-        trough_x = np.array([(p.date - reference_date).days for p in troughs]).reshape(-1, 1)
+        trough_x = np.array(
+            [(self._get_regression_date(p) - reference_date).days for p in troughs]
+        ).reshape(-1, 1)
         trough_y = np.log10([p.price for p in troughs])
 
+        # Assign weights based on point type:
+        # - max2 (true peak) gets major weight, max1 (intermediate) gets minor weight
+        # - min1 (true bottom) gets major weight, min2 (intermediate) gets minor weight
+        peak_weights = np.array(
+            [
+                (
+                    TRENDLINE_MAJOR_POINT_WEIGHT
+                    if p.point_type == "max2"
+                    else TRENDLINE_MINOR_POINT_WEIGHT
+                )
+                for p in peaks
+            ]
+        )
+        trough_weights = np.array(
+            [
+                (
+                    TRENDLINE_MAJOR_POINT_WEIGHT
+                    if p.point_type == "min1"
+                    else TRENDLINE_MINOR_POINT_WEIGHT
+                )
+                for p in troughs
+            ]
+        )
+
         try:
-            # Simple linear regression on log-transformed prices
-            upper_slope = np.polyfit(peak_x.flatten(), peak_y, 1)[0]
-            upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1)
+            if has_enough_peaks and has_enough_troughs:
+                # Both sides have enough data - fit independently
+                upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1, w=peak_weights)
+                lower_fit = np.polyfit(trough_x.flatten(), trough_y, 1, w=trough_weights)
+                return (
+                    float(upper_fit[0]),
+                    float(upper_fit[1]),
+                    float(lower_fit[0]),
+                    float(lower_fit[1]),
+                )
 
-            lower_slope = np.polyfit(trough_x.flatten(), trough_y, 1)[0]
-            lower_fit = np.polyfit(trough_x.flatten(), trough_y, 1)
+            elif has_enough_troughs:
+                # Only troughs have enough major points - fit troughs, use same slope for peaks
+                lower_fit = np.polyfit(trough_x.flatten(), trough_y, 1, w=trough_weights)
+                slope = lower_fit[0]
+                # Calculate intercept for upper line passing through the max2 point (or average if multiple)
+                if major_peaks:
+                    # Use the major peak(s) to set the upper intercept
+                    major_peak_x = np.mean(
+                        [(self._get_regression_date(p) - reference_date).days for p in major_peaks]
+                    )
+                    major_peak_y = np.mean([np.log10(p.price) for p in major_peaks])
+                else:
+                    # Fallback to highest peak
+                    highest_peak = max(peaks, key=lambda p: p.price)
+                    major_peak_x = (self._get_regression_date(highest_peak) - reference_date).days
+                    major_peak_y = np.log10(highest_peak.price)
+                upper_intercept = major_peak_y - slope * major_peak_x
+                return (
+                    float(slope),
+                    float(upper_intercept),
+                    float(lower_fit[0]),
+                    float(lower_fit[1]),
+                )
 
-            return float(upper_slope), float(upper_fit[1]), float(lower_slope), float(lower_fit[1])
-        except Exception as e:
+            else:
+                # Only peaks have enough major points - fit peaks, use same slope for troughs
+                upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1, w=peak_weights)
+                slope = upper_fit[0]
+                # Calculate intercept for lower line passing through the min1 point (or average if multiple)
+                if major_troughs:
+                    major_trough_x = np.mean(
+                        [
+                            (self._get_regression_date(p) - reference_date).days
+                            for p in major_troughs
+                        ]
+                    )
+                    major_trough_y = np.mean([np.log10(p.price) for p in major_troughs])
+                else:
+                    # Fallback to lowest trough
+                    lowest_trough = min(troughs, key=lambda p: p.price)
+                    major_trough_x = (
+                        self._get_regression_date(lowest_trough) - reference_date
+                    ).days
+                    major_trough_y = np.log10(lowest_trough.price)
+                lower_intercept = major_trough_y - slope * major_trough_x
+                return (
+                    float(upper_fit[0]),
+                    float(upper_fit[1]),
+                    float(slope),
+                    float(lower_intercept),
+                )
+
+        except (np.linalg.LinAlgError, ValueError, TypeError) as e:
             logger.debug("Trendline fitting failed: %s", e)
             return None, None, None, None
 
@@ -646,7 +747,7 @@ class CyclePatternAnalyzer:
 
         # Guard against overflow - log_price > 308 would overflow float64
         # This happens with very steep slopes (short data spans or outliers)
-        if log_price > 300 or log_price < -300:
+        if log_price > TRENDLINE_LOG_PRICE_LIMIT or log_price < -TRENDLINE_LOG_PRICE_LIMIT:
             logger.debug("Trendline projection overflow: log_price=%.2f", log_price)
             return None
 
@@ -655,7 +756,7 @@ class CyclePatternAnalyzer:
     def _calculate_fib_extension(
         self,
         points: list[CyclePoint],
-        level: float = 1.272,
+        level: float = DEFAULT_FIBONACCI_LEVEL,
     ) -> float | None:
         """
         Calculate Fibonacci extension target.
@@ -762,10 +863,10 @@ class CyclePatternAnalyzer:
         if not gains:
             return None, None
 
-        # If only one cycle, assume 50% diminishing (conservative)
+        # If only one cycle, use default diminishing factor (conservative)
         if len(gains) == 1:
             last_gain_ratio = gains[0][1]
-            dim_factor = 0.5
+            dim_factor = DEFAULT_DIMINISHING_FACTOR
             next_gain_ratio = last_gain_ratio * dim_factor
 
             # Get latest min point
@@ -871,7 +972,9 @@ class CyclePatternAnalyzer:
                                 price = float(btc_df.loc[bottom_ts, "close"])
                             else:
                                 # Find nearest date
-                                nearest = btc_df.index[btc_df.index.get_indexer([bottom_ts], method="nearest")[0]]
+                                nearest = btc_df.index[
+                                    btc_df.index.get_indexer([bottom_ts], method="nearest")[0]
+                                ]
                                 price = float(btc_df.loc[nearest, "close"])
 
                             result.points.append(
@@ -1003,6 +1106,7 @@ class CyclePatternAnalyzer:
         df = self.price_cache.get_prices(coin_id, "BTC")
 
         if df is None or df.empty:
+            logger.debug("%s: No BTC price data available", coin_id.upper())
             return None
 
         # Get TOTAL2 membership info (for reference, not filtering)
@@ -1029,6 +1133,7 @@ class CyclePatternAnalyzer:
         filtered_df = self._apply_price_filters(df, coin_id)
 
         if filtered_df.empty:
+            logger.debug("%s: Empty dataframe after applying price filters", coin_id.upper())
             return None
 
         result = CoinPatternResult(coin_id=coin_id)
@@ -1037,10 +1142,14 @@ class CyclePatternAnalyzer:
         result.days_in_total2 = len(self._get_coin_total2_dates(coin_id))
 
         # Find points for each halving cycle using FULL price data
-        # Cycle 2 = 2016, Cycle 3 = 2020, Cycle 4 = 2024, Cycle 5 = current
+        # Cycle 2 = 2016, Cycle 3 = 2020, Cycle 4 = 2024, Cycle 5 = 2028 (current)
         for halving_date in self.all_halvings:
-            cycle_num = HALVING_DATES.index(halving_date) + 1
-            is_current = halving_date == HALVING_DATES[3]  # 2024 halving = cycle 5
+            if halving_date in HALVING_DATES:
+                cycle_num = HALVING_DATES.index(halving_date) + 1
+            else:
+                # Projected halving (cycle 5)
+                cycle_num = 5
+            is_current = halving_date == PROJECTED_5TH_HALVING  # Cycle 5 is current
 
             cycle_points = self._find_cycle_points(
                 filtered_df, halving_date, cycle_num, is_current_cycle=is_current
@@ -1048,12 +1157,19 @@ class CyclePatternAnalyzer:
             result.points.extend(cycle_points)
 
         if not result.points:
+            logger.debug("%s: No cycle points found", coin_id.upper())
             return None
 
         result.num_cycles = len({p.cycle_num for p in result.points})
 
         # Check minimum cycles requirement
         if result.num_cycles < self.min_cycles:
+            logger.debug(
+                "%s: Insufficient cycles (%d < %d required)",
+                coin_id.upper(),
+                result.num_cycles,
+                self.min_cycles,
+            )
             return None
 
         # Set confidence level
@@ -1101,7 +1217,11 @@ class CyclePatternAnalyzer:
         # No cap - show raw projections to expose any issues
         pcts = [
             p
-            for p in [result.trendline_target_pct, result.fib_target_pct, result.dim_return_target_pct]
+            for p in [
+                result.trendline_target_pct,
+                result.fib_target_pct,
+                result.dim_return_target_pct,
+            ]
             if p is not None
         ]
 
@@ -1180,17 +1300,28 @@ class CyclePatternAnalyzer:
         """
         Get top N coins by composite target percentage.
 
+        Filtering rules:
+        - Coins with negative trendline predictions are excluded (underperforming BTC)
+        - Coins with missing trendline (None) are included if they have a composite score
+        - Coins must have a valid composite score
+
         Args:
             results: Dictionary of coin results
             n: Number of top coins to return
 
         Returns:
-            List of top N CoinPatternResult sorted by composite_target_pct
+            List of top N CoinPatternResult sorted by composite_target_pct (descending)
         """
-        # Filter to coins with valid composite target
-        valid = [r for r in results.values() if r.composite_target_pct is not None]
+        # Filter out coins with negative trendline predictions (underperforming BTC)
+        # Coins with trendline=None are allowed if they have valid composite scores
+        valid = [
+            r
+            for r in results.values()
+            if r.composite_target_pct is not None
+            and (r.trendline_target_pct is None or r.trendline_target_pct > 0)
+        ]
 
-        # Sort by composite target (descending)
+        # Sort by composite target (descending) - primary ranking criterion
         sorted_results = sorted(valid, key=lambda x: x.composite_target_pct or 0, reverse=True)
 
         return sorted_results[:n]
@@ -1238,7 +1369,9 @@ class CyclePatternAnalyzer:
                 "points": [point_to_dict(p) for p in btc_result.points],
                 "num_cycles": btc_result.num_cycles,
                 "current_price": btc_result.current_price,
-                "current_date": btc_result.current_date.isoformat() if btc_result.current_date else None,
+                "current_date": (
+                    btc_result.current_date.isoformat() if btc_result.current_date else None
+                ),
                 "pattern_type": btc_result.pattern_type,
                 "trendline_target": btc_result.trendline_target,
                 "trendline_target_pct": btc_result.trendline_target_pct,
@@ -1254,8 +1387,12 @@ class CyclePatternAnalyzer:
                 "points": [point_to_dict(p) for p in result.points],
                 "num_cycles": result.num_cycles,
                 "confidence": result.confidence,
-                "first_in_total2": result.first_in_total2.isoformat() if result.first_in_total2 else None,
-                "last_in_total2": result.last_in_total2.isoformat() if result.last_in_total2 else None,
+                "first_in_total2": (
+                    result.first_in_total2.isoformat() if result.first_in_total2 else None
+                ),
+                "last_in_total2": (
+                    result.last_in_total2.isoformat() if result.last_in_total2 else None
+                ),
                 "days_in_total2": result.days_in_total2,
                 "current_price": result.current_price,
                 "current_date": result.current_date.isoformat() if result.current_date else None,
