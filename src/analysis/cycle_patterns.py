@@ -51,6 +51,7 @@ from config import (
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
+    TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
     TRENDLINE_LOG_PRICE_LIMIT,
     TRENDLINE_MAJOR_POINT_WEIGHT,
     TRENDLINE_MINOR_POINT_WEIGHT,
@@ -380,6 +381,70 @@ class CyclePatternAnalyzer:
                 )
 
         return result
+
+    def _detect_symbol_replacement(
+        self,
+        price_series: pd.Series,
+        threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
+    ) -> pd.Timestamp | None:
+        """
+        Detect if a coin's symbol was replaced by a different token.
+
+        CryptoCompare sometimes reuses symbols for different tokens (e.g.,
+        old "MOVE" token replaced by Movement Labs "MOVE" in Dec 2024).
+
+        Detection methods:
+        1. Extreme ratio jump: Price changes by >threshold between consecutive
+           days where both prices are positive.
+        2. Resurrection from zero: Price transitions from zero to positive after
+           a period of zero prices, when there was trading before the zero period.
+
+        Args:
+            price_series: Series of close prices for a coin
+            threshold: Ratio threshold for extreme jumps (default: 30x)
+
+        Returns:
+            The date of the last symbol replacement, or None if no replacement detected
+        """
+        # Threshold for considering a price as "zero" (numerical precision)
+        zero_threshold = 1e-15
+
+        # Get previous day's price
+        prev_price = price_series.shift(1)
+
+        # Method 1: Extreme ratio detection
+        valid_ratio_mask = (price_series > zero_threshold) & (prev_price > zero_threshold)
+        price_ratio = price_series / prev_price
+
+        extreme_jumps = (
+            (price_ratio > threshold) | (price_ratio < 1 / threshold)
+        ) & valid_ratio_mask
+
+        # Method 2: Resurrection from zero detection
+        resurrection_mask = (price_series > zero_threshold) & (prev_price <= zero_threshold)
+
+        resurrection_dates = price_series.index[resurrection_mask]
+        valid_resurrection_dates = []
+
+        for res_date in resurrection_dates:
+            before_mask = price_series.index < res_date
+            if before_mask.any():
+                prices_before = price_series[before_mask]
+                if (prices_before > zero_threshold).any():
+                    valid_resurrection_dates.append(res_date)
+
+        # Combine both detection methods
+        all_replacement_dates = set()
+
+        if extreme_jumps.any():
+            all_replacement_dates.update(price_series.index[extreme_jumps])
+
+        all_replacement_dates.update(valid_resurrection_dates)
+
+        if not all_replacement_dates:
+            return None
+
+        return max(all_replacement_dates)
 
     def _find_cycle_points(
         self,
@@ -1109,6 +1174,22 @@ class CyclePatternAnalyzer:
         if df is None or df.empty:
             logger.debug("%s: No BTC price data available", coin_id.upper())
             return None
+
+        # Detect symbol replacement (e.g., old MOVE token replaced by Movement Labs MOVE)
+        # If detected, filter price data to only include the new token's data
+        if "close" in df.columns:
+            replacement_date = self._detect_symbol_replacement(df["close"])
+            if replacement_date is not None:
+                logger.info(
+                    "%s: Symbol replacement detected on %s, filtering to post-replacement data",
+                    coin_id.upper(),
+                    replacement_date.date(),
+                )
+                df = df[df.index >= replacement_date]
+
+                if df.empty:
+                    logger.debug("%s: No data after symbol replacement date", coin_id.upper())
+                    return None
 
         # Get TOTAL2 membership info (for reference, not filtering)
         _, first_total2, last_total2 = self._filter_to_total2_dates(df, coin_id)
