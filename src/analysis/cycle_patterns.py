@@ -577,7 +577,7 @@ class CyclePatternAnalyzer:
             Projected price or None if insufficient data
         """
         # Need at least 2 cycles for Fibonacci
-        cycles = sorted(set(p.cycle_num for p in points))
+        cycles = sorted({p.cycle_num for p in points})
 
         if len(cycles) < 2:
             # Single cycle: use move from min1 to max2, project from max2
@@ -643,7 +643,7 @@ class CyclePatternAnalyzer:
         Returns:
             Tuple of (projected_target, diminishing_factor)
         """
-        cycles = sorted(set(p.cycle_num for p in points))
+        cycles = sorted({p.cycle_num for p in points})
 
         if len(cycles) < 1:
             return None, None
@@ -754,8 +754,6 @@ class CyclePatternAnalyzer:
 
         # Use hardcoded BTC peaks and bottoms (verified data)
         # Map to CyclePoints using cycles 2, 3, 4
-        reference_halving = HALVING_DATES[1]  # 2016 halving as reference
-
         # Get prices at known peak/bottom dates
         for i, (halving_date, peak_date) in enumerate(
             zip(HALVING_DATES[1:], BTC_CYCLE_PEAKS, strict=False)
@@ -836,7 +834,7 @@ class CyclePatternAnalyzer:
             logger.warning("No BTC cycle points found")
             return None
 
-        result.num_cycles = len(set(p.cycle_num for p in result.points))
+        result.num_cycles = len({p.cycle_num for p in result.points})
 
         # Get current price (returns are calculated vs this price)
         result.current_price = float(btc_df["close"].iloc[-1])
@@ -943,7 +941,7 @@ class CyclePatternAnalyzer:
         if not result.points:
             return None
 
-        result.num_cycles = len(set(p.cycle_num for p in result.points))
+        result.num_cycles = len({p.cycle_num for p in result.points})
 
         # Check minimum cycles requirement
         if result.num_cycles < self.min_cycles:
