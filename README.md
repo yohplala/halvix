@@ -47,6 +47,7 @@ poetry run python -m main status
 - **[AI Agent Context](AGENTS.md)** - Full project specification for AI agents and developers
 - **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching, data pipeline
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
+- **[Pattern Analysis](docs/PATTERN_ANALYSIS.md)** - Cycle pattern analysis and price target projections
 - **[Deployment](docs/DEPLOYMENT.md)** - Charts generation and GitHub Pages deployment workflow
 - **[Changelog](CHANGELOG.md)** - Version history and release notes
 
@@ -61,7 +62,7 @@ poetry run python -m main status
 | TOTAL2 Calculation | ✅ Complete |
 | GitHub Pages Docs | ✅ Complete |
 | Halving Cycle Charts | ✅ Complete |
-| Linear Regression | ⏳ To implement |
+| Cycle Pattern Analysis | ✅ Complete |
 
 
 ## License
