@@ -101,7 +101,8 @@ def _get_time_range() -> tuple[date, date]:
     start = HALVING_DATES[2] - timedelta(days=DAYS_BEFORE_HALVING)
 
     # End: 950 days after projected 5th halving (cycle 5 end)
-    end = PROJECTED_5TH_HALVING + timedelta(days=DAYS_AFTER_HALVING)
+    # Add extra 300 days to accommodate prediction text labels on the right
+    end = PROJECTED_5TH_HALVING + timedelta(days=DAYS_AFTER_HALVING + 300)
 
     return start, end
 
@@ -287,10 +288,10 @@ def create_btc_pattern_chart(
                 x=[target_date],
                 y=[target_price],
                 mode="markers+text",
-                marker={"size": 10, "color": color, "symbol": "star"},
-                text=[f"  {label}: ${target_price:,.0f} (+{target_pct:.0f}%)"],
+                marker={"size": 12, "color": color, "symbol": "star"},
+                text=[f"  {label}: ${target_price:,.0f}"],
                 textposition="middle right",
-                textfont={"color": color, "size": 11},
+                textfont={"color": color, "size": 13},
                 name=f"Target: {label}",
                 showlegend=False,
                 hovertemplate=(
@@ -329,13 +330,14 @@ def create_btc_pattern_chart(
             "xanchor": "left",
             "x": 0.01,
             "bgcolor": "rgba(0,0,0,0.5)",
+            "font": {"size": 14},
         },
         template="plotly_dark",
         paper_bgcolor="#0d1117",
         plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
-        margin={"t": 80, "b": 60},
+        margin={"t": 80, "b": 60, "r": 180},
     )
 
     # Add pattern type annotation
@@ -534,10 +536,10 @@ def create_altcoin_pattern_chart(
                 x=[target_date],
                 y=[target_price],
                 mode="markers+text",
-                marker={"size": 10, "color": color, "symbol": "star"},
+                marker={"size": 12, "color": color, "symbol": "star"},
                 text=[f"  {label}: +{target_pct:.0f}%"],
                 textposition="middle right",
-                textfont={"color": color, "size": 11},
+                textfont={"color": color, "size": 13},
                 name=f"Target: {label}",
                 showlegend=False,
                 hovertemplate=(
@@ -577,13 +579,14 @@ def create_altcoin_pattern_chart(
             "xanchor": "left",
             "x": 0.01,
             "bgcolor": "rgba(0,0,0,0.5)",
+            "font": {"size": 14},
         },
         template="plotly_dark",
         paper_bgcolor="#0d1117",
         plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
-        margin={"t": 80, "b": 60},
+        margin={"t": 80, "b": 60, "r": 180},
     )
 
     # Add pattern type and composite target annotations
