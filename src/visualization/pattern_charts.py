@@ -9,26 +9,19 @@ Generates HTML pages with cycle pattern analysis charts showing:
 All charts use the same time scale (cycles 3, 4, and projected 5).
 """
 
-import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 from analysis.cycle_patterns import (
     BTCPatternResult,
     CoinPatternResult,
-    CyclePatternAnalyzer,
-    CyclePoint,
 )
 from config import (
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
-    PROCESSED_DIR,
-    PROJECT_ROOT,
     PROJECTED_5TH_HALVING,
 )
 from data.cache import PriceDataCache
@@ -100,7 +93,7 @@ def _add_halving_lines(fig: go.Figure, row: int = 1, col: int = 1) -> None:
     halvings = [HALVING_DATES[2], HALVING_DATES[3], PROJECTED_5TH_HALVING]
     labels = ["3rd Halving\n2020", "4th Halving\n2024", "5th Halving\n2028 (proj.)"]
 
-    for halving_date, label in zip(halvings, labels, strict=False):
+    for halving_date, _label in zip(halvings, labels, strict=False):
         fig.add_vline(
             x=halving_date,
             line={"dash": "dot", "color": "rgba(200,200,200,0.4)", "width": 1.5},
@@ -151,7 +144,7 @@ def create_btc_pattern_chart(
 
     # 2. Add min/max points with connecting lines
     # Group points by cycle
-    cycles = sorted(set(p.cycle_num for p in result.points))
+    cycles = sorted({p.cycle_num for p in result.points})
 
     for cycle_num in cycles:
         cycle_points = sorted(
@@ -219,7 +212,7 @@ def create_btc_pattern_chart(
             ("Dim. Return", result.dim_return_target, result.dim_return_target_pct, TARGET_COLORS["diminishing"])
         )
 
-    for i, (label, target_price, target_pct, color) in enumerate(targets):
+    for _i, (label, target_price, target_pct, color) in enumerate(targets):
         # Add target marker
         fig.add_trace(
             go.Scatter(
@@ -339,7 +332,7 @@ def create_altcoin_pattern_chart(
     )
 
     # 2. Add min/max points with connecting lines
-    cycles = sorted(set(p.cycle_num for p in result.points))
+    cycles = sorted({p.cycle_num for p in result.points})
 
     for cycle_num in cycles:
         cycle_points = sorted(
@@ -913,13 +906,14 @@ def generate_all_pattern_charts(
     Returns:
         Dictionary mapping chart name to file path
     """
-    from analysis.cycle_patterns import CyclePatternAnalyzer
+    # Import here to avoid circular import - CyclePatternAnalyzer uses PriceDataCache
+    from analysis.cycle_patterns import CyclePatternAnalyzer as Analyzer
 
     paths = {}
 
     # Initialize analyzer and cache
     price_cache = PriceDataCache()
-    analyzer = CyclePatternAnalyzer(price_cache=price_cache, min_cycles=1)
+    analyzer = Analyzer(price_cache=price_cache, min_cycles=1)
 
     # Analyze BTC
     btc_result = analyzer.analyze_btc()
