@@ -8,6 +8,12 @@ analysis methods to project price targets for the next cycle:
 2. Fibonacci Extensions (127.2% level)
 3. Diminishing Returns Model
 
+IMPORTANT: This module uses TOTAL2 composition data to filter prices.
+Only price data from dates when a coin was actually in TOTAL2 is used,
+ensuring consistency with the TOTAL2 calculation methodology.
+
+Returns are calculated as percentage gain from CURRENT PRICE to projected target.
+
 Usage:
     from analysis.cycle_patterns import CyclePatternAnalyzer
 
@@ -78,7 +84,7 @@ class CoinPatternResult:
     # Composite score (equal weight average of 3 methods)
     composite_target_pct: float | None = None
 
-    # Current price for reference
+    # Current price for reference (returns are calculated vs this price)
     current_price: float | None = None
     current_date: date | None = None
 
@@ -87,6 +93,11 @@ class CoinPatternResult:
 
     # Data quality
     confidence: str = "low"  # "low" (1 cycle), "medium" (2 cycles), "high" (3+ cycles)
+
+    # TOTAL2 membership info
+    first_in_total2: date | None = None
+    last_in_total2: date | None = None
+    days_in_total2: int = 0
 
 
 @dataclass
@@ -105,7 +116,7 @@ class BTCPatternResult:
     dim_return_target_pct: float | None = None
     composite_target_pct: float | None = None
 
-    # Current price
+    # Current price (returns are calculated vs this price)
     current_price: float | None = None
     current_date: date | None = None
 
@@ -122,6 +133,13 @@ class CyclePatternAnalyzer:
     - max1: maximum in window [min1 date; halving]
     - max2: maximum in post-halving window [halving; halving+950]
     - min2: minimum in window [halving; max2 date]
+
+    For cycle 5 (current, starting April 19, 2024), adds:
+    - min1: minimum from halving to current date (or last available price if before halving)
+
+    IMPORTANT: For altcoins, only price data from dates when the coin was
+    actually in TOTAL2 is used. This ensures consistency with the TOTAL2
+    calculation methodology and avoids using unverified price data.
 
     Then applies 3 projection methods and ranks by composite target.
     """
@@ -141,14 +159,30 @@ class CyclePatternAnalyzer:
         self.price_cache = price_cache or PriceDataCache()
         self.min_cycles = min_cycles
 
-        # Use cycles 3 and 4 (indices 2 and 3) - skip cycles 1 and 2 due to sparse data
-        self.active_halvings = HALVING_DATES[2:4]  # 2020 and 2024 halvings
+        # Use cycles 2, 3, 4, and 5 (indices 1-4)
+        # Cycle 5 is the current cycle starting April 19, 2024
+        self.all_halvings = HALVING_DATES[1:]  # 2016, 2020, 2024 halvings
 
-        # Also include cycle 2 (2016) for coins that have data
-        self.all_halvings = HALVING_DATES[1:4]  # 2016, 2020, 2024 halvings
-
-        # Get TOTAL2 coins for filtering
+        # Load TOTAL2 composition for filtering
+        self._total2_composition: pd.DataFrame | None = None
         self._total2_coins: set[str] | None = None
+
+    def _load_total2_composition(self) -> pd.DataFrame | None:
+        """Load TOTAL2 composition data."""
+        if self._total2_composition is not None:
+            return self._total2_composition
+
+        if TOTAL2_COMPOSITION_FILE.exists():
+            try:
+                self._total2_composition = pd.read_parquet(TOTAL2_COMPOSITION_FILE)
+                logger.info(
+                    "Loaded TOTAL2 composition: %d records",
+                    len(self._total2_composition),
+                )
+            except Exception as e:
+                logger.warning("Could not load TOTAL2 composition: %s", e)
+
+        return self._total2_composition
 
     def _get_total2_coins(self) -> set[str]:
         """Get set of coins that have been in TOTAL2."""
@@ -157,15 +191,72 @@ class CyclePatternAnalyzer:
 
         self._total2_coins = set()
 
-        if TOTAL2_COMPOSITION_FILE.exists():
-            try:
-                comp_df = pd.read_parquet(TOTAL2_COMPOSITION_FILE)
-                self._total2_coins = set(comp_df["coin_id"].str.lower().unique())
-                logger.info("Found %d coins in TOTAL2 history", len(self._total2_coins))
-            except Exception as e:
-                logger.warning("Could not load TOTAL2 composition: %s", e)
+        comp_df = self._load_total2_composition()
+        if comp_df is not None:
+            self._total2_coins = set(comp_df["coin_id"].str.lower().unique())
+            logger.info("Found %d coins in TOTAL2 history", len(self._total2_coins))
 
         return self._total2_coins
+
+    def _get_coin_total2_dates(self, coin_id: str) -> set[date]:
+        """
+        Get the dates when a coin was in TOTAL2.
+
+        Args:
+            coin_id: Lowercase coin ID
+
+        Returns:
+            Set of dates when the coin was in TOTAL2
+        """
+        comp_df = self._load_total2_composition()
+        if comp_df is None:
+            return set()
+
+        coin_data = comp_df[comp_df["coin_id"] == coin_id]
+        if coin_data.empty:
+            return set()
+
+        # Convert to set of dates
+        dates = set()
+        for ts in coin_data["date"]:
+            if hasattr(ts, "date"):
+                dates.add(ts.date())
+            else:
+                dates.add(ts)
+
+        return dates
+
+    def _filter_to_total2_dates(
+        self, df: pd.DataFrame, coin_id: str
+    ) -> tuple[pd.DataFrame, date | None, date | None]:
+        """
+        Filter price DataFrame to only include dates when coin was in TOTAL2.
+
+        Args:
+            df: Price DataFrame with DatetimeIndex
+            coin_id: Lowercase coin ID
+
+        Returns:
+            Tuple of (filtered DataFrame, first_date, last_date)
+        """
+        total2_dates = self._get_coin_total2_dates(coin_id)
+
+        if not total2_dates:
+            # No TOTAL2 data - return empty
+            return df.iloc[:0], None, None
+
+        # Filter to TOTAL2 dates
+        # Note: df.index.date returns numpy array, so use np.isin
+        mask = np.isin(df.index.date, list(total2_dates))
+        filtered = df[mask]
+
+        if filtered.empty:
+            return filtered, None, None
+
+        first_date = min(total2_dates)
+        last_date = max(total2_dates)
+
+        return filtered, first_date, last_date
 
     def _find_local_extrema(
         self,
@@ -201,6 +292,7 @@ class CyclePatternAnalyzer:
         df: pd.DataFrame,
         halving_date: date,
         cycle_num: int,
+        is_current_cycle: bool = False,
     ) -> list[CyclePoint]:
         """
         Find the 4 characteristic points for a cycle.
@@ -211,23 +303,70 @@ class CyclePatternAnalyzer:
         - max2: maximum in [halving; halving+950]
         - min2: minimum in [halving; max2 date]
 
+        For current cycle (cycle 5), only min1 is available:
+        - min1: minimum from halving to current date
+
         Args:
             df: Price DataFrame with DatetimeIndex and 'close' column
             halving_date: The halving date for this cycle
-            cycle_num: Cycle number (2, 3, 4, etc.)
+            cycle_num: Cycle number (2, 3, 4, 5)
+            is_current_cycle: If True, this is cycle 5 (in progress)
 
         Returns:
             List of CyclePoint objects (0-4 points depending on data availability)
         """
         points = []
 
+        if df.empty:
+            return points
+
         # Define windows
         pre_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
         post_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
 
-        # Convert halving_date to Timestamp for comparison
-        halving_ts = pd.Timestamp(halving_date)
+        # For current cycle, we only look for min1 in post-halving data
+        if is_current_cycle:
+            # Cycle 5: Find min1 from halving onwards (or latest price before halving)
+            post_mask = df.index.date >= halving_date
+            post_data = df[post_mask]
 
+            if not post_data.empty:
+                # min1: minimum since halving
+                min1_idx = post_data["close"].idxmin()
+                min1_price = post_data.loc[min1_idx, "close"]
+                min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
+
+                points.append(
+                    CyclePoint(
+                        date=min1_date,
+                        price=float(min1_price),
+                        cycle_num=cycle_num,
+                        point_type="min1",
+                        days_from_halving=(min1_date - halving_date).days,
+                    )
+                )
+            else:
+                # No data after halving - use last available price before halving
+                pre_mask = df.index.date < halving_date
+                pre_data = df[pre_mask]
+                if not pre_data.empty:
+                    last_idx = pre_data.index[-1]
+                    last_price = pre_data.loc[last_idx, "close"]
+                    last_date = last_idx.date() if hasattr(last_idx, "date") else last_idx
+
+                    points.append(
+                        CyclePoint(
+                            date=last_date,
+                            price=float(last_price),
+                            cycle_num=cycle_num,
+                            point_type="min1",
+                            days_from_halving=(last_date - halving_date).days,
+                        )
+                    )
+
+            return points
+
+        # Regular cycle (completed or mostly complete)
         # Pre-halving window: find min1
         pre_mask = (df.index.date >= pre_start) & (df.index.date < halving_date)
         pre_data = df[pre_mask]
@@ -337,11 +476,30 @@ class CyclePatternAnalyzer:
         if len(peaks) < 2 or len(troughs) < 2:
             return None, None, None, None
 
-        # Require minimum data span of 180 days for meaningful trendline
-        all_dates = [p.date for p in peaks] + [p.date for p in troughs]
-        date_span = (max(all_dates) - min(all_dates)).days
-        if date_span < 180:
-            logger.debug("Data span too short for trendline: %d days", date_span)
+        # Require minimum data span for BOTH peaks and troughs individually
+        # This prevents fitting a line on just 2 points and extrapolating years ahead
+        # Require at least 1200 days (~3.3 years) span for each trendline
+        # This ensures we're capturing multi-cycle patterns, not just within-cycle moves
+        MIN_TRENDLINE_SPAN_DAYS = 1200
+        peak_dates = [p.date for p in peaks]
+        trough_dates = [p.date for p in troughs]
+        peak_span = (max(peak_dates) - min(peak_dates)).days
+        trough_span = (max(trough_dates) - min(trough_dates)).days
+
+        if peak_span < MIN_TRENDLINE_SPAN_DAYS:
+            logger.debug(
+                "Peak data span too short for trendline: %d days (need %d)",
+                peak_span,
+                MIN_TRENDLINE_SPAN_DAYS,
+            )
+            return None, None, None, None
+
+        if trough_span < MIN_TRENDLINE_SPAN_DAYS:
+            logger.debug(
+                "Trough data span too short for trendline: %d days (need %d)",
+                trough_span,
+                MIN_TRENDLINE_SPAN_DAYS,
+            )
             return None, None, None, None
 
         # Convert to arrays with days as x-axis (days from first halving date)
@@ -372,7 +530,7 @@ class CyclePatternAnalyzer:
         upper_slope: float,
         upper_intercept: float,
         target_date: date,
-    ) -> float:
+    ) -> float | None:
         """
         Project target price using upper trendline (log scale).
 
@@ -382,11 +540,18 @@ class CyclePatternAnalyzer:
             target_date: Date to project to
 
         Returns:
-            Projected price at target date
+            Projected price at target date, or None if projection overflows
         """
         reference_date = HALVING_DATES[1]
         days = (target_date - reference_date).days
         log_price = upper_slope * days + upper_intercept
+
+        # Guard against overflow - log_price > 308 would overflow float64
+        # This happens with very steep slopes (short data spans or outliers)
+        if log_price > 300 or log_price < -300:
+            logger.debug("Trendline projection overflow: log_price=%.2f", log_price)
+            return None
+
         return 10**log_price
 
     def _calculate_fib_extension(
@@ -646,13 +811,33 @@ class CyclePatternAnalyzer:
             except Exception as e:
                 logger.debug("Could not get price for %s: %s", peak_date, e)
 
+        # Add cycle 5 first point (min1 since April 19, 2024)
+        halving_5 = HALVING_DATES[3]  # 2024 halving
+        post_halving_mask = btc_df.index.date >= halving_5
+        post_halving_data = btc_df[post_halving_mask]
+
+        if not post_halving_data.empty:
+            min5_idx = post_halving_data["close"].idxmin()
+            min5_price = post_halving_data.loc[min5_idx, "close"]
+            min5_date = min5_idx.date() if hasattr(min5_idx, "date") else min5_idx
+
+            result.points.append(
+                CyclePoint(
+                    date=min5_date,
+                    price=float(min5_price),
+                    cycle_num=5,
+                    point_type="min1",
+                    days_from_halving=(min5_date - halving_5).days,
+                )
+            )
+
         if not result.points:
             logger.warning("No BTC cycle points found")
             return None
 
         result.num_cycles = len(set(p.cycle_num for p in result.points))
 
-        # Get current price
+        # Get current price (returns are calculated vs this price)
         result.current_price = float(btc_df["close"].iloc[-1])
         result.current_date = btc_df.index[-1].date()
 
@@ -668,8 +853,9 @@ class CyclePatternAnalyzer:
             # Approximate: halving + 550 days (typical peak timing)
             target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
-            result.trendline_target = target
-            result.trendline_target_pct = (target / result.current_price - 1) * 100
+            if target is not None:
+                result.trendline_target = target
+                result.trendline_target_pct = (target / result.current_price - 1) * 100
 
         # Fibonacci extension
         fib_target = self._calculate_fib_extension(result.points)
@@ -703,6 +889,9 @@ class CyclePatternAnalyzer:
         """
         Analyze pattern for a single altcoin vs BTC.
 
+        IMPORTANT: Only uses price data from dates when the coin was
+        actually in TOTAL2. This ensures consistency with TOTAL2 methodology.
+
         Args:
             coin_id: Lowercase coin ID (e.g., "eth")
 
@@ -715,12 +904,40 @@ class CyclePatternAnalyzer:
         if df is None or df.empty:
             return None
 
+        # Filter to only TOTAL2 dates
+        filtered_df, first_total2, last_total2 = self._filter_to_total2_dates(df, coin_id)
+
+        if filtered_df.empty:
+            logger.debug("No TOTAL2 data for %s", coin_id)
+            return None
+
+        # Require recent TOTAL2 data for meaningful projections
+        # Coins that exited TOTAL2 years ago shouldn't have projections
+        # since their "current price" is stale
+        if last_total2 is not None:
+            days_since_total2 = (date.today() - last_total2).days
+            if days_since_total2 > 365:
+                logger.debug(
+                    "%s: Last in TOTAL2 was %d days ago (threshold: 365), skipping",
+                    coin_id,
+                    days_since_total2,
+                )
+                return None
+
         result = CoinPatternResult(coin_id=coin_id)
+        result.first_in_total2 = first_total2
+        result.last_in_total2 = last_total2
+        result.days_in_total2 = len(self._get_coin_total2_dates(coin_id))
 
         # Find points for each halving cycle
+        # Cycle 2 = 2016, Cycle 3 = 2020, Cycle 4 = 2024, Cycle 5 = current
         for halving_date in self.all_halvings:
             cycle_num = HALVING_DATES.index(halving_date) + 1
-            cycle_points = self._find_cycle_points(df, halving_date, cycle_num)
+            is_current = halving_date == HALVING_DATES[3]  # 2024 halving = cycle 5
+
+            cycle_points = self._find_cycle_points(
+                filtered_df, halving_date, cycle_num, is_current_cycle=is_current
+            )
             result.points.extend(cycle_points)
 
         if not result.points:
@@ -740,9 +957,10 @@ class CyclePatternAnalyzer:
         else:
             result.confidence = "low"
 
-        # Get current price
-        result.current_price = float(df["close"].iloc[-1])
-        result.current_date = df.index[-1].date()
+        # Get current price (returns are calculated vs this price)
+        # Use last price in TOTAL2-filtered data
+        result.current_price = float(filtered_df["close"].iloc[-1])
+        result.current_date = filtered_df.index[-1].date()
 
         # Fit trendlines (need at least 2 points each for min/max)
         upper_slope, upper_int, lower_slope, lower_int = self._fit_log_trendlines(result.points)
@@ -755,8 +973,9 @@ class CyclePatternAnalyzer:
             # Project to cycle 5 peak (halving + 550 days)
             target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
-            result.trendline_target = target
-            result.trendline_target_pct = (target / result.current_price - 1) * 100
+            if target is not None:
+                result.trendline_target = target
+                result.trendline_target_pct = (target / result.current_price - 1) * 100
 
         # Fibonacci extension
         fib_target = self._calculate_fib_extension(result.points)
@@ -772,18 +991,16 @@ class CyclePatternAnalyzer:
             result.dim_return_factor = dim_factor
 
         # Composite target (equal weight of available methods)
-        # Apply sanity checks: cap projections at 10000% (100x) to filter outliers
-        MAX_PROJECTION_PCT = 10000.0  # 100x max
-
-        pcts = []
-        for p in [result.trendline_target_pct, result.fib_target_pct, result.dim_return_target_pct]:
-            if p is not None and -100 < p < MAX_PROJECTION_PCT:
-                pcts.append(p)
+        # No cap - show raw projections to expose any issues
+        pcts = [
+            p
+            for p in [result.trendline_target_pct, result.fib_target_pct, result.dim_return_target_pct]
+            if p is not None
+        ]
 
         if pcts:
             result.composite_target_pct = np.mean(pcts)
         else:
-            # No valid projections within reasonable range
             result.composite_target_pct = None
 
         return result
@@ -894,6 +1111,7 @@ class CyclePatternAnalyzer:
 
         data = {
             "generated_at": pd.Timestamp.now().isoformat(),
+            "note": "Returns are calculated as % gain from current_price to target",
             "btc": None,
             "altcoins": {},
         }
@@ -919,6 +1137,9 @@ class CyclePatternAnalyzer:
                 "points": [point_to_dict(p) for p in result.points],
                 "num_cycles": result.num_cycles,
                 "confidence": result.confidence,
+                "first_in_total2": result.first_in_total2.isoformat() if result.first_in_total2 else None,
+                "last_in_total2": result.last_in_total2.isoformat() if result.last_in_total2 else None,
+                "days_in_total2": result.days_in_total2,
                 "current_price": result.current_price,
                 "current_date": result.current_date.isoformat() if result.current_date else None,
                 "pattern_type": result.pattern_type,
