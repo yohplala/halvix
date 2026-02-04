@@ -388,8 +388,27 @@ src/data/
 ├── processor.py           # Re-exports and factory function
 ├── processor_base.py      # BaseTotal2Processor (shared algorithms)
 ├── processor_total2.py    # Total2Processor (legacy)
-└── processor_total2b.py   # Total2bProcessor (new)
+├── processor_total2b.py   # Total2bProcessor (new)
+└── price_filters.py       # Common filtering tools (shared with pattern analysis)
 ```
+
+### Common Filtering Tools
+
+The volume outlier detection and SMA smoothing algorithms are implemented as standalone functions in `src/data/price_filters.py`. These are used by:
+
+- **TOTAL2/TOTAL2b calculation**: via `processor_base.py`
+- **Pattern analysis**: via `cycle_patterns.py`
+
+This ensures consistent data quality across all analysis modules.
+
+**Available functions:**
+
+| Function | Description |
+|----------|-------------|
+| `correct_volume_outliers()` | Detect and correct volume spikes for a single series |
+| `apply_volume_sma_smoothing()` | Apply SMA smoothing with zero padding for a single series |
+| `apply_volume_corrections_to_dataframe()` | Apply corrections to a DataFrame of multiple coins |
+| `apply_volume_sma_smoothing_to_dataframe()` | Apply smoothing to a DataFrame of multiple coins |
 
 ### Using the Processors
 

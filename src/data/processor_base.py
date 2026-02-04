@@ -3,11 +3,15 @@ Base data processor for TOTAL2 index calculations.
 
 Contains shared algorithms for both TOTAL2 and TOTAL2b:
 - Volume-weighted average calculation
-- Volume outlier detection and correction
-- Volume SMA smoothing with zero padding
+- Volume outlier detection and correction (via price_filters module)
+- Volume SMA smoothing with zero padding (via price_filters module)
 - Coin filtering for eligibility
 - Composition record building
 - Max weight change tracking
+
+The volume outlier detection and SMA smoothing algorithms are also
+available as standalone functions in data/price_filters.py for use
+by other modules (e.g., pattern analysis).
 """
 
 from abc import ABC, abstractmethod
@@ -15,7 +19,6 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -31,6 +34,13 @@ from config import (
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
+from data.price_filters import (
+    DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK,
+    DEFAULT_OUTLIER_WINDOW_DAYS,
+    DEFAULT_VOLUME_OUTLIER_THRESHOLD,
+    apply_volume_corrections_to_dataframe,
+    apply_volume_sma_smoothing_to_dataframe,
+)
 
 
 class ProcessorError(Exception):
@@ -40,9 +50,10 @@ class ProcessorError(Exception):
 
 
 # Volume outlier detection parameters (shared between TOTAL2 and TOTAL2b)
-VOLUME_OUTLIER_THRESHOLD = 20  # 20x median
-MIN_VOLUME_FOR_OUTLIER_CHECK = 5000  # BTC
-OUTLIER_WINDOW_DAYS = 7
+# These are re-exported from price_filters for backward compatibility
+VOLUME_OUTLIER_THRESHOLD = DEFAULT_VOLUME_OUTLIER_THRESHOLD  # 20x median
+MIN_VOLUME_FOR_OUTLIER_CHECK = DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK  # BTC
+OUTLIER_WINDOW_DAYS = DEFAULT_OUTLIER_WINDOW_DAYS
 
 
 @dataclass
@@ -230,6 +241,9 @@ class BaseTotal2Processor(ABC):
         This function automatically detects outliers where volume is > VOLUME_OUTLIER_THRESHOLD
         times the rolling median of PAST days, and replaces them with capped values.
 
+        Uses the common helper from data/price_filters.py which is also
+        available for use by other modules (e.g., pattern analysis).
+
         Args:
             volume_df: DataFrame with volume data (dates × coins)
             show_progress: Whether to print correction messages
@@ -237,85 +251,14 @@ class BaseTotal2Processor(ABC):
         Returns:
             Tuple of (corrected_volume_df, list_of_corrections)
         """
-        corrected_df = volume_df.copy()
-        all_corrections = []
-        max_iterations = 10
-
-        for iteration in range(max_iterations):
-            corrections_made = []
-
-            rolling_median = corrected_df.rolling(
-                window=OUTLIER_WINDOW_DAYS, min_periods=3
-            ).median()
-            past_median = rolling_median.shift(1)
-            ratio_df = corrected_df / past_median
-
-            is_outlier = (
-                (ratio_df > VOLUME_OUTLIER_THRESHOLD)
-                & (corrected_df > MIN_VOLUME_FOR_OUTLIER_CHECK)
-                & (past_median > 0)
-            )
-
-            outlier_locations = np.where(is_outlier)
-
-            if len(outlier_locations[0]) == 0:
-                break
-
-            for idx, col_idx in zip(outlier_locations[0], outlier_locations[1], strict=True):
-                dt = corrected_df.index[idx]
-                coin_id = corrected_df.columns[col_idx]
-                original_vol = corrected_df.iloc[idx, col_idx]
-                ratio = ratio_df.iloc[idx, col_idx]
-                median_val = past_median.iloc[idx, col_idx]
-
-                prev_vol = corrected_df.iloc[idx - 1, col_idx] if idx > 0 else np.nan
-
-                if not pd.notna(prev_vol) or prev_vol <= 0:
-                    continue
-                if not pd.notna(median_val) or median_val <= 0:
-                    continue
-
-                capped_value = median_val * VOLUME_OUTLIER_THRESHOLD
-                interpolated = (prev_vol + min(original_vol, capped_value)) / 2
-
-                if interpolated <= 0:
-                    continue
-
-                corrected_df.iloc[idx, col_idx] = interpolated
-
-                corrections_made.append(
-                    {
-                        "coin": coin_id.upper(),
-                        "date": str(dt.date()),
-                        "original": float(original_vol),
-                        "corrected": float(interpolated),
-                        "ratio": float(ratio) if np.isfinite(ratio) else 0.0,
-                        "iteration": iteration + 1,
-                    }
-                )
-
-            all_corrections.extend(corrections_made)
-
-            if show_progress and corrections_made:
-                print(
-                    f"  Volume outlier iteration {iteration + 1}: {len(corrections_made)} corrections"
-                )
-
-        all_corrections = sorted(all_corrections, key=lambda x: x["ratio"], reverse=True)
-
-        if all_corrections and show_progress:
-            print(f"  Volume outlier corrections ({len(all_corrections)} total):")
-            for c in all_corrections[:20]:
-                iter_str = f" (iter {c['iteration']})" if c.get("iteration", 1) > 1 else ""
-                print(
-                    f"    {c['coin']:6s} {c['date']}: "
-                    f"{c['original']:>15,.2f} → {c['corrected']:>12,.2f} "
-                    f"({c['ratio']:.0f}x median){iter_str}"
-                )
-            if len(all_corrections) > 20:
-                print(f"    ... and {len(all_corrections) - 20} more")
-
-        return corrected_df, all_corrections
+        return apply_volume_corrections_to_dataframe(
+            volume_df,
+            threshold=VOLUME_OUTLIER_THRESHOLD,
+            min_volume=MIN_VOLUME_FOR_OUTLIER_CHECK,
+            window_days=OUTLIER_WINDOW_DAYS,
+            max_iterations=10,
+            show_progress=show_progress,
+        )
 
     def apply_volume_sma_smoothing(
         self,
@@ -327,23 +270,20 @@ class BaseTotal2Processor(ABC):
         Zero-padding ensures new coins enter the index gradually over the
         SMA window period, preventing sudden weight jumps.
 
+        Uses the common helper from data/price_filters.py which is also
+        available for use by other modules (e.g., pattern analysis).
+
         Args:
             volume_df: DataFrame with volume data (dates × coins)
 
         Returns:
             Smoothed volume DataFrame
         """
-        padded_volume_df = volume_df.copy()
-
-        for coin_id in padded_volume_df.columns:
-            first_valid_idx = volume_df[coin_id].first_valid_index()
-            if first_valid_idx is not None:
-                mask = padded_volume_df.index < first_valid_idx
-                padded_volume_df.loc[mask, coin_id] = 0.0
-
-        smoothed_volume_df = padded_volume_df.rolling(window=self.volume_sma_window).mean()
-
-        return smoothed_volume_df
+        return apply_volume_sma_smoothing_to_dataframe(
+            volume_df,
+            window=self.volume_sma_window,
+            zero_pad=True,
+        )
 
     def calculate_rank_and_mask(
         self,

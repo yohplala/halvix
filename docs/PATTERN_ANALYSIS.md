@@ -14,18 +14,36 @@ A **composite score** (equal-weight average) ranks altcoins by expected return.
 
 **IMPORTANT**: Returns are calculated as percentage gain from the **current price** to the projected target.
 
-## Data Source: TOTAL2 Consistency
+## Coin Selection
 
-For altcoins, the pattern analyzer **only uses price data from dates when the coin was actually in TOTAL2**. This ensures:
+The pattern analyzer selects coins that have been in TOTAL2 at any point within the **past 2 years**. This expanded selection:
 
-- Consistency with TOTAL2 calculation methodology
-- Only "validated" price data is used (coins that passed TOTAL2 entry criteria)
-- No unverified early listing data that might contain outliers
-- Alignment with the 21-day freeze period and other TOTAL2 filters
+- Allows analysis of coins even if they temporarily dropped out of the TOTAL2 top 30
+- Includes coins that have historical TOTAL2 presence (validated by volume)
+- Provides more comprehensive market coverage
 
-**Important**: Coins must have been in TOTAL2 within the past **7 days** to be included in the analysis. This ensures we're only analyzing coins with current, valid price data.
+**Important**: Only coins that were in TOTAL2 within the past 2 years are analyzed. Coins that have never been in TOTAL2 or were last in TOTAL2 more than 2 years ago are excluded.
 
-This means a coin like 1000SATS (which entered TOTAL2 on March 25, 2024) will only have analysis based on price data from that date forward, not from its raw listing date.
+## Data Approach: Full Price History with TOTAL2 Filtering
+
+For each selected coin, the pattern analyzer uses **full price history** (not just dates when in TOTAL2). This ensures:
+
+- Accurate detection of true cycle min/max points, even when a coin temporarily drops out of TOTAL2
+- Better identification of extreme prices that may occur outside the TOTAL2 index period
+- More complete cycle pattern analysis
+
+**TOTAL2-Style Filtering Tools Applied:**
+
+To ensure data quality consistent with TOTAL2 calculation, the following filters are applied to the full price data:
+
+| Filter | Description | Parameters |
+|--------|-------------|------------|
+| **Volume Outlier Detection** | Detects and corrects impossible volume spikes | 20x rolling median, min 5000 BTC, 7-day window |
+| **Volume SMA Smoothing** | Applies simple moving average to volume data | 120-day window with zero padding |
+
+These are the same filtering tools used by the TOTAL2 calculation, ensuring consistent data quality across all analysis modules. The filters are implemented as common helpers in `src/data/price_filters.py`.
+
+**Note**: Unlike the TOTAL2 calculation which filters prices to only TOTAL2 dates, the pattern analyzer intentionally uses full price history to capture true extremes that may occur when a coin is outside the index.
 
 ## Cycle Points
 
@@ -90,15 +108,60 @@ This projects where price might reach if it extends 127.2% of the previous cycle
 
 ### 3. Diminishing Returns Model
 
-Calculates how much the gain ratio (max/min within cycle) diminishes from cycle to cycle:
+Calculates how much the gain ratio diminishes from cycle to cycle.
 
-```python
-diminishing_factor = cycle_n_gain / cycle_n-1_gain
-next_cycle_gain = current_cycle_gain * diminishing_factor
-target = latest_min * next_cycle_gain
+**Step 1: Calculate cycle gain ratio (cycle_n_gain)**
+
+For each cycle, the gain ratio is calculated as:
+
+```
+cycle_n_gain = max_price / min_price
 ```
 
-For coins with only 1 cycle of data, a conservative 50% diminishing factor is assumed.
+Where:
+- `max_price` = Highest price among all max points (max1, max2) in cycle n
+- `min_price` = Lowest price among all min points (min1, min2) in cycle n
+
+**Example:**
+- Cycle 3 min1 = 0.001 BTC, max2 = 0.015 BTC
+- cycle_3_gain = 0.015 / 0.001 = 15x
+
+**Step 2: Calculate diminishing factor**
+
+The diminishing factor measures how much gains decrease between cycles:
+
+```
+diminishing_factor = cycle_n_gain / cycle_(n-1)_gain
+```
+
+If multiple cycles are available, the average of all diminishing factors is used.
+
+**Example:**
+- Cycle 2 gain: 20x
+- Cycle 3 gain: 15x
+- Cycle 4 gain: 8x
+- Diminishing factors: 15/20 = 0.75, 8/15 = 0.53
+- Average diminishing factor: (0.75 + 0.53) / 2 = 0.64
+
+**Step 3: Project next cycle target**
+
+```
+next_cycle_gain = last_cycle_gain * diminishing_factor
+target = latest_min_price * next_cycle_gain
+```
+
+**Example:**
+- Last cycle gain: 8x
+- Diminishing factor: 0.64
+- Next cycle gain: 8 × 0.64 = 5.12x
+- Latest min price: 0.0005 BTC
+- **Target: 0.0005 × 5.12 = 0.00256 BTC**
+
+**Single Cycle Fallback:**
+For coins with only 1 cycle of data, a conservative **50% diminishing factor** is assumed:
+```
+next_cycle_gain = single_cycle_gain * 0.5
+```
 
 ## Return Calculation
 
@@ -214,13 +277,27 @@ Each chart shows:
 - **Projections are not financial advice** - they represent mathematical extrapolations
 - **Market conditions change** - historical patterns may not repeat
 - **Alt/BTC ratios** can diverge significantly from projections during market regime changes
-- **Coins must be in TOTAL2** - coins that never entered TOTAL2 are not analyzed
+- **Coins must have been in TOTAL2** - coins that were never in TOTAL2, or were last in TOTAL2 more than 2 years ago, are not analyzed
+- **Full price history** - uses complete price data, not just TOTAL2 dates, which may include volatile periods
 
 ## Algorithm Details
 
-### TOTAL2 Date Filtering
+### Coin Selection
 
-The analyzer loads the TOTAL2 composition file and creates a set of dates for each coin when it was in the index. Only price data from these dates is used for analysis.
+The analyzer selects coins based on TOTAL2 membership within a 2-year lookback window:
+
+1. Load TOTAL2 composition data
+2. Filter to coins with at least one appearance in the past 2 years
+3. Use this set as the candidate pool for analysis
+
+### Price Data Filtering
+
+For each selected coin, full price history is loaded and filtered using TOTAL2-style tools:
+
+1. **Volume Outlier Detection**: Iteratively detects and corrects volume spikes > 20x rolling median
+2. **Volume SMA Smoothing**: Applies 120-day SMA with zero padding for consistent weighting
+
+These filters are implemented in `src/data/price_filters.py` and shared between TOTAL2 calculation and pattern analysis.
 
 ### Min/Max Detection
 
