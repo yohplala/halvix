@@ -324,16 +324,18 @@ class CyclePatternAnalyzer:
         pre_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
         post_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
 
-        # For current cycle, we only look for min1 in post-halving data
+        # For current cycle, we only look for min1 since the last BTC peak
         if is_current_cycle:
-            # Cycle 5: Find min1 from halving onwards (or latest price before halving)
-            post_mask = df.index.date >= halving_date
-            post_data = df[post_mask]
+            # Cycle 5: Find min1 from last BTC peak (Oct 2025) onwards
+            # This is the bottom after the cycle 4 peak, not since halving
+            last_btc_peak = BTC_CYCLE_PEAKS[-1] if BTC_CYCLE_PEAKS else halving_date
+            post_peak_mask = df.index.date >= last_btc_peak
+            post_peak_data = df[post_peak_mask]
 
-            if not post_data.empty:
-                # min1: minimum since halving
-                min1_idx = post_data["close"].idxmin()
-                min1_price = post_data.loc[min1_idx, "close"]
+            if not post_peak_data.empty:
+                # min1: minimum since last BTC peak
+                min1_idx = post_peak_data["close"].idxmin()
+                min1_price = post_peak_data.loc[min1_idx, "close"]
                 min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
 
                 points.append(
@@ -346,12 +348,10 @@ class CyclePatternAnalyzer:
                     )
                 )
             else:
-                # No data after halving - use last available price before halving
-                pre_mask = df.index.date < halving_date
-                pre_data = df[pre_mask]
-                if not pre_data.empty:
-                    last_idx = pre_data.index[-1]
-                    last_price = pre_data.loc[last_idx, "close"]
+                # No data after last peak - use last available price
+                if not df.empty:
+                    last_idx = df.index[-1]
+                    last_price = df.loc[last_idx, "close"]
                     last_date = last_idx.date() if hasattr(last_idx, "date") else last_idx
 
                     points.append(
@@ -811,14 +811,15 @@ class CyclePatternAnalyzer:
             except Exception as e:
                 logger.debug("Could not get price for %s: %s", peak_date, e)
 
-        # Add cycle 5 first point (min1 since April 19, 2024)
+        # Add cycle 5 first point (min1 since last BTC peak - October 2025)
         halving_5 = HALVING_DATES[3]  # 2024 halving
-        post_halving_mask = btc_df.index.date >= halving_5
-        post_halving_data = btc_df[post_halving_mask]
+        last_btc_peak = BTC_CYCLE_PEAKS[-1] if BTC_CYCLE_PEAKS else halving_5
+        post_peak_mask = btc_df.index.date >= last_btc_peak
+        post_peak_data = btc_df[post_peak_mask]
 
-        if not post_halving_data.empty:
-            min5_idx = post_halving_data["close"].idxmin()
-            min5_price = post_halving_data.loc[min5_idx, "close"]
+        if not post_peak_data.empty:
+            min5_idx = post_peak_data["close"].idxmin()
+            min5_price = post_peak_data.loc[min5_idx, "close"]
             min5_date = min5_idx.date() if hasattr(min5_idx, "date") else min5_idx
 
             result.points.append(
@@ -912,13 +913,12 @@ class CyclePatternAnalyzer:
             return None
 
         # Require recent TOTAL2 data for meaningful projections
-        # Coins that exited TOTAL2 years ago shouldn't have projections
-        # since their "current price" is stale
+        # Coins must be currently in TOTAL2 (within past week) to have valid current price
         if last_total2 is not None:
             days_since_total2 = (date.today() - last_total2).days
-            if days_since_total2 > 365:
+            if days_since_total2 > 7:
                 logger.debug(
-                    "%s: Last in TOTAL2 was %d days ago (threshold: 365), skipping",
+                    "%s: Last in TOTAL2 was %d days ago (threshold: 7), skipping",
                     coin_id,
                     days_since_total2,
                 )
