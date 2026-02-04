@@ -506,6 +506,13 @@ jobs:
           echo "Charts generated in site/"
           ls -la site/charts/ | head -20
 
+      - name: Analyze patterns
+        working-directory: main
+        run: |
+          poetry run python -m main analyze-patterns
+          echo "Pattern analysis generated in site/"
+          ls -la site/charts/pattern_*.html 2>/dev/null | head -20 || echo "No pattern charts yet"
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

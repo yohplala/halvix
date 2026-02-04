@@ -10,6 +10,8 @@ Commands:
     list-coins        Fetch and filter top N coins by market cap
     fetch-prices      Fetch price data for filtered coins
     calculate-total2  Calculate TOTAL2 market index
+    generate-charts   Generate interactive Plotly charts
+    analyze-patterns  Analyze cycle patterns and generate projections
     status            Show current data status
     clear-cache       Clear cached API data
 
@@ -1183,6 +1185,19 @@ def _generate_index_html(max_weight_info: dict | None = None) -> str:
                 </a>
             </li>
         </ul>
+
+        <ul class="nav-list" style="margin-top: 1rem;">
+            <li>
+                <a href="pattern_analysis.html">
+                    <span class="icon">🎯</span>
+                    <div class="link-content">
+                        <div>Cycle Pattern Analysis</div>
+                        <div class="description">Price target projections using trendlines, Fibonacci, and diminishing returns</div>
+                    </div>
+                    <span class="arrow">→</span>
+                </a>
+            </li>
+        </ul>
     </main>
 
     """
@@ -2120,6 +2135,50 @@ def cmd_generate_charts(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_analyze_patterns(args: argparse.Namespace) -> int:
+    """Analyze cycle patterns and generate target projections."""
+    from visualization.pattern_charts import generate_all_pattern_charts
+
+    logger.info("=" * 60)
+    logger.info("HALVIX - Cycle Pattern Analysis")
+    logger.info("=" * 60)
+
+    output_dir = args.output_dir if args.output_dir else DOCS_SITE_DIR
+    top_n = args.top_n
+
+    logger.info("Output directory: %s", output_dir)
+    logger.info("Top N altcoins: %d", top_n)
+
+    try:
+        logger.info("Analyzing cycle patterns...")
+        paths = generate_all_pattern_charts(
+            output_dir=output_dir,
+            top_n=top_n,
+            show_progress=not args.quiet,
+        )
+
+        logger.info("-" * 60)
+        logger.info("PATTERN ANALYSIS COMPLETE")
+        logger.info("-" * 60)
+        logger.info("Generated files:")
+        for name, path in paths.items():
+            logger.info("  %s: %s", name, path)
+
+        # Update main index page to include pattern analysis link
+        logger.info("Updating main index page...")
+        generate_index_page()
+
+        return 0
+
+    except FileNotFoundError as e:
+        logger.error("Missing data: %s", e)
+        logger.info("Run 'fetch-prices' first to download price data.")
+        return 1
+    except Exception as e:
+        logger.exception("Failed to analyze patterns: %s", e)
+        return 1
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Show current data status."""
     logger.info("=" * 60)
@@ -2335,6 +2394,25 @@ def main() -> int:
         help="Output directory for charts (default: site/charts)",
     )
 
+    # analyze-patterns command
+    patterns_parser = subparsers.add_parser(
+        "analyze-patterns",
+        help="Analyze cycle patterns and generate price target projections",
+    )
+    patterns_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Output directory for pattern charts (default: site/)",
+    )
+    patterns_parser.add_argument(
+        "--top-n",
+        "-n",
+        type=int,
+        default=9,
+        help="Number of top altcoins to include (default: 9)",
+    )
+
     # status command
     subparsers.add_parser(
         "status",
@@ -2378,6 +2456,7 @@ def main() -> int:
         "fetch-prices": cmd_fetch_prices,
         "calculate-total2": cmd_calculate_total2,
         "generate-charts": cmd_generate_charts,
+        "analyze-patterns": cmd_analyze_patterns,
         "status": cmd_status,
         "clear-cache": cmd_clear_cache,
     }
