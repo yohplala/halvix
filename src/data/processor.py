@@ -9,6 +9,8 @@ This module re-exports classes from the processor submodules:
 """
 
 from config import (
+    TOTAL2_SERIES_MAX_DECREASE,
+    TOTAL2_SERIES_MAX_INCREASE,
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
 )
@@ -17,14 +19,12 @@ from data.processor_base import (
     OUTLIER_WINDOW_DAYS,
     VOLUME_OUTLIER_THRESHOLD,
     BaseTotal2Processor,
+    CalculationMetadata,
+    IndexData,
     ProcessorError,
     Total2Result,
 )
-from data.processor_total2 import (
-    MAX_DOD_DECREASE,
-    MAX_DOD_INCREASE,
-    Total2Processor,
-)
+from data.processor_total2 import Total2Processor
 from data.processor_total2b import Total2bProcessor
 
 
@@ -58,6 +58,8 @@ __all__ = [
     "BaseTotal2Processor",
     "ProcessorError",
     "Total2Result",
+    "IndexData",
+    "CalculationMetadata",
     # Processor implementations
     "Total2Processor",
     "Total2bProcessor",
@@ -68,8 +70,8 @@ __all__ = [
     "MIN_VOLUME_FOR_OUTLIER_CHECK",
     "OUTLIER_WINDOW_DAYS",
     # Constants (TOTAL2 series smoothing)
-    "MAX_DOD_INCREASE",
-    "MAX_DOD_DECREASE",
+    "TOTAL2_SERIES_MAX_INCREASE",
+    "TOTAL2_SERIES_MAX_DECREASE",
     # Constants (TOTAL2b specific)
     "TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS",
     "TOTAL2B_MIN_COINS_FOR_SCALING",

@@ -4,6 +4,7 @@ Configuration constants for the Halvix project.
 Halvix - Cryptocurrency price analysis relative to Bitcoin halving cycles.
 """
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -31,7 +32,7 @@ HALVING_DATES: list[date] = [
 ]
 
 # Projected 5th halving (approximately 4 years after 4th)
-PROJECTED_5TH_HALVING = date(2028, 3, 15)
+PROJECTED_5TH_HALVING = date(2028, 3, 31)
 
 # =============================================================================
 # BTC Cycle Peaks and Bottoms (verified from CryptoCompare data)
@@ -62,14 +63,177 @@ BTC_CYCLE_BOTTOMS: list[date] = [
 # Time Window Configuration
 # =============================================================================
 
+# How far before/after halving to include in cycle analysis
 DAYS_BEFORE_HALVING = 550
 DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
 TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1500 days
 
 
+# =============================================================================
+# HalvingCycle Value Object
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class HalvingCycle:
+    """
+    Immutable value object representing a Bitcoin halving cycle.
+
+    Encapsulates all data related to a specific halving cycle including dates,
+    windows, and associated market extremes. Uses frozen=True to ensure
+    immutability as a value object.
+
+    Attributes:
+        cycle_num: Cycle number (1-5). Cycle 1 is the 2012 halving.
+        halving_date: The date the halving occurred/will occur.
+        window_start: Start of analysis window (halving_date - DAYS_BEFORE_HALVING).
+        window_end: End of analysis window (halving_date + DAYS_AFTER_HALVING).
+        peak_date: Date of the cycle's bull market peak (None if unknown/not yet).
+        bottom_date: Date of the pre-halving bear market bottom (None if unknown).
+        is_current: Whether this is the current/incomplete cycle.
+    """
+
+    cycle_num: int
+    halving_date: date
+    window_start: date
+    window_end: date
+    peak_date: date | None = None
+    bottom_date: date | None = None
+    is_current: bool = False
+
+    @classmethod
+    def from_halving_date(
+        cls,
+        cycle_num: int,
+        halving_date: date,
+        peak_date: date | None = None,
+        bottom_date: date | None = None,
+        is_current: bool = False,
+    ) -> "HalvingCycle":
+        """
+        Create a HalvingCycle from a halving date, computing window dates.
+
+        Args:
+            cycle_num: Cycle number (1, 2, 3, 4, 5)
+            halving_date: The halving date
+            peak_date: Optional peak date for this cycle
+            bottom_date: Optional bottom date for this cycle
+            is_current: Whether this is the current incomplete cycle
+
+        Returns:
+            HalvingCycle instance with computed window dates
+        """
+        window_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
+        window_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
+        return cls(
+            cycle_num=cycle_num,
+            halving_date=halving_date,
+            window_start=window_start,
+            window_end=window_end,
+            peak_date=peak_date,
+            bottom_date=bottom_date,
+            is_current=is_current,
+        )
+
+    @property
+    def total_days(self) -> int:
+        """Total number of days in the cycle window."""
+        return (self.window_end - self.window_start).days
+
+    def contains_date(self, dt: date) -> bool:
+        """Check if a date falls within this cycle's window."""
+        return self.window_start <= dt <= self.window_end
+
+    def days_from_halving(self, dt: date) -> int:
+        """Calculate days from halving (negative = before, positive = after)."""
+        return (dt - self.halving_date).days
+
+
+def _build_halving_cycles() -> list[HalvingCycle]:
+    """
+    Build the list of HalvingCycle objects from configuration data.
+
+    Internal function to create HALVING_CYCLES list at module load time.
+    Maps halving dates to their associated peaks and bottoms.
+    """
+    # Map cycle numbers to their peak/bottom dates
+    # Indices align: bottoms[0] is before HALVING_DATES[1] (cycle 2), etc.
+    peak_by_cycle: dict[int, date | None] = {}
+    bottom_by_cycle: dict[int, date | None] = {}
+
+    # BTC_CYCLE_PEAKS indices: 0 = cycle 2, 1 = cycle 3, 2 = cycle 4
+    for i, peak in enumerate(BTC_CYCLE_PEAKS):
+        peak_by_cycle[i + 2] = peak
+
+    # BTC_CYCLE_BOTTOMS indices: 0 = before cycle 2, 1 = before cycle 3, 2 = before cycle 4
+    for i, bottom in enumerate(BTC_CYCLE_BOTTOMS):
+        bottom_by_cycle[i + 2] = bottom
+
+    cycles = []
+    for i, halving in enumerate(HALVING_DATES):
+        cycle_num = i + 1
+        is_current = cycle_num == len(HALVING_DATES)  # Last halving is current
+
+        cycles.append(
+            HalvingCycle.from_halving_date(
+                cycle_num=cycle_num,
+                halving_date=halving,
+                peak_date=peak_by_cycle.get(cycle_num),
+                bottom_date=bottom_by_cycle.get(cycle_num),
+                is_current=is_current,
+            )
+        )
+
+    return cycles
+
+
+# Pre-built list of all halving cycles
+HALVING_CYCLES: list[HalvingCycle] = _build_halving_cycles()
+
+
+def get_cycle(cycle_num: int) -> HalvingCycle | None:
+    """
+    Get a specific halving cycle by number.
+
+    Args:
+        cycle_num: Cycle number (1-5)
+
+    Returns:
+        HalvingCycle if found, None otherwise
+    """
+    for cycle in HALVING_CYCLES:
+        if cycle.cycle_num == cycle_num:
+            return cycle
+    return None
+
+
+def get_cycle_for_date(dt: date) -> HalvingCycle | None:
+    """
+    Find which halving cycle a date falls within.
+
+    Args:
+        dt: The date to check
+
+    Returns:
+        HalvingCycle containing the date, or None if outside all windows
+    """
+    for cycle in HALVING_CYCLES:
+        if cycle.contains_date(dt):
+            return cycle
+    return None
+
+
+# =============================================================================
+# Legacy Cycle Window Functions (for backward compatibility)
+# =============================================================================
+# These functions are kept for backward compatibility but delegate to HalvingCycle.
+
+
 def get_cycle_window(halving_date: date) -> tuple[date, date]:
     """
     Calculate the time window for a halving cycle.
+
+    Deprecated: Use HalvingCycle.from_halving_date() instead.
 
     Args:
         halving_date: The date of the Bitcoin halving
@@ -86,17 +250,18 @@ def get_all_cycle_windows() -> list[tuple[int, date, date, date]]:
     """
     Get all halving cycle windows with their metadata.
 
+    Deprecated: Use HALVING_CYCLES list instead.
+
     Returns:
         List of tuples: (cycle_number, start_date, halving_date, end_date)
     """
-    windows = []
-    for i, halving_date in enumerate(HALVING_DATES, start=1):
-        start, end = get_cycle_window(halving_date)
-        windows.append((i, start, halving_date, end))
-    return windows
+    return [
+        (cycle.cycle_num, cycle.window_start, cycle.halving_date, cycle.window_end)
+        for cycle in HALVING_CYCLES
+    ]
 
 
-# Pre-computed cycle windows for reference
+# Pre-computed cycle windows for reference (legacy format)
 CYCLE_WINDOWS = get_all_cycle_windows()
 
 # =============================================================================
@@ -140,6 +305,10 @@ VOLUME_SMA_WINDOW = 120
 TOTAL2_ENTRY_MAX_INCREASE = 1.7  # Max 1.7x (70% gain) per day during warmup
 TOTAL2_ENTRY_MAX_DECREASE = 0.5  # Min 0.5x (50% loss) per day during warmup
 TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # How many days entry warmup applies (3 weeks)
+
+# TOTAL2 series smoothing parameters (caps extreme day-over-day aggregate index movements)
+TOTAL2_SERIES_MAX_INCREASE = 3.0  # Cap TOTAL2 increase at 3x per day (200% gain)
+TOTAL2_SERIES_MAX_DECREASE = 0.35  # Cap TOTAL2 decrease at 0.35x per day (65% loss)
 
 # =============================================================================
 # TOTAL2b New Coin Entry Settings
@@ -420,3 +589,63 @@ TOTAL2_MAX_WEIGHT_CHANGE_FILE = PROCESSED_DIR / "total2_max_weight_change.json"
 # Today's data is incomplete (market hasn't closed yet).
 # This is a fixed constant - do not change as it ensures data consistency.
 USE_YESTERDAY_AS_END_DATE = True
+
+# =============================================================================
+# Pattern Analysis Configuration
+# =============================================================================
+
+# Minimum overall data span required for trendline fitting (~2 years)
+# This is the span from earliest to latest point across all peaks and troughs
+# Ensures we have enough temporal spread for meaningful regression
+MIN_TRENDLINE_SPAN_DAYS = 700
+
+# Maximum log10 price value for trendline projection (guards against float64 overflow)
+# Values > 308 would overflow; we use 300 as a safety margin
+# This happens with very steep slopes from short data spans or outliers
+TRENDLINE_LOG_PRICE_LIMIT = 300
+
+# Maximum trendline projection percentage (guards against unrealistic extrapolations)
+# Projections beyond this are likely from fitting short data spans and extrapolating far ahead
+# 50000% = 500x gain, which is still very optimistic but not astronomical
+MAX_TRENDLINE_TARGET_PCT = 50000
+
+# Fibonacci extension levels for price projection (most common trading levels)
+FIBONACCI_LEVELS = {
+    "127.2%": 1.272,  # Primary target (default)
+    "161.8%": 1.618,  # Golden ratio extension
+    "261.8%": 2.618,  # Extended target
+}
+
+# Default Fibonacci level for pattern analysis
+DEFAULT_FIBONACCI_LEVEL = FIBONACCI_LEVELS["127.2%"]
+
+# Default diminishing returns factor derived from BTC historical data
+# Used when only one cycle of data is available for a coin
+#
+# Calculation from BTC/USD historical cycles (prices from CryptoCompare):
+#   Cycle 2: Bottom $164.92 (2015-01-14) → Peak $19,345.49 (2017-12-16) = 117.3x gain
+#   Cycle 3: Bottom $3,232.51 (2018-12-15) → Peak $67,549.14 (2021-11-08) = 20.9x gain
+#   Diminishing factor = 20.9 / 117.3 = 0.178
+#
+# We use 0.20 as a slightly conservative estimate to account for:
+# - Uncertainty in exact cycle timing
+# - Variation between BTC and altcoin diminishing patterns
+# - The fact that altcoins often show steeper diminishing returns vs BTC
+DEFAULT_DIMINISHING_FACTOR = 0.20
+
+# Trendline regression point weights
+# Major points (min1, max2) are the true cycle extremes - higher weight
+# Minor points (max1, min2) are intermediate points - lower weight
+# With only 2 points per category, weights have no effect (line is unique)
+# With 3+ points, weights affect which points the regression line fits more closely
+TRENDLINE_MAJOR_POINT_WEIGHT = 0.67  # Weight for min1 (true bottom) and max2 (true peak)
+TRENDLINE_MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate points)
+
+# Cycle 5 min1 approximate date for trendline regression
+# Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
+# For trendline regression (which uses dates as x-coordinates), we use an approximated date
+# based on typical cycle timing: 520 days before the projected 5th halving.
+# This places min1 within the typical window [halving-550, halving] and provides a stable
+# reference point for regression calculations regardless of when the actual minimum occurs.
+# Note: The actual detected min1 date/price is still used for display and other methods.
+CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING = 520

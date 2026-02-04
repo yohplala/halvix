@@ -41,10 +41,31 @@ from data.price_filters import (
     apply_volume_corrections_to_dataframe,
     apply_volume_sma_smoothing_to_dataframe,
 )
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ProcessorError(Exception):
     """Base exception for processor errors."""
+
+    pass
+
+
+class NoDataError(ProcessorError):
+    """Raised when required data is missing or unavailable."""
+
+    pass
+
+
+class InsufficientDataError(ProcessorError):
+    """Raised when data exists but is insufficient for calculation."""
+
+    pass
+
+
+class IndexNotFoundError(ProcessorError):
+    """Raised when a pre-computed index file cannot be found."""
 
     pass
 
@@ -57,20 +78,117 @@ OUTLIER_WINDOW_DAYS = DEFAULT_OUTLIER_WINDOW_DAYS
 
 
 @dataclass
-class Total2Result:
-    """Result of TOTAL2/TOTAL2b calculation."""
+class IndexData:
+    """Core index data from TOTAL2/TOTAL2b calculation."""
 
-    index_df: pd.DataFrame
-    composition_df: pd.DataFrame
+    index_df: pd.DataFrame  # Daily index values (date, total2_price, total_volume, coin_count)
+    composition_df: (
+        pd.DataFrame
+    )  # Daily composition (date, rank, coin_id, volume, weight, price_btc)
+
+
+@dataclass
+class CalculationMetadata:
+    """Metadata and statistics from TOTAL2/TOTAL2b calculation."""
+
     coins_processed: int
     date_range: tuple[date, date]
     avg_coins_per_day: float
+    index_type: str = "total2"  # "total2" or "total2b"
     max_weight_change: float | None = None
     max_weight_change_coin: str | None = None
     max_weight_change_date: date | None = None
     volume_outliers_corrected: list[dict] | None = None
     price_outliers_corrected: list[dict] | None = None
-    index_type: str = "total2"  # "total2" or "total2b"
+
+
+@dataclass
+class Total2Result:
+    """
+    Complete result of TOTAL2/TOTAL2b calculation.
+
+    Composes IndexData and CalculationMetadata for a cleaner separation of concerns.
+    Provides backward-compatible access to all fields.
+    """
+
+    data: IndexData
+    metadata: CalculationMetadata
+
+    # Backward-compatible property accessors
+    @property
+    def index_df(self) -> pd.DataFrame:
+        return self.data.index_df
+
+    @property
+    def composition_df(self) -> pd.DataFrame:
+        return self.data.composition_df
+
+    @property
+    def coins_processed(self) -> int:
+        return self.metadata.coins_processed
+
+    @property
+    def date_range(self) -> tuple[date, date]:
+        return self.metadata.date_range
+
+    @property
+    def avg_coins_per_day(self) -> float:
+        return self.metadata.avg_coins_per_day
+
+    @property
+    def index_type(self) -> str:
+        return self.metadata.index_type
+
+    @property
+    def max_weight_change(self) -> float | None:
+        return self.metadata.max_weight_change
+
+    @property
+    def max_weight_change_coin(self) -> str | None:
+        return self.metadata.max_weight_change_coin
+
+    @property
+    def max_weight_change_date(self) -> date | None:
+        return self.metadata.max_weight_change_date
+
+    @property
+    def volume_outliers_corrected(self) -> list[dict] | None:
+        return self.metadata.volume_outliers_corrected
+
+    @property
+    def price_outliers_corrected(self) -> list[dict] | None:
+        return self.metadata.price_outliers_corrected
+
+    @classmethod
+    def create(
+        cls,
+        index_df: pd.DataFrame,
+        composition_df: pd.DataFrame,
+        coins_processed: int,
+        date_range: tuple[date, date],
+        avg_coins_per_day: float,
+        index_type: str = "total2",
+        max_weight_change: float | None = None,
+        max_weight_change_coin: str | None = None,
+        max_weight_change_date: date | None = None,
+        volume_outliers_corrected: list[dict] | None = None,
+        price_outliers_corrected: list[dict] | None = None,
+    ) -> "Total2Result":
+        """Factory method for backward-compatible creation."""
+        return cls(
+            data=IndexData(index_df=index_df, composition_df=composition_df),
+            metadata=CalculationMetadata(
+                coins_processed=coins_processed,
+                date_range=date_range,
+                avg_coins_per_day=avg_coins_per_day,
+                index_type=index_type,
+                max_weight_change=max_weight_change,
+                max_weight_change_coin=max_weight_change_coin,
+                max_weight_change_date=max_weight_change_date,
+                volume_outliers_corrected=volume_outliers_corrected,
+                price_outliers_corrected=price_outliers_corrected,
+            ),
+        )
 
 
 class BaseTotal2Processor(ABC):
@@ -144,12 +262,22 @@ class BaseTotal2Processor(ABC):
             columns = ["close", "volume_to"]
 
         data = {}
+        skipped_coins = []
         iterator = tqdm(coin_ids, desc="Loading price data") if show_progress else coin_ids
 
         for coin_id in iterator:
             df = self.price_cache.get_prices(coin_id, self.quote_currency, columns=columns)
             if df is not None and not df.empty:
                 data[coin_id] = df
+            else:
+                skipped_coins.append(coin_id)
+
+        if skipped_coins:
+            logger.debug(
+                "Skipped %d coins with no/empty price data: %s",
+                len(skipped_coins),
+                ", ".join(skipped_coins[:10]) + ("..." if len(skipped_coins) > 10 else ""),
+            )
 
         return data
 
@@ -204,7 +332,7 @@ class BaseTotal2Processor(ABC):
             all_dates.update(df.index)
 
         if not all_dates:
-            raise ProcessorError("No dates found in price data")
+            raise NoDataError("No dates found in price data")
 
         # Create complete date index
         min_date = min(all_dates)
@@ -340,7 +468,7 @@ class BaseTotal2Processor(ABC):
         valid_dates: pd.DatetimeIndex,
     ) -> list[dict]:
         """
-        Build composition records for each day.
+        Build composition records for each day using vectorized operations.
 
         Args:
             close_df: DataFrame of close prices
@@ -352,37 +480,65 @@ class BaseTotal2Processor(ABC):
         Returns:
             List of composition record dictionaries
         """
-        records = []
+        # Filter to valid dates only
+        mask_valid = mask_df.loc[valid_dates]
+        volume_valid = volume_df.loc[valid_dates]
+        close_valid = close_df.loc[valid_dates]
+        rank_valid = rank_df.loc[valid_dates]
 
-        for dt in valid_dates:
-            mask_row = mask_df.loc[dt]
-            included_coins = mask_row[mask_row].index.tolist()
+        # Stack to create MultiIndex (date, coin_id)
+        mask_stacked = mask_valid.stack()
+        volume_stacked = volume_valid.stack()
+        close_stacked = close_valid.stack()
+        rank_stacked = rank_valid.stack()
 
-            if not included_coins:
-                continue
+        # Filter to only included coins (where mask is True)
+        included_mask = mask_stacked.astype(bool)
+        volume_included = volume_stacked[included_mask]
+        close_included = close_stacked[included_mask]
+        rank_included = rank_stacked[included_mask]
 
-            volume_row = volume_df.loc[dt]
-            close_row = close_df.loc[dt]
-            rank_row = rank_df.loc[dt]
+        if volume_included.empty:
+            return []
 
-            total_vol = volume_row[included_coins].sum()
+        # Build DataFrame with all columns
+        result_df = pd.DataFrame(
+            {
+                "volume": volume_included,
+                "price_btc": close_included,
+                "rank": rank_included.astype(int),
+            }
+        )
 
-            for coin_id in included_coins:
-                vol = volume_row[coin_id]
-                price = close_row[coin_id]
-                rank = int(rank_row[coin_id])
+        # Calculate total volume per date for weight calculation
+        total_volume_per_date = result_df.groupby(level=0)["volume"].transform("sum")
 
-                if pd.notna(vol) and pd.notna(price) and total_vol > 0:
-                    records.append(
-                        {
-                            "date": dt.date(),
-                            "rank": rank,
-                            "coin_id": coin_id,
-                            "volume": vol,
-                            "weight": vol / total_vol,
-                            "price_btc": price,
-                        }
-                    )
+        # Filter out rows with invalid data
+        valid_mask = (
+            result_df["volume"].notna()
+            & result_df["price_btc"].notna()
+            & (total_volume_per_date > 0)
+        )
+        result_df = result_df[valid_mask]
+        total_volume_per_date = total_volume_per_date[valid_mask]
+
+        if result_df.empty:
+            return []
+
+        # Calculate weight vectorized
+        result_df["weight"] = result_df["volume"] / total_volume_per_date
+
+        # Reset index to get date and coin_id as columns
+        result_df = result_df.reset_index()
+        result_df.columns = ["date", "coin_id", "volume", "price_btc", "rank", "weight"]
+
+        # Convert datetime to date objects
+        result_df["date"] = result_df["date"].dt.date
+
+        # Convert to list of dictionaries (order columns as expected)
+        records = result_df[["date", "rank", "coin_id", "volume", "weight", "price_btc"]].to_dict(
+            "records"
+        )
 
         return records
 
@@ -587,7 +743,7 @@ class BaseTotal2Processor(ABC):
         path = path or TOTAL2_INDEX_FILE
 
         if not path.exists():
-            raise ProcessorError("Index not found. Run calculate_total2 first.")
+            raise IndexNotFoundError("Index not found. Run calculate_total2 first.")
 
         return pd.read_parquet(path)
 
@@ -596,7 +752,7 @@ class BaseTotal2Processor(ABC):
         path = path or TOTAL2_COMPOSITION_FILE
 
         if not path.exists():
-            raise ProcessorError("Composition not found. Run calculate_total2 first.")
+            raise IndexNotFoundError("Composition not found. Run calculate_total2 first.")
 
         return pd.read_parquet(path)
 
