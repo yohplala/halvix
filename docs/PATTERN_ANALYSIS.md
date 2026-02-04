@@ -23,6 +23,8 @@ For altcoins, the pattern analyzer **only uses price data from dates when the co
 - No unverified early listing data that might contain outliers
 - Alignment with the 21-day freeze period and other TOTAL2 filters
 
+**Important**: Coins must have been in TOTAL2 within the past **7 days** to be included in the analysis. This ensures we're only analyzing coins with current, valid price data.
+
 This means a coin like 1000SATS (which entered TOTAL2 on March 25, 2024) will only have analysis based on price data from that date forward, not from its raw listing date.
 
 ## Cycle Points
@@ -38,13 +40,13 @@ For each completed halving cycle, the analyzer identifies **4 characteristic poi
 
 ### Cycle 5 Point (Current Cycle)
 
-For cycle 5 (starting April 19, 2024, which is ongoing), the analyzer adds:
+For cycle 5 (the current cycle), the analyzer adds:
 
 | Point | Window | Description |
 |-------|--------|-------------|
-| **min1** | [April 19, 2024, current date] | Lowest price since the 4th halving |
+| **min1** | [October 6, 2025, current date] | Lowest price since the cycle 4 BTC peak |
 
-If no data is available after the halving (coin exited TOTAL2), the last available price before halving is used.
+This uses the last BTC peak (October 2025) as the starting point, not the halving date. This represents the bottom after the cycle 4 peak, which is the typical cycle pattern.
 
 This gives:
 - **4 points per completed cycle** (cycles 2, 3, 4)
