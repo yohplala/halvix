@@ -330,6 +330,20 @@ class CyclePatternAnalyzer:
         if len(peaks) < 2 or len(troughs) < 2:
             return None, None, None, None
 
+        # Filter out any points with zero or negative prices
+        peaks = [p for p in peaks if p.price > 0]
+        troughs = [p for p in troughs if p.price > 0]
+
+        if len(peaks) < 2 or len(troughs) < 2:
+            return None, None, None, None
+
+        # Require minimum data span of 180 days for meaningful trendline
+        all_dates = [p.date for p in peaks] + [p.date for p in troughs]
+        date_span = (max(all_dates) - min(all_dates)).days
+        if date_span < 180:
+            logger.debug("Data span too short for trendline: %d days", date_span)
+            return None, None, None, None
+
         # Convert to arrays with days as x-axis (days from first halving date)
         # Use HALVING_DATES[1] (2016) as reference
         reference_date = HALVING_DATES[1]
@@ -758,17 +772,19 @@ class CyclePatternAnalyzer:
             result.dim_return_factor = dim_factor
 
         # Composite target (equal weight of available methods)
-        pcts = [
-            p
-            for p in [
-                result.trendline_target_pct,
-                result.fib_target_pct,
-                result.dim_return_target_pct,
-            ]
-            if p is not None
-        ]
+        # Apply sanity checks: cap projections at 10000% (100x) to filter outliers
+        MAX_PROJECTION_PCT = 10000.0  # 100x max
+
+        pcts = []
+        for p in [result.trendline_target_pct, result.fib_target_pct, result.dim_return_target_pct]:
+            if p is not None and -100 < p < MAX_PROJECTION_PCT:
+                pcts.append(p)
+
         if pcts:
             result.composite_target_pct = np.mean(pcts)
+        else:
+            # No valid projections within reasonable range
+            result.composite_target_pct = None
 
         return result
 
