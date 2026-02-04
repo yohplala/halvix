@@ -108,7 +108,56 @@ poetry run python -m main calculate-total2 --dry-run
 
 See [TOTAL2 Calculation](TOTAL2_CALCULATION.md) for methodology details.
 
-### Step 4: Check Data Status
+### Step 4: Generate Halving Cycle Charts
+
+Generate interactive HTML charts comparing BTC and TOTAL2 across halving cycles:
+
+```bash
+# Generate all cycle charts (default output: site/charts/)
+poetry run python -m main generate-cycle-charts
+
+# Custom output directory
+poetry run python -m main generate-cycle-charts --output-dir ./my-charts
+```
+
+**Output files:**
+- `site/charts/btc_charts.html` - BTC/USD normalized and absolute price across 4 halving cycles
+- `site/charts/total2_charts.html` - TOTAL2 index vs USD and BTC across 3 halving cycles
+- `site/charts/total2_composition.html` - Interactive explorer for TOTAL2 composition by date
+- `site/index.html` - Main navigation page linking all charts
+
+### Step 5: Analyze Cycle Patterns
+
+Run pattern analysis to identify cycle min/max points and project price targets using trendlines, Fibonacci extensions, and diminishing returns models:
+
+```bash
+# Run pattern analysis (default: top 9 altcoins)
+poetry run python -m main analyze-patterns
+
+# Analyze more altcoins
+poetry run python -m main analyze-patterns --top-n 15
+
+# Custom output directory
+poetry run python -m main analyze-patterns --output-dir ./output
+
+# Suppress progress bars
+poetry run python -m main analyze-patterns --quiet
+```
+
+**Options:**
+- `--top-n N` / `-n N` - Number of top altcoins to include (default: 9)
+- `--output-dir PATH` - Output directory for pattern charts (default: site/)
+- `--quiet` / `-q` - Suppress progress bars
+
+**Output files:**
+- `site/pattern_analysis.html` - Main page with altcoin ranking table and composite scores
+- `site/charts/pattern_btc.html` - BTC/USD pattern chart with cycle points
+- `site/charts/pattern_{coin}.html` - Individual altcoin pattern charts
+- `data/processed/pattern_targets.json` - JSON with all computed targets
+
+See [PATTERN_ANALYSIS.md](PATTERN_ANALYSIS.md) for detailed methodology.
+
+### Step 6: Check Data Status
 
 View current data status and cached files:
 
@@ -120,7 +169,7 @@ poetry run python -m main status
 poetry run python -m main status --verbose
 ```
 
-### Step 5: Clear Cache (Optional)
+### Step 7: Clear Cache (Optional)
 
 Clear cached data when needed:
 
@@ -239,7 +288,7 @@ The project includes VS Code settings for pytest integration:
 
 ---
 
-*Last updated: 2025-12-03*
+*Last updated: 2026-02-04*
 
 ---
 

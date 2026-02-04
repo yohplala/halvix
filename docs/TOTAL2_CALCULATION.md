@@ -26,7 +26,7 @@ Halvix supports two methodologies for calculating the index:
 | **Volume outlier correction** | ✓ Yes | ✓ Yes |
 | **New coin integration** | 21-day entry warmup (post-entry) | 21-day freeze period (pre-entry) |
 | **Price adjustment (post-entry)** | Cap price changes during warmup | Scale by TOTAL2b_d-1/COIN_PRICE_d |
-| **Symbol replacement detection** | ✗ No | ✓ Yes (>100x price jump resets first_seen) |
+| **Symbol replacement detection** | ✗ No | ✓ Yes (>30x price jump resets first_seen) |
 | **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
 
 ### Entry Timing Comparison
@@ -124,6 +124,14 @@ smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day
 2. On a coin's first day with trading volume, its smoothed volume = `actual_volume / 120`
 3. The weight gradually increases over the 120-day warmup period
 
+**Implementation detail (`zero_pad=True`):**
+- When `zero_pad=True` (default), the SMA treats missing values as zeros, causing new coins to enter gradually
+- When `zero_pad=False`, the SMA only uses available data, which could allow immediate high weight entries
+- The TOTAL2/TOTAL2b calculation always uses `zero_pad=True` to ensure gradual entry
+
+**Daily Weight Recalculation:**
+Weights are recalculated daily based on the smoothed volume for that day. A coin's weight = `smoothed_volume[coin] / sum(smoothed_volume[top_N_coins])`. This means a coin's influence on the index changes as its relative volume changes over time.
+
 ### Volume Outlier Detection (Shared)
 
 CryptoCompare occasionally has bad data points with impossible volume spikes. These are automatically detected and corrected.
@@ -201,7 +209,7 @@ TOTAL2b does **not** apply TOTAL2 series smoothing (capping extreme index moveme
 ```python
 for each day:
     1. Calculate first-seen dates for all coins
-       - Detect symbol replacements (>100x price jumps)
+       - Detect symbol replacements (>30x price jumps)
        - Reset first_seen date if replacement detected
     2. Filter eligible coins (passed freeze period + valid data)
     3. Detect new entries (coins entering TOP30 today)
@@ -364,7 +372,7 @@ python -m main calculate-total2 --index-type total2
 python -m main calculate-total2 --top-n 100 --volume-sma 7 --quote-currency USD
 
 # Generate visualizations (after calculating)
-python -m main generate-charts
+python -m main generate-cycle-charts
 ```
 
 ### CLI Options
@@ -449,7 +457,7 @@ class Total2Result:
 
 ---
 
-*See also: [AGENTS.md](../AGENTS.md) for full project specification*
+*See also: [CLAUDE.md](../CLAUDE.md) for full project specification*
 
 ---
 

@@ -1,12 +1,10 @@
 # Deployment Workflow
 
-This document describes how data is fetched, processed, and deployed to GitHub Pages using GitHub Actions workflows.
-
----
-
 **[← Back to README](../README.md)**
 
 ---
+
+This document describes how data is fetched, processed, and deployed to GitHub Pages using GitHub Actions workflows.
 
 ## Overview
 
@@ -65,18 +63,18 @@ This approach ensures:
 │  └────────────────────────────────────────────────────────────┘    │
 │                              │                                     │
 │                              ▼                                     │
-│  ┌─────────────────────────────────────────────┐                   │
-│  │       processed-data branch (orphan)        │                   │
-│  │  • processed/total2_index.parquet           │                   │
-│  │  • processed/total2_daily_composition.parquet│                  │
-│  │  • processed/total2_max_weight_change.json  │                   │
-│  └─────────────────────────────────────────────┘                   │
+│  ┌───────────────────────────────────────────────┐                 │
+│  │       processed-data branch (orphan)          │                 │
+│  │  • processed/total2_index.parquet             │                 │
+│  │  • processed/total2_daily_composition.parquet │                 │
+│  │  • processed/total2_max_weight_change.json    │                 │
+│  └───────────────────────────────────────────────┘                 │
 │                              │                                     │
 │                              ▼                                     │
 │  STEP 3: Deploy to GitHub Pages                                    │
 │  ┌────────────────────────────────────────────────────────────┐    │
 │  │ • Pulls: raw-data + processed-data branches                │    │
-│  │ • Runs: generate-charts                                    │    │
+│  │ • Runs: generate-cycle-charts, analyze-patterns            │    │
 │  │ • Deploys: site/ → GitHub Pages (artifact-based)           │    │
 │  └────────────────────────────────────────────────────────────┘    │
 │                              │                                     │
@@ -212,7 +210,8 @@ Generates charts and deploys to GitHub Pages.
 1. Checks out `main` branch (source code)
 2. Checks out `raw-data` branch (for BTC-USD prices)
 3. Checks out `processed-data` branch (for TOTAL2 data)
-4. Runs `poetry run python -m main generate-charts`
+4. Runs `poetry run python -m main generate-cycle-charts`
+5. Runs `poetry run python -m main analyze-patterns`
 5. Uploads `site/` directory as GitHub Pages artifact
 6. Deploys to GitHub Pages
 
@@ -294,7 +293,8 @@ poetry run python -m main fetch-prices
 poetry run python -m main calculate-total2
 
 # Generate charts locally
-poetry run python -m main generate-charts
+poetry run python -m main generate-cycle-charts
+poetry run python -m main analyze-patterns
 ```
 
 Local data is stored in:
@@ -347,6 +347,8 @@ The Daily Update workflow runs automatically at 6:00 AM UTC. If data appears sta
 
 ---
 
-*See also: [TUTORIAL.md](TUTORIAL.md) for step-by-step usage guide*
+*Last updated: 2026-02-04*
 
-*[← Back to README](../README.md)*
+---
+
+**[← Back to README](../README.md)**

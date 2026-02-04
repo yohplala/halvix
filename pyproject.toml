@@ -24,6 +24,7 @@ requests = "^2.31"
 tqdm = "^4.65"
 pyarrow = "^18.0"
 tenacity = "^8.2"
+jinja2 = "^3.1.6"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4"

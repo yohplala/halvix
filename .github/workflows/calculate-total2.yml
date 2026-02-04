@@ -199,9 +199,6 @@ jobs:
           fi
 
           # Force push to keep orphan branch with single commit
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || \
-            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
-
           echo "Pushing to processed-data branch..."
           git push --force origin processed-data
 

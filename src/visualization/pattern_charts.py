@@ -19,12 +19,14 @@ from analysis.cycle_patterns import (
     CoinPatternResult,
 )
 from config import (
+    CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
     PROJECTED_5TH_HALVING,
 )
 from data.cache import PriceDataCache
+from utils.logging import get_logger
 from visualization.charts import (
     _get_base_css,
     _get_footer_css,
@@ -32,6 +34,8 @@ from visualization.charts import (
     _get_header_css,
     _get_header_html,
 )
+
+logger = get_logger(__name__)
 
 # =============================================================================
 # Color Configuration
@@ -64,7 +68,21 @@ CYCLE_COLORS = {
     2: "rgba(144, 224, 239, 0.9)",  # Cycle 2 (2016) - pale cyan
     3: "rgba(56, 189, 248, 0.95)",  # Cycle 3 (2020) - bright cyan-blue
     4: "rgba(100, 160, 255, 1.0)",  # Cycle 4 (2024) - lighter sky blue
+    5: "rgba(100, 160, 255, 1.0)",  # Cycle 5 (2028) - same as cycle 4
 }
+
+
+def _get_cycle5_min1_display_date() -> date:
+    """
+    Get the approximated date for displaying cycle 5 min1 on charts.
+
+    This uses the trendline regression date rather than the actual detected date,
+    providing a stable position for the current cycle minimum point.
+
+    Returns:
+        The approximated date for cycle 5 min1 (520 days before 5th halving)
+    """
+    return PROJECTED_5TH_HALVING - timedelta(days=CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING)
 
 
 # =============================================================================
@@ -143,20 +161,38 @@ def create_btc_pattern_chart(
     )
 
     # 2. Add min/max points with connecting lines
-    # Group points by cycle
-    cycles = sorted({p.cycle_num for p in result.points})
+    # Filter out points with price 0 and group by cycle
+    valid_points = [p for p in result.points if p.price > 0]
+    cycles = sorted({p.cycle_num for p in valid_points})
+
+    # Get cycle 5 approximated date for display
+    cycle5_display_date = _get_cycle5_min1_display_date()
+
+    # Build index of max2 and min1 points by cycle for inter-cycle connections
+    max2_by_cycle = {}
+    min1_by_cycle = {}
+    for p in valid_points:
+        if p.point_type == "max2":
+            max2_by_cycle[p.cycle_num] = p
+        elif p.point_type == "min1":
+            min1_by_cycle[p.cycle_num] = p
 
     for cycle_num in cycles:
         cycle_points = sorted(
-            [p for p in result.points if p.cycle_num == cycle_num],
+            [p for p in valid_points if p.cycle_num == cycle_num],
             key=lambda x: x.date,
         )
 
         if not cycle_points:
             continue
 
-        # Add connecting line for this cycle
-        x_vals = [p.date for p in cycle_points]
+        # For cycle 5, use approximated date for min1
+        if cycle_num == 5:
+            x_vals = [
+                cycle5_display_date if p.point_type == "min1" else p.date for p in cycle_points
+            ]
+        else:
+            x_vals = [p.date for p in cycle_points]
         y_vals = [p.price for p in cycle_points]
 
         fig.add_trace(
@@ -171,10 +207,11 @@ def create_btc_pattern_chart(
         )
 
         # Add individual points with markers
-        for p in cycle_points:
+        for i, p in enumerate(cycle_points):
+            display_date = x_vals[i]
             fig.add_trace(
                 go.Scatter(
-                    x=[p.date],
+                    x=[display_date],
                     y=[p.price],
                     mode="markers",
                     marker={
@@ -186,11 +223,32 @@ def create_btc_pattern_chart(
                     showlegend=False,
                     hovertemplate=(
                         f"{p.point_type.upper()} (Cycle {p.cycle_num})<br>"
-                        f"Date: {p.date}<br>"
+                        f"Date: {display_date}<br>"
                         f"Price: ${p.price:,.2f}<br>"
                         f"Days from halving: {p.days_from_halving:+d}"
                         "<extra></extra>"
                     ),
+                )
+            )
+
+    # 3. Connect max2 of each cycle to min1 of the next cycle
+    for i, cycle_num in enumerate(cycles[:-1]):
+        next_cycle = cycles[i + 1]
+        prev_max2 = max2_by_cycle.get(cycle_num)
+        next_min1 = min1_by_cycle.get(next_cycle)
+
+        if prev_max2 and next_min1:
+            # Use approximated date for cycle 5 min1
+            next_min1_date = cycle5_display_date if next_cycle == 5 else next_min1.date
+
+            fig.add_trace(
+                go.Scatter(
+                    x=[prev_max2.date, next_min1_date],
+                    y=[prev_max2.price, next_min1.price],
+                    mode="lines",
+                    name=f"Cycle {next_cycle}",
+                    line={"color": CYCLE_COLORS.get(next_cycle, "#888"), "width": 2.5},
+                    showlegend=False,
                 )
             )
 
@@ -201,7 +259,12 @@ def create_btc_pattern_chart(
     targets = []
     if result.trendline_target:
         targets.append(
-            ("Trendline", result.trendline_target, result.trendline_target_pct, TARGET_COLORS["trendline"])
+            (
+                "Trendline",
+                result.trendline_target,
+                result.trendline_target_pct,
+                TARGET_COLORS["trendline"],
+            )
         )
     if result.fib_target:
         targets.append(
@@ -209,7 +272,12 @@ def create_btc_pattern_chart(
         )
     if result.dim_return_target:
         targets.append(
-            ("Dim. Return", result.dim_return_target, result.dim_return_target_pct, TARGET_COLORS["diminishing"])
+            (
+                "Dim. Return",
+                result.dim_return_target,
+                result.dim_return_target_pct,
+                TARGET_COLORS["diminishing"],
+            )
         )
 
     for _i, (label, target_price, target_pct, color) in enumerate(targets):
@@ -241,7 +309,7 @@ def create_btc_pattern_chart(
     # Layout
     fig.update_layout(
         title={
-            "text": "Bitcoin (BTC/USD) - Cycle Pattern Analysis",
+            "text": "#0 - Bitcoin (BTC/USD) - Cycle Pattern Analysis",
             "font": {"size": 20, "family": "Arial Black"},
         },
         xaxis={
@@ -332,19 +400,46 @@ def create_altcoin_pattern_chart(
     )
 
     # 2. Add min/max points with connecting lines
-    cycles = sorted({p.cycle_num for p in result.points})
+    # Filter out points with price 0 and group by cycle
+    valid_points = [p for p in result.points if p.price > 0]
+    cycles = sorted({p.cycle_num for p in valid_points})
+
+    # Get cycle 5 approximated date for display
+    cycle5_display_date = _get_cycle5_min1_display_date()
+
+    # Build index of max2 and min1 points by cycle for inter-cycle connections
+    max2_by_cycle = {}
+    min1_by_cycle = {}
+    # Track which cycles have only min1 (current cycle)
+    current_cycle_num = None
+    for p in valid_points:
+        if p.point_type == "max2":
+            max2_by_cycle[p.cycle_num] = p
+        elif p.point_type == "min1":
+            min1_by_cycle[p.cycle_num] = p
+
+    # Determine if the max cycle is the current cycle (has only min1)
+    max_cycle = max(cycles) if cycles else 0
+    max_cycle_points = [p for p in valid_points if p.cycle_num == max_cycle]
+    if max_cycle_points and all(p.point_type == "min1" for p in max_cycle_points):
+        current_cycle_num = max_cycle
 
     for cycle_num in cycles:
         cycle_points = sorted(
-            [p for p in result.points if p.cycle_num == cycle_num],
+            [p for p in valid_points if p.cycle_num == cycle_num],
             key=lambda x: x.date,
         )
 
         if not cycle_points:
             continue
 
-        # Add connecting line for this cycle
-        x_vals = [p.date for p in cycle_points]
+        # For current cycle (only min1), use approximated date for min1
+        if cycle_num == current_cycle_num:
+            x_vals = [
+                cycle5_display_date if p.point_type == "min1" else p.date for p in cycle_points
+            ]
+        else:
+            x_vals = [p.date for p in cycle_points]
         y_vals = [p.price for p in cycle_points]
 
         fig.add_trace(
@@ -359,10 +454,11 @@ def create_altcoin_pattern_chart(
         )
 
         # Add individual points with markers
-        for p in cycle_points:
+        for i, p in enumerate(cycle_points):
+            display_date = x_vals[i]
             fig.add_trace(
                 go.Scatter(
-                    x=[p.date],
+                    x=[display_date],
                     y=[p.price],
                     mode="markers",
                     marker={
@@ -374,7 +470,7 @@ def create_altcoin_pattern_chart(
                     showlegend=False,
                     hovertemplate=(
                         f"{p.point_type.upper()} (Cycle {p.cycle_num})<br>"
-                        f"Date: {p.date}<br>"
+                        f"Date: {display_date}<br>"
                         f"Price: {p.price:.8f} BTC<br>"
                         f"Days from halving: {p.days_from_halving:+d}"
                         "<extra></extra>"
@@ -382,13 +478,41 @@ def create_altcoin_pattern_chart(
                 )
             )
 
-    # 3. Add target annotations
+    # 3. Connect max2 of each cycle to min1 of the next cycle
+    for i, cycle_num in enumerate(cycles[:-1]):
+        next_cycle = cycles[i + 1]
+        prev_max2 = max2_by_cycle.get(cycle_num)
+        next_min1 = min1_by_cycle.get(next_cycle)
+
+        if prev_max2 and next_min1:
+            # Use approximated date for current cycle min1
+            next_min1_date = (
+                cycle5_display_date if next_cycle == current_cycle_num else next_min1.date
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=[prev_max2.date, next_min1_date],
+                    y=[prev_max2.price, next_min1.price],
+                    mode="lines",
+                    name=f"Cycle {next_cycle}",
+                    line={"color": CYCLE_COLORS.get(next_cycle, "#888"), "width": 2.5},
+                    showlegend=False,
+                )
+            )
+
+    # 4. Add target annotations
     target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
 
     targets = []
     if result.trendline_target:
         targets.append(
-            ("Trendline", result.trendline_target, result.trendline_target_pct, TARGET_COLORS["trendline"])
+            (
+                "Trendline",
+                result.trendline_target,
+                result.trendline_target_pct,
+                TARGET_COLORS["trendline"],
+            )
         )
     if result.fib_target:
         targets.append(
@@ -396,7 +520,12 @@ def create_altcoin_pattern_chart(
         )
     if result.dim_return_target:
         targets.append(
-            ("Dim. Return", result.dim_return_target, result.dim_return_target_pct, TARGET_COLORS["diminishing"])
+            (
+                "Dim. Return",
+                result.dim_return_target,
+                result.dim_return_target_pct,
+                TARGET_COLORS["diminishing"],
+            )
         )
 
     for label, target_price, target_pct, color in targets:
@@ -426,9 +555,10 @@ def create_altcoin_pattern_chart(
 
     # Layout
     confidence_badge = f"[{result.confidence.upper()}]" if result.confidence else ""
+    rank_prefix = f"#{result.rank} - " if result.rank is not None else ""
     fig.update_layout(
         title={
-            "text": f"{result.coin_id.upper()}/BTC - Cycle Pattern Analysis {confidence_badge}",
+            "text": f"{rank_prefix}{result.coin_id.upper()}/BTC - Cycle Pattern Analysis {confidence_badge}",
             "font": {"size": 20, "family": "Arial Black"},
         },
         xaxis={
@@ -547,14 +677,16 @@ def generate_pattern_analysis_page(
     btc_result: BTCPatternResult | None,
     top_coins: list[CoinPatternResult],
     output_path: Path,
+    price_cache: PriceDataCache | None = None,
 ) -> Path:
     """
-    Generate the main pattern analysis HTML page with all charts.
+    Generate the main pattern analysis HTML page with all charts embedded.
 
     Args:
         btc_result: BTC pattern analysis result
         top_coins: List of top altcoin results (sorted by composite target)
         output_path: Path to save the main page (e.g., site/pattern_analysis.html)
+        price_cache: Price data cache for generating embedded charts
 
     Returns:
         Path to the generated HTML file
@@ -568,7 +700,7 @@ def generate_pattern_analysis_page(
     # Page-specific CSS
     page_css = """
         main {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 2rem;
         }
@@ -585,71 +717,6 @@ def generate_pattern_analysis_page(
             line-height: 1.6;
         }
 
-        .summary-box {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .summary-title {
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: var(--text-primary);
-        }
-
-        .method-legend {
-            display: flex;
-            gap: 2rem;
-            flex-wrap: wrap;
-            margin-bottom: 1rem;
-        }
-
-        .method-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .method-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-
-        .method-dot.trendline { background: #58a6ff; }
-        .method-dot.fibonacci { background: #f0883e; }
-        .method-dot.diminishing { background: #a371f7; }
-
-        .charts-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
-
-        .chart-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .chart-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
         .chart-badge {
             padding: 0.25rem 0.75rem;
             border-radius: 12px;
@@ -661,21 +728,6 @@ def generate_pattern_analysis_page(
         .badge-medium { background: rgba(240, 136, 62, 0.2); color: #f0883e; }
         .badge-low { background: rgba(139, 148, 158, 0.2); color: #8b949e; }
 
-        .chart-targets {
-            display: flex;
-            gap: 1.5rem;
-            padding: 0.75rem 1.5rem;
-            background: rgba(0,0,0,0.2);
-            flex-wrap: wrap;
-        }
-
-        .target-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.9rem;
-        }
-
         .target-value {
             font-weight: 600;
         }
@@ -683,30 +735,16 @@ def generate_pattern_analysis_page(
         .target-value.positive { color: #3fb950; }
         .target-value.negative { color: #f85149; }
 
-        .chart-link {
-            display: block;
-            padding: 1rem 1.5rem;
-            text-align: center;
-            color: var(--accent-blue);
-            text-decoration: none;
-            border-top: 1px solid var(--border-color);
-            transition: background 0.2s;
-        }
-
-        .chart-link:hover {
-            background: rgba(88, 166, 255, 0.1);
-        }
-
         .ranking-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 1rem;
+            margin-bottom: 2rem;
         }
 
         .ranking-table th,
         .ranking-table td {
             padding: 0.75rem;
-            text-align: left;
+            text-align: center;
             border-bottom: 1px solid var(--border-color);
         }
 
@@ -720,7 +758,7 @@ def generate_pattern_analysis_page(
 
         .ranking-table td.number {
             font-family: 'SF Mono', Consolas, monospace;
-            text-align: right;
+            text-align: center;
         }
 
         .ranking-table .coin-name {
@@ -728,80 +766,117 @@ def generate_pattern_analysis_page(
             color: var(--accent-blue);
         }
 
+        .ranking-table .pair-type {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+
+        .ranking-table tr.btc-row {
+            background: rgba(247, 147, 26, 0.1);
+        }
+
+        .ranking-table tr.btc-row .coin-name {
+            color: var(--accent-orange);
+        }
+
+        .charts-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .chart-wrapper {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.5rem;
+        }
+
         @media (max-width: 768px) {
             main {
                 padding: 1rem;
             }
-
-            .method-legend {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-
-            .chart-targets {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
         }
     """
 
-    # Build ranking table rows
+    # Build ranking table rows - BTC first, then alts
     table_rows = []
-    for i, coin in enumerate(top_coins, 1):
+
+    # Add BTC as first row
+    if btc_result:
+        btc_composite = btc_result.composite_target_pct or 0
+        composite_class = "positive" if btc_composite > 0 else "negative"
+        btc_row = f"""
+            <tr class="btc-row">
+                <td>0</td>
+                <td class="coin-name">BTC <span class="pair-type">(/USD)</span></td>
+                <td><span class="chart-badge badge-high">HIGH</span></td>
+                <td class="number">{btc_result.num_cycles}</td>
+                <td class="number target-value {composite_class}">+{btc_composite:.1f}%</td>
+                <td class="number">{f'+{btc_result.trendline_target_pct:.0f}%' if btc_result.trendline_target_pct else 'N/A'}</td>
+                <td class="number">{f'+{btc_result.fib_target_pct:.0f}%' if btc_result.fib_target_pct else 'N/A'}</td>
+                <td class="number">{f'+{btc_result.dim_return_target_pct:.0f}%' if btc_result.dim_return_target_pct else 'N/A'}</td>
+            </tr>
+        """
+        table_rows.append(btc_row)
+
+    # Add altcoins (using coin.rank which was set after sorting by composite target)
+    for coin in top_coins:
         composite_class = "positive" if (coin.composite_target_pct or 0) > 0 else "negative"
         confidence_class = f"badge-{coin.confidence}"
+        rank_display = coin.rank if coin.rank is not None else "-"
 
         row = f"""
             <tr>
-                <td>{i}</td>
-                <td class="coin-name">{coin.coin_id.upper()}</td>
+                <td>{rank_display}</td>
+                <td class="coin-name">{coin.coin_id.upper()} <span class="pair-type">(/BTC)</span></td>
                 <td><span class="chart-badge {confidence_class}">{coin.confidence.upper()}</span></td>
                 <td class="number">{coin.num_cycles}</td>
                 <td class="number target-value {composite_class}">+{coin.composite_target_pct:.1f}%</td>
                 <td class="number">{f'+{coin.trendline_target_pct:.0f}%' if coin.trendline_target_pct else 'N/A'}</td>
                 <td class="number">{f'+{coin.fib_target_pct:.0f}%' if coin.fib_target_pct else 'N/A'}</td>
                 <td class="number">{f'+{coin.dim_return_target_pct:.0f}%' if coin.dim_return_target_pct else 'N/A'}</td>
-                <td><a href="charts/pattern_{coin.coin_id}.html">View Chart</a></td>
             </tr>
         """
         table_rows.append(row)
 
     table_html = "\n".join(table_rows)
 
-    # Build BTC summary
-    btc_summary = ""
-    if btc_result:
-        btc_composite = btc_result.composite_target_pct or 0
-        btc_summary = f"""
-        <div class="chart-card">
-            <div class="chart-header">
-                <span class="chart-title">Bitcoin (BTC/USD)</span>
-                <span class="chart-badge badge-high">BASELINE</span>
+    # Build embedded charts - BTC first, then alts in order of composite
+    charts_html = ""
+
+    if price_cache and btc_result:
+        try:
+            btc_fig = create_btc_pattern_chart(btc_result, price_cache)
+            btc_chart_html = btc_fig.to_html(
+                full_html=False,
+                include_plotlyjs="cdn",
+                config={"responsive": True},
+            )
+            charts_html += f"""
+            <div class="chart-wrapper">
+                {btc_chart_html}
             </div>
-            <div class="chart-targets">
-                <div class="target-item">
-                    <span class="method-dot trendline"></span>
-                    <span>Trendline: </span>
-                    <span class="target-value positive">{f'+{btc_result.trendline_target_pct:.0f}%' if btc_result.trendline_target_pct else 'N/A'}</span>
+            """
+        except Exception as e:
+            logger.warning("Could not generate embedded BTC chart: %s", e)
+
+    if price_cache:
+        for coin in top_coins:
+            try:
+                coin_fig = create_altcoin_pattern_chart(coin, price_cache)
+                coin_chart_html = coin_fig.to_html(
+                    full_html=False,
+                    include_plotlyjs=False,  # Already included from BTC chart
+                    config={"responsive": True},
+                )
+                charts_html += f"""
+                <div class="chart-wrapper">
+                    {coin_chart_html}
                 </div>
-                <div class="target-item">
-                    <span class="method-dot fibonacci"></span>
-                    <span>Fibonacci: </span>
-                    <span class="target-value positive">{f'+{btc_result.fib_target_pct:.0f}%' if btc_result.fib_target_pct else 'N/A'}</span>
-                </div>
-                <div class="target-item">
-                    <span class="method-dot diminishing"></span>
-                    <span>Dim. Return: </span>
-                    <span class="target-value positive">{f'+{btc_result.dim_return_target_pct:.0f}%' if btc_result.dim_return_target_pct else 'N/A'}</span>
-                </div>
-                <div class="target-item">
-                    <strong>Composite: </strong>
-                    <span class="target-value positive">+{btc_composite:.0f}%</span>
-                </div>
-            </div>
-            <a href="charts/pattern_btc.html" class="chart-link">View Full Chart →</a>
-        </div>
-        """
+                """
+            except Exception as e:
+                logger.warning("Could not generate embedded chart for %s: %s", coin.coin_id, e)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -825,42 +900,16 @@ def generate_pattern_analysis_page(
             Analysis of price patterns across Bitcoin halving cycles (2020, 2024) with projections
             for cycle 5 (2028). Three methods are used to estimate targets: log-linear trendline
             regression, Fibonacci 127.2% extension, and diminishing returns model.
+            <strong>Ranking is by composite score (descending).</strong> Coins with negative
+            trendline predictions are filtered out (underperforming BTC).
             The composite score is an equal-weight average of all available methods.
-        </p>
-
-        <div class="summary-box">
-            <div class="summary-title">Analysis Methods</div>
-            <div class="method-legend">
-                <div class="method-item">
-                    <span class="method-dot trendline"></span>
-                    <span><strong>Trendline</strong>: Log-linear regression through cycle peaks</span>
-                </div>
-                <div class="method-item">
-                    <span class="method-dot fibonacci"></span>
-                    <span><strong>Fibonacci</strong>: 127.2% extension from previous cycle</span>
-                </div>
-                <div class="method-item">
-                    <span class="method-dot diminishing"></span>
-                    <span><strong>Dim. Return</strong>: Historical cycle gain decay factor</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            {btc_summary}
-        </div>
-
-        <h2 style="margin-top: 2rem;">Top 9 Altcoins by Composite Target</h2>
-        <p class="description">
-            Altcoins ranked by their composite projected return for cycle 5.
-            Confidence levels: HIGH (3+ cycles), MEDIUM (2 cycles), LOW (1 cycle).
         </p>
 
         <div class="table-container" style="overflow-x: auto;">
             <table class="ranking-table">
                 <thead>
                     <tr>
-                        <th>#</th>
+                        <th>Rank</th>
                         <th>Coin</th>
                         <th>Confidence</th>
                         <th>Cycles</th>
@@ -868,13 +917,17 @@ def generate_pattern_analysis_page(
                         <th>Trendline</th>
                         <th>Fibonacci</th>
                         <th>Dim. Return</th>
-                        <th>Chart</th>
                     </tr>
                 </thead>
                 <tbody>
                     {table_html}
                 </tbody>
             </table>
+        </div>
+
+        <h2>Charts</h2>
+        <div class="charts-container">
+            {charts_html}
         </div>
     </main>
 
@@ -925,8 +978,12 @@ def generate_all_pattern_charts(
     # Analyze all altcoins
     coin_results = analyzer.analyze_all_coins(filter_total2=True, show_progress=show_progress)
 
-    # Get top N
+    # Get top N (filtered to positive trendline predictions, sorted by composite target)
     top_coins = analyzer.get_top_coins(coin_results, n=top_n)
+
+    # Set rank for each coin (1-indexed, based on composite score)
+    for i, coin in enumerate(top_coins, 1):
+        coin.rank = i
 
     # Generate chart for each top coin
     for coin in top_coins:
@@ -935,11 +992,11 @@ def generate_all_pattern_charts(
             create_altcoin_pattern_chart(coin, price_cache, chart_path)
             paths[coin.coin_id] = chart_path
         except Exception as e:
-            print(f"Warning: Could not generate chart for {coin.coin_id}: {e}")
+            logger.warning("Could not generate chart for %s: %s", coin.coin_id, e)
 
-    # Generate main page
+    # Generate main page with embedded charts
     main_page_path = output_dir / "pattern_analysis.html"
-    generate_pattern_analysis_page(btc_result, top_coins, main_page_path)
+    generate_pattern_analysis_page(btc_result, top_coins, main_page_path, price_cache)
     paths["main"] = main_page_path
 
     # Save results JSON

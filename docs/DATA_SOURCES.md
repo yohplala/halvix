@@ -91,8 +91,8 @@ The `CryptoCompareClient` (`src/api/cryptocompare.py`) implements:
    ```python
    @retry(
        retry=retry_if_exception_type(RateLimitError),
-       stop=stop_after_attempt(10),  # 10 attempts
-       wait=wait_exponential(multiplier=2, min=2, max=120),  # Up to 2 min wait
+       stop=stop_after_attempt(3),  # 3 attempts (relies on proactive rate limiting)
+       wait=wait_exponential(multiplier=5, min=5, max=60),  # Wait 5s, 25s, then fail
    )
    ```
 
@@ -350,7 +350,7 @@ print(f"Calls left this month: {status.calls_left_month}")
 
 ### Automatic Retry and Wait
 
-- **Retry Configuration**: Up to 10 attempts with aggressive exponential backoff (2s, 4s, 8s, 16s... up to 120s)
+- **Retry Configuration**: Up to 3 attempts with exponential backoff (5s, 25s, then fail) - relies on proactive rate limiting
 - **Smart Waiting**: When approaching rate limits, automatically waits before making more requests
 - **Wait for Reset**: `wait_for_rate_limit_reset()` method polls status and waits until quota is available
 
@@ -358,8 +358,8 @@ print(f"Calls left this month: {status.calls_left_month}")
 # Retry configuration
 @retry(
     retry=retry_if_exception_type(RateLimitError),
-    stop=stop_after_attempt(10),  # 10 attempts
-    wait=wait_exponential(multiplier=2, min=2, max=120),  # Aggressive backoff
+    stop=stop_after_attempt(3),  # 3 attempts (relies on proactive rate limiting)
+    wait=wait_exponential(multiplier=5, min=5, max=60),  # Wait 5s, 25s, then fail
 )
 ```
 
@@ -399,8 +399,8 @@ All API settings are in `src/config.py`:
 # CryptoCompare
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
-# Free tier allows 10/sec (600/min), we use conservative 2/sec (120/min)
-CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 120
+# Free tier allows 10/sec (600/min), we use conservative fallback of 12/min (5 seconds between requests)
+CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12
 CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Days per request
 
 # Coin fetching
@@ -429,20 +429,21 @@ FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
 ### "Rate limit exceeded" errors
 
 CryptoCompare has multiple types of rate limits:
-- **Per-second limit**: Free tier allows ~10 requests/second (we use conservative 2/sec)
+- **Per-second limit**: Free tier allows ~10 requests/second
 - **Monthly/hourly quota**: Free tier has account-level quotas that may be exceeded
+
+The client uses **dynamic rate limiting** by checking the `/stats/rate/limit` endpoint. When this endpoint is unavailable, it falls back to a conservative 12 calls/minute (5 seconds between requests), configured via `CRYPTOCOMPARE_API_CALLS_PER_MINUTE`.
 
 If you see rate limit errors:
 
 1. **Wait before retrying**: The free tier may have hourly/daily quotas
-2. **Reduce fetch frequency**: Increase `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` in `config.py`
-3. **Use incremental fetching**: The `--incremental` flag only fetches new data since last cache
-4. **Consider API key**: Register for a free API key for higher limits
-5. **Check monthly usage**: CryptoCompare free tier has a monthly call limit (~100k calls)
+2. **Use incremental fetching**: Default mode only fetches new data since last cache
+3. **Consider API key**: Register for a free API key for higher limits
+4. **Check monthly usage**: CryptoCompare free tier has a monthly call limit (~100k calls)
 
 The client automatically:
 - Detects rate limits in both HTTP 429 responses AND JSON error messages
-- Retries up to 5 times with exponential backoff (1s, 2s, 4s, 8s, 16s)
+- Retries up to 3 times with exponential backoff (5s, 25s, then fails) - relies on proactive rate limiting
 - Skips remaining failed coin checks once rate limit is hit
 
 ### "CCCAGG market does not exist for this coin pair" errors

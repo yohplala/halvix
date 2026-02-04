@@ -128,23 +128,28 @@ class TestCryptoCompareClientRequests:
 
     def test_rate_limit_error_raised(self, client, mock_response):
         """Test that 429 response raises RateLimitError."""
-        with patch.object(client.session, "get") as mock_get:
-            mock_get.return_value = mock_response(429)
+        # Mock _wait_for_rate_limit to avoid rate limit checks during test
+        with patch.object(client, "_wait_for_rate_limit"):
+            with patch.object(client.session, "get") as mock_get:
+                mock_get.return_value = mock_response(429)
 
-            with pytest.raises(RateLimitError):
-                client._request.__wrapped__(client, "/test")
+                with pytest.raises(RateLimitError):
+                    client._request.__wrapped__(client, "/test")
 
     def test_api_error_for_error_response(self, client, mock_response):
         """Test that error response raises APIError."""
-        with patch.object(client.session, "get") as mock_get:
-            mock_get.return_value = mock_response(
-                200, {"Response": "Error", "Message": "Invalid symbol"}
-            )
+        # Mock _wait_for_rate_limit to avoid rate limit checks during test
+        with patch.object(client, "_wait_for_rate_limit"):
+            with patch.object(client.session, "get") as mock_get:
+                mock_get.return_value = mock_response(
+                    200, {"Response": "Error", "Message": "Invalid symbol"}
+                )
 
-            with pytest.raises(APIError) as exc_info:
-                client._request("/test")
+                with pytest.raises(APIError) as exc_info:
+                    # Use __wrapped__ to bypass the @retry decorator
+                    client._request.__wrapped__(client, "/test")
 
-            assert "Invalid symbol" in str(exc_info.value)
+                assert "Invalid symbol" in str(exc_info.value)
 
     def test_rate_limit_in_json_body_raises_rate_limit_error(self, client, mock_response):
         """Test that rate limit error in JSON body raises RateLimitError (not APIError).
@@ -153,16 +158,18 @@ class TestCryptoCompareClientRequests:
         (e.g., monthly quota exceeded) instead of HTTP 429. We need to detect these
         and raise RateLimitError to trigger retry logic.
         """
-        with patch.object(client.session, "get") as mock_get:
-            mock_get.return_value = mock_response(
-                200, {"Response": "Error", "Message": "You are over your rate limit"}
-            )
+        # Mock _wait_for_rate_limit to avoid rate limit checks during test
+        with patch.object(client, "_wait_for_rate_limit"):
+            with patch.object(client.session, "get") as mock_get:
+                mock_get.return_value = mock_response(
+                    200, {"Response": "Error", "Message": "You are over your rate limit"}
+                )
 
-            # Should raise RateLimitError, not APIError
-            with pytest.raises(RateLimitError) as exc_info:
-                client._request.__wrapped__(client, "/test")
+                # Should raise RateLimitError, not APIError
+                with pytest.raises(RateLimitError) as exc_info:
+                    client._request.__wrapped__(client, "/test")
 
-            assert "rate limit" in str(exc_info.value).lower()
+                assert "rate limit" in str(exc_info.value).lower()
 
 
 class TestCryptoCompareClientDailyHistory:

@@ -294,15 +294,15 @@ class Total2bProcessor(BaseTotal2Processor):
         Detect if a coin's symbol was replaced by a different token.
 
         CryptoCompare sometimes reuses symbols for different tokens (e.g.,
-        old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024).
-        This is detected by looking for extreme price jumps (>1000x or <0.001x).
+        old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
+        or old "MOVE" token replaced by Movement Labs "MOVE" in Dec 2024).
 
-        A true symbol replacement requires:
-        - Non-zero price BEFORE the jump (old token was trading)
-        - Non-zero price AFTER the jump (new token is trading)
-        - Extreme price ratio between them
-
-        A jump from 0 to non-zero is just the coin starting to trade, not a replacement.
+        Detection methods (using backward search from most recent date):
+        1. **Extreme ratio jump**: Price changes by >threshold (e.g., 30x) between
+           consecutive days where both prices are positive.
+        2. **Resurrection from zero**: Price transitions from zero to positive after
+           a period of zero prices, when there was trading before the zero period.
+           This catches cases like MOVE where the old token went to exactly 0.
 
         Args:
             price_series: Series of close prices for a coin
@@ -311,27 +311,55 @@ class Total2bProcessor(BaseTotal2Processor):
         Returns:
             The date of the last symbol replacement, or None if no replacement detected
         """
+        # Threshold for considering a price as "zero" (numerical precision)
+        zero_threshold = 1e-15
+
         # Get previous day's price
         prev_price = price_series.shift(1)
 
+        # Method 1: Extreme ratio detection (existing logic)
         # Calculate daily price change ratios (only where both prices are positive)
-        # This avoids division by zero and filters out "coin starts trading" events
-        valid_ratio_mask = (price_series > 0) & (prev_price > 0)
+        valid_ratio_mask = (price_series > zero_threshold) & (prev_price > zero_threshold)
         price_ratio = price_series / prev_price
 
         # Find dates with extreme price jumps (either direction)
-        # Both current and previous price must be > 0 (not just starting to trade)
         extreme_jumps = (
             (price_ratio > self.symbol_replacement_threshold)
             | (price_ratio < 1 / self.symbol_replacement_threshold)
         ) & valid_ratio_mask
 
-        if not extreme_jumps.any():
+        # Method 2: Resurrection from zero detection (new logic)
+        # Find dates where price goes from zero to positive
+        resurrection_mask = (price_series > zero_threshold) & (prev_price <= zero_threshold)
+
+        # For resurrection to be a symbol replacement (not just coin starting to trade),
+        # there must have been trading BEFORE the zero period
+        resurrection_dates = price_series.index[resurrection_mask]
+        valid_resurrection_dates = []
+
+        for res_date in resurrection_dates:
+            # Check if there was any trading before this resurrection
+            before_mask = price_series.index < res_date
+            if before_mask.any():
+                prices_before = price_series[before_mask]
+                # If there was any positive price before this date, it's a resurrection
+                if (prices_before > zero_threshold).any():
+                    valid_resurrection_dates.append(res_date)
+
+        # Combine both detection methods
+        all_replacement_dates = set()
+
+        if extreme_jumps.any():
+            all_replacement_dates.update(price_series.index[extreme_jumps])
+
+        all_replacement_dates.update(valid_resurrection_dates)
+
+        if not all_replacement_dates:
             return None
 
-        # Return the date of the LAST extreme jump (most recent replacement)
+        # Return the date of the LAST replacement (most recent)
         # This handles cases where a symbol might be replaced multiple times
-        last_jump_date = price_series.index[extreme_jumps][-1]
+        last_jump_date = max(all_replacement_dates)
 
         # Only consider it a replacement if it happened after the first_seen date
         if last_jump_date > first_seen:
