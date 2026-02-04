@@ -17,6 +17,10 @@ all analysis modules.
 import numpy as np
 import pandas as pd
 
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 # =============================================================================
 # Volume Outlier Detection Parameters
 # =============================================================================
@@ -62,11 +66,7 @@ def detect_volume_outliers(
     ratio = volume_series / past_median
 
     # Identify outliers
-    is_outlier = (
-        (ratio > threshold)
-        & (volume_series > min_volume)
-        & (past_median > 0)
-    )
+    is_outlier = (ratio > threshold) & (volume_series > min_volume) & (past_median > 0)
 
     return is_outlier
 
@@ -110,11 +110,7 @@ def correct_volume_outliers(
         ratio = corrected / past_median
 
         # Find outliers
-        is_outlier = (
-            (ratio > threshold)
-            & (corrected > min_volume)
-            & (past_median > 0)
-        )
+        is_outlier = (ratio > threshold) & (corrected > min_volume) & (past_median > 0)
 
         outlier_indices = corrected.index[is_outlier]
 
@@ -147,13 +143,15 @@ def correct_volume_outliers(
 
             corrected.loc[idx] = interpolated
 
-            corrections_made.append({
-                "date": str(idx.date()) if hasattr(idx, "date") else str(idx),
-                "original": float(original_vol),
-                "corrected": float(interpolated),
-                "ratio": float(ratio.loc[idx]) if np.isfinite(ratio.loc[idx]) else 0.0,
-                "iteration": iteration + 1,
-            })
+            corrections_made.append(
+                {
+                    "date": str(idx.date()) if hasattr(idx, "date") else str(idx),
+                    "original": float(original_vol),
+                    "corrected": float(interpolated),
+                    "ratio": float(ratio.loc[idx]) if np.isfinite(ratio.loc[idx]) else 0.0,
+                    "iteration": iteration + 1,
+                }
+            )
 
         all_corrections.extend(corrections_made)
 
@@ -237,11 +235,7 @@ def apply_volume_corrections_to_dataframe(
         past_median = rolling_median.shift(1)
         ratio_df = corrected_df / past_median
 
-        is_outlier = (
-            (ratio_df > threshold)
-            & (corrected_df > min_volume)
-            & (past_median > 0)
-        )
+        is_outlier = (ratio_df > threshold) & (corrected_df > min_volume) & (past_median > 0)
 
         outlier_locations = np.where(is_outlier)
 
@@ -270,35 +264,43 @@ def apply_volume_corrections_to_dataframe(
 
             corrected_df.iloc[idx, col_idx] = interpolated
 
-            corrections_made.append({
-                "coin": coin_id.upper() if isinstance(coin_id, str) else str(coin_id),
-                "date": str(dt.date()) if hasattr(dt, "date") else str(dt),
-                "original": float(original_vol),
-                "corrected": float(interpolated),
-                "ratio": float(ratio) if np.isfinite(ratio) else 0.0,
-                "iteration": iteration + 1,
-            })
+            corrections_made.append(
+                {
+                    "coin": coin_id.upper() if isinstance(coin_id, str) else str(coin_id),
+                    "date": str(dt.date()) if hasattr(dt, "date") else str(dt),
+                    "original": float(original_vol),
+                    "corrected": float(interpolated),
+                    "ratio": float(ratio) if np.isfinite(ratio) else 0.0,
+                    "iteration": iteration + 1,
+                }
+            )
 
         all_corrections.extend(corrections_made)
 
         if show_progress and corrections_made:
-            print(
-                f"  Volume outlier iteration {iteration + 1}: {len(corrections_made)} corrections"
+            logger.info(
+                "Volume outlier iteration %d: %d corrections",
+                iteration + 1,
+                len(corrections_made),
             )
 
     all_corrections = sorted(all_corrections, key=lambda x: x["ratio"], reverse=True)
 
     if all_corrections and show_progress:
-        print(f"  Volume outlier corrections ({len(all_corrections)} total):")
+        logger.info("Volume outlier corrections (%d total):", len(all_corrections))
         for c in all_corrections[:20]:
             iter_str = f" (iter {c['iteration']})" if c.get("iteration", 1) > 1 else ""
-            print(
-                f"    {c['coin']:6s} {c['date']}: "
-                f"{c['original']:>15,.2f} → {c['corrected']:>12,.2f} "
-                f"({c['ratio']:.0f}x median){iter_str}"
+            logger.info(
+                "  %6s %s: %15,.2f → %12,.2f (%,.0fx median)%s",
+                c["coin"],
+                c["date"],
+                c["original"],
+                c["corrected"],
+                c["ratio"],
+                iter_str,
             )
         if len(all_corrections) > 20:
-            print(f"    ... and {len(all_corrections) - 20} more")
+            logger.info("  ... and %d more", len(all_corrections) - 20)
 
     return corrected_df, all_corrections
 

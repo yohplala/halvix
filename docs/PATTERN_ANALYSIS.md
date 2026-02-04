@@ -1,5 +1,9 @@
 # Cycle Pattern Analysis
 
+**[← Back to README](../README.md)**
+
+---
+
 This document explains the cycle pattern analysis feature in Halvix, which identifies min/max points within Bitcoin halving cycles and projects price targets for the next cycle.
 
 ## Overview
@@ -56,15 +60,20 @@ For each completed halving cycle, the analyzer identifies **4 characteristic poi
 | **min2** | [halving, max2 date] | Lowest price between halving and max2 |
 | **max2** | [halving, halving + 950 days] | Highest price in post-halving window |
 
-### Cycle 5 Point (Current Cycle)
+### Cycle 5 (Current Cycle)
 
-For cycle 5 (the current cycle), the analyzer adds:
+For cycle 5, the analyzer detects min1 differently since the cycle is ongoing:
 
-| Point | Window | Description |
-|-------|--------|-------------|
-| **min1** | [October 6, 2025, current date] | Lowest price since the cycle 4 BTC peak |
+| Attribute | Value | Notes |
+|-----------|-------|-------|
+| **Price** | Lowest since cycle 4 BTC peak | Actual minimum from `BTC_CYCLE_PEAKS[-1]` to current date |
+| **Date (display)** | Actual date of minimum | Used in charts and output |
+| **Date (regression)** | 5th halving − 520 days | ~Sept 27, 2026; used only for trendline x-coordinate |
 
-This uses the last BTC peak (October 2025) as the starting point, not the halving date. This represents the bottom after the cycle 4 peak, which is the typical cycle pattern.
+The approximated regression date:
+- Places min1 within the typical window `[halving-550, halving]`
+- Provides a stable x-coordinate since the true bottom may not have occurred yet
+- Only affects trendline regression; Fibonacci and Diminishing Returns use the actual price only
 
 This gives:
 - **4 points per completed cycle** (cycles 2, 3, 4)
@@ -79,9 +88,37 @@ Fits separate linear regression lines (on log-transformed prices) through:
 - **Upper trendline**: Through max1 and max2 points across cycles
 - **Lower trendline**: Through min1 and min2 points across cycles
 
-**Requirements**:
-- At least 2 peaks and 2 troughs
-- Minimum 180-day span between earliest and latest points
+> **Note**: Cycle 5 min1 uses an approximated date for regression (see [Cycle 5](#cycle-5-current-cycle) above).
+
+**Weighted Regression**:
+
+The regression uses weighted least squares to prioritize "major" cycle extremes over "minor" intermediate points:
+
+| Point Type | Classification | Weight | Rationale |
+|------------|---------------|--------|-----------|
+| **min1** | Major | 67% | True cycle bottom (pre-halving low) |
+| **max1** | Minor | 33% | Intermediate high before halving |
+| **min2** | Minor | 33% | Intermediate dip after halving |
+| **max2** | Major | 67% | True cycle peak (post-halving high) |
+
+This weighting ensures the trendlines fit more closely to the definitive cycle extremes (min1 and max2) rather than the intermediate points (max1 and min2) which are less representative of long-term trends.
+
+**Note**: With only 2 points per category, weights have no effect since a line through 2 points is uniquely determined. Weights only affect the regression when 3 or more points are available.
+
+**Requirements (Major Extrema Approach)**:
+
+To calculate a trendline, the analyzer requires at least **2 major extrema of the same type** (either min1 or max2):
+
+| Condition | Upper Trendline | Lower Trendline | Result |
+|-----------|-----------------|-----------------|--------|
+| 2+ min1 AND 2+ max2 | Fit through max points | Fit through min points | Independent slopes |
+| 2+ min1 only | Use trough slope | Fit through min1 points | Parallel channel |
+| 2+ max2 only | Fit through max2 points | Use peak slope | Parallel channel |
+| <2 of both | None | None | No trendline |
+
+**Parallel Channel Assumption**: When only one side (peaks or troughs) has enough major extrema, the slope from that side is used for both trendlines. The intercept for the other side is calculated to pass through the available major point(s).
+
+**Additional Requirements**:
 - No zero or negative prices
 
 The pattern is classified based on slope relationships:
@@ -183,6 +220,46 @@ Coins are assigned confidence levels based on data availability:
 | **MEDIUM** | 2 | Two complete cycles (2020+ halving) |
 | **LOW** | 1 | Single cycle only (limited statistical confidence) |
 
+## Ranking and Filtering
+
+### Ranking Criterion
+
+Coins are **ranked by composite target percentage** (descending). The composite score is an equal-weight average of all available projection methods (trendline, Fibonacci, diminishing returns), providing a balanced view of expected returns.
+
+### Filtering Rules
+
+Coins are filtered to exclude assets expected to underperform BTC:
+
+**1. Trendline Prediction Filter:**
+
+| Trendline Value | Included? | Reason |
+|-----------------|-----------|--------|
+| **Positive** | Yes | Expected to outperform BTC |
+| **None/Missing** | Yes | Insufficient data for trendline, but other methods may apply |
+| **Negative** | No | Expected to underperform BTC |
+
+**2. Floor Appreciation Filter:**
+
+Coins with declining floors (min points getting lower over cycles) are excluded. The lower trendline slope must indicate at least **10% annual floor appreciation** (`MIN_LOWER_SLOPE_ANNUAL_PCT` in config).
+
+| Floor Trend | Included? | Example |
+|-------------|-----------|---------|
+| **Appreciating (≥10%/year)** | Yes | Healthy floor growth |
+| **Stagnant (<10%/year)** | No | Floor not keeping pace |
+| **Declining (negative)** | No | Bottoms getting lower (e.g., CTXC) |
+
+This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding - a sign of structural weakness.
+
+**Additional Requirements:**
+- Coins must have a valid **composite score** (at least one projection method must succeed)
+
+### Rank Display
+
+- **BTC** is always shown with rank **0** (baseline asset)
+- **Altcoins** are ranked **1, 2, 3...** based on their composite target
+- Each chart title includes the rank prefix (e.g., "#1 - ETH/BTC - Cycle Pattern Analysis")
+- The ranking table shows the rank in the first column
+
 ## Usage
 
 ### CLI Command
@@ -273,31 +350,15 @@ Each chart shows:
 
 ### Limitations
 
+- **Very new coins** (e.g., HYPE) may have insufficient cycle data for any projections - they need at least one complete cycle with min+max points
 - **Single-cycle coins** have low statistical confidence
 - **Projections are not financial advice** - they represent mathematical extrapolations
 - **Market conditions change** - historical patterns may not repeat
 - **Alt/BTC ratios** can diverge significantly from projections during market regime changes
-- **Coins must have been in TOTAL2** - coins that were never in TOTAL2, or were last in TOTAL2 more than 2 years ago, are not analyzed
+- **Coins must have been in TOTAL2** within the past 2 years to be analyzed
 - **Full price history** - uses complete price data, not just TOTAL2 dates, which may include volatile periods
 
 ## Algorithm Details
-
-### Coin Selection
-
-The analyzer selects coins based on TOTAL2 membership within a 2-year lookback window:
-
-1. Load TOTAL2 composition data
-2. Filter to coins with at least one appearance in the past 2 years
-3. Use this set as the candidate pool for analysis
-
-### Price Data Filtering
-
-For each selected coin, full price history is loaded and filtered using TOTAL2-style tools:
-
-1. **Volume Outlier Detection**: Iteratively detects and corrects volume spikes > 20x rolling median
-2. **Volume SMA Smoothing**: Applies 120-day SMA with zero padding for consistent weighting
-
-These filters are implemented in `src/data/price_filters.py` and shared between TOTAL2 calculation and pattern analysis.
 
 ### Min/Max Detection
 
@@ -307,18 +368,34 @@ The analyzer uses absolute min/max within windows rather than local extrema dete
 
 All trendline calculations use the 2016 halving (cycle 2) as the reference date for x-axis values. This provides a consistent baseline across all halvings.
 
-### Projected Cycle 5
+### Config Constants
 
-- **5th Halving Date**: March 15, 2028 (projected)
-- **Target Peak Date**: ~550 days after halving (September 2029)
+Key parameters in [`src/config.py`](../src/config.py):
 
-These projections assume cycle timing remains consistent with historical patterns.
+| Constant | Value | Used For |
+|----------|-------|----------|
+| `TRENDLINE_MAJOR_POINT_WEIGHT` | 0.67 | Weight for min1, max2 in regression |
+| `TRENDLINE_MINOR_POINT_WEIGHT` | 0.33 | Weight for max1, min2 in regression |
+| `CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING` | 520 | Approximated min1 date for trendline |
+| `MIN_LOWER_SLOPE_ANNUAL_PCT` | 10 | Minimum annual floor appreciation (%) |
+| `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
+| `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Fallback for single-cycle coins |
 
 ## Halving Cycle Windows
+
+> **Note**: Halving dates are defined in [`src/config.py`](../src/config.py) (`HALVING_DATES` and `PROJECTED_5TH_HALVING`). Window calculations use `DAYS_BEFORE_HALVING` (550) and `DAYS_AFTER_HALVING` (950).
 
 | Cycle | Halving Date | Pre-Window Start | Post-Window End |
 |-------|--------------|------------------|-----------------|
 | 2 | July 9, 2016 | Dec 2, 2014 | Feb 14, 2019 |
 | 3 | May 11, 2020 | Nov 8, 2018 | Dec 17, 2022 |
 | 4 | April 19, 2024 | Oct 16, 2022 | Nov 25, 2026 |
-| 5 | March 15, 2028 (proj.) | Sept 12, 2026 | Dec 21, 2030 |
+| 5 | March 31, 2028 (proj.) | Sept 28, 2026 | Nov 6, 2030 |
+
+---
+
+*Last updated: 2026-02-04*
+
+---
+
+**[← Back to README](../README.md)**

@@ -47,6 +47,7 @@ from config import (
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
     HALVING_DATES,
+    MIN_LOWER_SLOPE,
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
@@ -1302,6 +1303,7 @@ class CyclePatternAnalyzer:
 
         Filtering rules:
         - Coins with negative trendline predictions are excluded (underperforming BTC)
+        - Coins with declining floor (lower_slope < MIN_LOWER_SLOPE) are excluded
         - Coins with missing trendline (None) are included if they have a composite score
         - Coins must have a valid composite score
 
@@ -1312,13 +1314,16 @@ class CyclePatternAnalyzer:
         Returns:
             List of top N CoinPatternResult sorted by composite_target_pct (descending)
         """
-        # Filter out coins with negative trendline predictions (underperforming BTC)
+        # Filter out coins with:
+        # 1. Negative trendline predictions (underperforming BTC)
+        # 2. Declining floor (lower_slope below threshold = MIN_LOWER_SLOPE_ANNUAL_PCT% annual)
         # Coins with trendline=None are allowed if they have valid composite scores
         valid = [
             r
             for r in results.values()
             if r.composite_target_pct is not None
             and (r.trendline_target_pct is None or r.trendline_target_pct > 0)
+            and (r.lower_slope is None or r.lower_slope >= MIN_LOWER_SLOPE)
         ]
 
         # Sort by composite target (descending) - primary ranking criterion

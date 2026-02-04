@@ -18,6 +18,8 @@ from config import (
     TOTAL2_ENTRY_MAX_DECREASE,
     TOTAL2_ENTRY_MAX_INCREASE,
     TOTAL2_ENTRY_WARMUP_PERIOD_DAYS,
+    TOTAL2_SERIES_MAX_DECREASE,
+    TOTAL2_SERIES_MAX_INCREASE,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -26,11 +28,6 @@ from data.processor_base import (
     ProcessorError,
     Total2Result,
 )
-
-# TOTAL2 series smoothing parameters
-# Caps extreme day-over-day movements in the aggregate index
-MAX_DOD_INCREASE = 3.0  # Cap TOTAL2 increase at 3x per day
-MAX_DOD_DECREASE = 0.35  # Cap TOTAL2 decrease at 0.35x per day
 
 
 class Total2Processor(BaseTotal2Processor):
@@ -212,7 +209,7 @@ class Total2Processor(BaseTotal2Processor):
         # Create result
         date_range = (index_df.index.min().date(), index_df.index.max().date())
 
-        result = Total2Result(
+        result = Total2Result.create(
             index_df=index_df,
             composition_df=composition_df,
             coins_processed=len(price_data),
@@ -396,8 +393,8 @@ class Total2Processor(BaseTotal2Processor):
             pct_change = working_series.pct_change()
 
             # Find extreme increases (>200%) or decreases (>65%)
-            outlier_up = pct_change > (MAX_DOD_INCREASE - 1)
-            outlier_down = pct_change < -(1 - MAX_DOD_DECREASE)
+            outlier_up = pct_change > (TOTAL2_SERIES_MAX_INCREASE - 1)
+            outlier_down = pct_change < -(1 - TOTAL2_SERIES_MAX_DECREASE)
 
             outliers = outlier_up | outlier_down
 
@@ -419,8 +416,8 @@ class Total2Processor(BaseTotal2Processor):
 
                 change = current_val / prev_val
 
-                if change > MAX_DOD_INCREASE:
-                    capped_val = prev_val * MAX_DOD_INCREASE
+                if change > TOTAL2_SERIES_MAX_INCREASE:
+                    capped_val = prev_val * TOTAL2_SERIES_MAX_INCREASE
                     working_series.iloc[idx] = capped_val
                     corrections_made.append(
                         {
@@ -433,8 +430,8 @@ class Total2Processor(BaseTotal2Processor):
                             "iteration": iteration + 1,
                         }
                     )
-                elif change < MAX_DOD_DECREASE:
-                    capped_val = prev_val * MAX_DOD_DECREASE
+                elif change < TOTAL2_SERIES_MAX_DECREASE:
+                    capped_val = prev_val * TOTAL2_SERIES_MAX_DECREASE
                     working_series.iloc[idx] = capped_val
                     corrections_made.append(
                         {

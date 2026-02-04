@@ -13,6 +13,7 @@
 | **Tutorial & CLI usage** | [docs/TUTORIAL.md](docs/TUTORIAL.md) |
 | **CryptoCompare API details** | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) |
 | **TOTAL2/TOTAL2b calculation** | [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md) |
+| **Cycle pattern analysis** | [docs/PATTERN_ANALYSIS.md](docs/PATTERN_ANALYSIS.md) |
 | **Deployment (GitHub Pages)** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
 ---
@@ -39,7 +40,7 @@ poetry run black src/ tests/
 ```
 halvix/
 ├── pyproject.toml              # Poetry config (Python 3.13+)
-├── AGENTS.md                   # This file
+├── CLAUDE.md                   # This file
 ├── README.md
 ├── docs/                       # Detailed documentation
 │
@@ -51,16 +52,19 @@ halvix/
 │   ├── data/
 │   │   ├── cache.py            # File-based caching
 │   │   ├── fetcher.py          # Data retrieval
+│   │   ├── price_filters.py    # Volume outlier detection, SMA smoothing
 │   │   ├── processor.py        # Re-exports and factory function
 │   │   ├── processor_base.py   # BaseTotal2Processor (shared)
 │   │   ├── processor_total2.py # Total2Processor (legacy)
 │   │   └── processor_total2b.py # Total2bProcessor (default)
 │   ├── analysis/
-│   │   └── filters.py          # Token filtering
+│   │   ├── filters.py          # Token filtering
+│   │   └── cycle_patterns.py   # Cycle pattern analysis
 │   ├── utils/
 │   │   └── logging.py
 │   └── visualization/
-│       └── charts.py
+│       ├── __init__.py         # Module exports
+│       └── charts.py           # Chart generation
 │
 ├── tests/                      # Pytest tests
 ├── data/
@@ -102,15 +106,7 @@ Located in `src/analysis/filters.py`. Exclusions defined in `src/config.py`:
 
 ## 4. CLI Commands
 
-```bash
-poetry run python -m main list-coins        # Fetch top coins
-poetry run python -m main fetch-prices      # Fetch price data
-poetry run python -m main calculate-total2  # Calculate index (--index-type total2|total2b)
-poetry run python -m main generate-charts   # Generate HTML charts
-poetry run python -m main status            # Show data status
-```
-
-See [docs/TUTORIAL.md](docs/TUTORIAL.md) for detailed usage.
+See [docs/TUTORIAL.md](docs/TUTORIAL.md) for complete CLI reference and usage examples.
 
 ---
 
@@ -147,7 +143,7 @@ DEFAULT_QUOTE_CURRENCY = "BTC"
 ### Common Pitfalls
 1. Always use `poetry run` for commands
 2. Check `ALLOWED_TOKENS` before filtering tokens
-3. API rate limit: Dynamic (checks `/stats/rate/limit` endpoint); fallback 120 calls/min
+3. API rate limit: Dynamic (checks `/stats/rate/limit` endpoint); fallback 12 calls/min (5 seconds between requests)
 
 ---
 

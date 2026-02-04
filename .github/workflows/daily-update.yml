@@ -211,9 +211,6 @@ jobs:
             git commit -m "Update raw data - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           fi
 
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || \
-            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
-
           echo "Pushing to raw-data branch..."
           git push --force origin raw-data
 
@@ -394,9 +391,6 @@ jobs:
             git commit -m "Update TOTAL2 index (${{ env.INDEX_TYPE }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           fi
 
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || \
-            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" 2>/dev/null || true
-
           echo "Pushing to processed-data branch..."
           git push --force origin processed-data
 
@@ -499,11 +493,11 @@ jobs:
         working-directory: main
         run: poetry install --no-interaction
 
-      - name: Generate charts
+      - name: Generate cycle charts
         working-directory: main
         run: |
-          poetry run python -m main generate-charts
-          echo "Charts generated in site/"
+          poetry run python -m main generate-cycle-charts
+          echo "Cycle charts generated in site/"
           ls -la site/charts/ | head -20
 
       - name: Analyze patterns

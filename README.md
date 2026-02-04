@@ -28,8 +28,11 @@ poetry run python -m main fetch-prices
 # Calculate TOTAL2 index
 poetry run python -m main calculate-total2
 
-# Generate interactive charts
-poetry run python -m main generate-charts
+# Generate halving cycle charts
+poetry run python -m main generate-cycle-charts
+
+# Analyze cycle patterns
+poetry run python -m main analyze-patterns
 
 # Check status
 poetry run python -m main status
@@ -44,7 +47,7 @@ poetry run python -m main status
 - **[Charts Dashboard](https://yohplala.github.io/halvix/index.html)** - Interactive halving cycle charts (BTC, TOTAL2)
 
 ### 📋 References
-- **[AI Agent Context](AGENTS.md)** - Full project specification for AI agents and developers
+- **[AI Agent Context](CLAUDE.md)** - Full project specification for AI agents and developers
 - **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching, data pipeline
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
 - **[Pattern Analysis](docs/PATTERN_ANALYSIS.md)** - Cycle pattern analysis and price target projections

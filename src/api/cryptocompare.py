@@ -627,7 +627,7 @@ class CryptoCompareClient:
         while True:
             if show_progress:
                 current_date = datetime.fromtimestamp(current_to_ts).date()
-                print(f"  Fetching {symbol} data up to {current_date}...")
+                logger.info("Fetching %s data up to %s...", symbol, current_date)
 
             records = self.get_daily_history(
                 symbol=symbol,

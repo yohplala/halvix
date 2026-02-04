@@ -13,8 +13,9 @@ from visualization.charts import (
     create_total2_combined_chart,
     create_total2_dual_chart,
     create_total2_halving_chart,
-    generate_all_charts,
+    generate_all_cycle_charts,
 )
+from visualization.html_generator import HtmlGenerator
 
 __all__ = [
     "create_total2_halving_chart",
@@ -24,7 +25,9 @@ __all__ = [
     "create_btc_combined_chart",
     "create_total2_combined_chart",
     "create_composition_viewer_html",
-    "generate_all_charts",
+    "generate_all_cycle_charts",
+    # HTML generator class
+    "HtmlGenerator",
     # HTML helper functions
     "_get_base_css",
     "_get_header_css",

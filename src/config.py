@@ -4,6 +4,7 @@ Configuration constants for the Halvix project.
 Halvix - Cryptocurrency price analysis relative to Bitcoin halving cycles.
 """
 
+import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -640,6 +641,16 @@ DEFAULT_DIMINISHING_FACTOR = 0.20
 # With 3+ points, weights affect which points the regression line fits more closely
 TRENDLINE_MAJOR_POINT_WEIGHT = 0.67  # Weight for min1 (true bottom) and max2 (true peak)
 TRENDLINE_MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate points)
+
+# Minimum lower trendline slope (floor appreciation) requirement
+# Coins with declining or stagnant floors (min points getting lower) are filtered out.
+# The slope is in log10-space per day. To convert annual percentage to slope:
+#   annual_gain = 10^(slope * 365)
+#   slope = log10(1 + annual_pct/100) / 365
+# For 10% annual floor appreciation: slope = log10(1.10) / 365 ≈ 0.000113
+# Coins with lower_slope below this threshold are filtered out as underperforming.
+MIN_LOWER_SLOPE_ANNUAL_PCT = 10  # Require at least 10% annual floor appreciation
+MIN_LOWER_SLOPE = math.log10(1 + MIN_LOWER_SLOPE_ANNUAL_PCT / 100) / 365
 
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
