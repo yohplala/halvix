@@ -72,6 +72,112 @@ CYCLE_COLORS = {
 }
 
 
+def _add_target_predictions(
+    fig: go.Figure,
+    targets: list[tuple[str, float, float, str]],
+    target_date: date,
+    is_btc: bool = False,
+    pattern_type: str | None = None,
+    composite_pct: float | None = None,
+) -> None:
+    """
+    Add target prediction stars and text label to a chart.
+
+    Uses go.Scatter() for proper positioning in log scale.
+    Text is positioned at the average of min/max prices, with each line
+    having its own color matching its star. Pattern type and composite
+    are shown in grey below the targets.
+
+    Args:
+        fig: Plotly figure to add traces to
+        targets: List of (label, target_price, target_pct, color) tuples
+        target_date: Date to position the targets at
+        is_btc: True for BTC/USD formatting, False for altcoin/BTC formatting
+        pattern_type: Pattern type string (e.g., "higher_highs")
+        composite_pct: Composite target percentage
+    """
+    if not targets:
+        return
+
+    # Sort targets by price (descending) - highest first
+    targets_sorted = sorted(targets, key=lambda t: t[1], reverse=True)
+
+    # Calculate text Y position: geometric mean of min and max prices (for log scale)
+    min_price = min(t[1] for t in targets)
+    max_price = max(t[1] for t in targets)
+    text_y_position = (min_price * max_price) ** 0.5  # Geometric mean for log scale
+
+    # Add star markers for all targets
+    for label, target_price, target_pct, color in targets:
+        if is_btc:
+            price_fmt = f"${target_price:,.2f}"
+        else:
+            price_fmt = f"{target_price:.8f} BTC"
+
+        fig.add_trace(
+            go.Scatter(
+                x=[target_date],
+                y=[target_price],
+                mode="markers",
+                marker={"size": 12, "color": color, "symbol": "star"},
+                name=f"Target: {label}",
+                showlegend=False,
+                hovertemplate=(
+                    f"<b>{label} Target</b><br>"
+                    f"Price: {price_fmt}<br>"
+                    f"Gain: +{target_pct:.1f}%<br>"
+                    f"Date: ~{target_date}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+    # Build list of all text lines: targets + pattern + composite
+    text_lines: list[tuple[str, str]] = []  # (text, color)
+    grey_color = "#8b949e"
+
+    for label, target_price, target_pct, color in targets_sorted:
+        if is_btc:
+            price_k = target_price / 1000 if target_price >= 1000 else target_price
+            price_str = f"${price_k:.0f}k" if target_price >= 1000 else f"${target_price:.2f}"
+        else:
+            price_str = f"+{target_pct:.0f}%"
+        text_lines.append((f"{label}: {price_str}", color))
+
+    # Add pattern type line in grey
+    if pattern_type:
+        pattern_display = pattern_type.replace("_", " ").title()
+        text_lines.append((f"Pattern: {pattern_display}", grey_color))
+
+    # Add composite line in grey
+    if composite_pct is not None:
+        text_lines.append((f"Composite: +{composite_pct:.0f}%", grey_color))
+
+    # Add separate text trace for each line (each with its own color)
+    # Use vertical spacing in log scale (multiply/divide by factor)
+    num_lines = len(text_lines)
+    line_spacing_factor = 1.32  # Spacing between lines in log scale
+
+    for i, (text_label, color) in enumerate(text_lines):
+        # Calculate Y position for this line (offset from center in log space)
+        # Center the lines around text_y_position
+        center_offset = (num_lines - 1) / 2
+        line_y = text_y_position * (line_spacing_factor ** (center_offset - i))
+
+        fig.add_trace(
+            go.Scatter(
+                x=[target_date + timedelta(days=45)],  # Shift right to avoid star overlap
+                y=[line_y],
+                mode="text",
+                text=[text_label],
+                textposition="middle right",
+                textfont={"size": 13, "color": color},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+
 def _get_cycle5_min1_display_date() -> date:
     """
     Get the approximated date for displaying cycle 5 min1 on charts.
@@ -253,8 +359,7 @@ def create_btc_pattern_chart(
                 )
             )
 
-    # 3. Add target annotations
-    # Position targets at projected cycle 5 peak date
+    # 3. Add target predictions (stars + text label)
     target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
 
     targets = []
@@ -281,28 +386,14 @@ def create_btc_pattern_chart(
             )
         )
 
-    for _i, (label, target_price, target_pct, color) in enumerate(targets):
-        # Add target marker
-        fig.add_trace(
-            go.Scatter(
-                x=[target_date],
-                y=[target_price],
-                mode="markers+text",
-                marker={"size": 12, "color": color, "symbol": "star"},
-                text=[f"  {label}: ${target_price:,.0f}"],
-                textposition="middle right",
-                textfont={"color": color, "size": 13},
-                name=f"Target: {label}",
-                showlegend=False,
-                hovertemplate=(
-                    f"<b>{label} Target</b><br>"
-                    f"Price: ${target_price:,.2f}<br>"
-                    f"Gain: +{target_pct:.1f}%<br>"
-                    f"Date: ~{target_date}"
-                    "<extra></extra>"
-                ),
-            )
-        )
+    _add_target_predictions(
+        fig,
+        targets,
+        target_date,
+        is_btc=True,
+        pattern_type=result.pattern_type,
+        composite_pct=result.composite_target_pct,
+    )
 
     # Add halving lines
     _add_halving_lines(fig)
@@ -339,21 +430,6 @@ def create_btc_pattern_chart(
         height=600,
         margin={"t": 80, "b": 60, "r": 180},
     )
-
-    # Add pattern type annotation
-    if result.pattern_type:
-        pattern_display = result.pattern_type.replace("_", " ").title()
-        fig.add_annotation(
-            x=0.99,
-            y=0.01,
-            xref="paper",
-            yref="paper",
-            text=f"Pattern: {pattern_display}",
-            showarrow=False,
-            font={"color": "#8b949e", "size": 12},
-            xanchor="right",
-            yanchor="bottom",
-        )
 
     if output_path:
         _write_pattern_chart(fig, output_path, "BTC/USD Pattern Analysis")
@@ -503,7 +579,7 @@ def create_altcoin_pattern_chart(
                 )
             )
 
-    # 4. Add target annotations
+    # 4. Add target predictions (stars + text label)
     target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
 
     targets = []
@@ -530,27 +606,14 @@ def create_altcoin_pattern_chart(
             )
         )
 
-    for label, target_price, target_pct, color in targets:
-        fig.add_trace(
-            go.Scatter(
-                x=[target_date],
-                y=[target_price],
-                mode="markers+text",
-                marker={"size": 12, "color": color, "symbol": "star"},
-                text=[f"  {label}: +{target_pct:.0f}%"],
-                textposition="middle right",
-                textfont={"color": color, "size": 13},
-                name=f"Target: {label}",
-                showlegend=False,
-                hovertemplate=(
-                    f"<b>{label} Target</b><br>"
-                    f"Price: {target_price:.8f} BTC<br>"
-                    f"Gain: +{target_pct:.1f}%<br>"
-                    f"Date: ~{target_date}"
-                    "<extra></extra>"
-                ),
-            )
-        )
+    _add_target_predictions(
+        fig,
+        targets,
+        target_date,
+        is_btc=False,
+        pattern_type=result.pattern_type,
+        composite_pct=result.composite_target_pct,
+    )
 
     # Add halving lines
     _add_halving_lines(fig)
@@ -588,27 +651,6 @@ def create_altcoin_pattern_chart(
         height=600,
         margin={"t": 80, "b": 60, "r": 180},
     )
-
-    # Add pattern type and composite target annotations
-    annotations = []
-    if result.pattern_type:
-        pattern_display = result.pattern_type.replace("_", " ").title()
-        annotations.append(f"Pattern: {pattern_display}")
-    if result.composite_target_pct:
-        annotations.append(f"Composite: +{result.composite_target_pct:.0f}%")
-
-    if annotations:
-        fig.add_annotation(
-            x=0.99,
-            y=0.01,
-            xref="paper",
-            yref="paper",
-            text=" | ".join(annotations),
-            showarrow=False,
-            font={"color": "#8b949e", "size": 12},
-            xanchor="right",
-            yanchor="bottom",
-        )
 
     if output_path:
         _write_pattern_chart(fig, output_path, f"{result.coin_id.upper()}/BTC Pattern Analysis")
