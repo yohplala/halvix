@@ -10,9 +10,9 @@ format YYYY.MM.patch.
 - **Categories** indicate the type of changes (Tests, Code, Documentation, etc.).
 - Each version represents a significant milestone in development.
 
-## 2025.12
+## 2026.02
 
-### [2025.12.11] - 2026-02-05
+### [2026.02.1] - 2026-02-05
 
 **Cycle pattern analysis with price target projections**
 
@@ -28,7 +28,7 @@ format YYYY.MM.patch.
   - Main pattern analysis page with top 9 altcoins ranking
   - Refactored target labels for proper log-scale positioning with colored text
 - **Improved:** Stricter data validation for cycle pattern analysis
-  - Minimum 1200-day span required for trendline fitting
+  - Log-price overflow protection for extreme trendline projections
   - Prevents unreliable extrapolations from short data spans
 - **Changed:** Renamed `AGENTS.md` to `CLAUDE.md`
 - **Removed:** Cursor rules file
@@ -36,6 +36,8 @@ format YYYY.MM.patch.
 - **Fixed:** Linter errors (set comprehensions, unused imports/variables)
 
 **Categories:** Features, Analysis, Visualization, Code Quality, Refactoring
+
+## 2025.12
 
 ### [2025.12.10] - 2025-12-25
 
