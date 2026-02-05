@@ -64,7 +64,9 @@ halvix/
 │   │   └── logging.py
 │   └── visualization/
 │       ├── __init__.py         # Module exports
-│       └── charts.py           # Chart generation
+│       ├── charts.py           # Halving cycle chart generation
+│       ├── html_generator.py   # HTML page generation
+│       └── pattern_charts.py   # Pattern analysis charts
 │
 ├── tests/                      # Pytest tests
 ├── data/
@@ -147,6 +149,6 @@ DEFAULT_QUOTE_CURRENCY = "BTC"
 
 ---
 
-*Last updated: 2025-12-24*
+*Last updated: 2026-02-05*
 
 **[← Back to README](README.md)**

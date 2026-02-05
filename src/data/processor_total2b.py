@@ -17,17 +17,22 @@ from analysis.filters import CoinFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
     TOP_N_BY_VOLUME_FOR_TOTAL2,
+    TOTAL2_MIN_COINS_FOR_INDEX,
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
     TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
+from data.price_filters import detect_symbol_replacement
 from data.processor_base import (
     BaseTotal2Processor,
     ProcessorError,
     Total2Result,
 )
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Total2bProcessor(BaseTotal2Processor):
@@ -110,7 +115,7 @@ class Total2bProcessor(BaseTotal2Processor):
         """
         # Load and filter price data
         if show_progress:
-            print("Loading price data...")
+            logger.info("Loading price data...")
 
         price_data = self.load_all_price_data(coin_ids, show_progress=show_progress)
 
@@ -120,7 +125,7 @@ class Total2bProcessor(BaseTotal2Processor):
         # Filter for TOTAL2 eligibility
         eligible_ids = self.filter_coins_for_total2(list(price_data.keys()))
         if show_progress:
-            print(f"Filtered to {len(eligible_ids)} eligible coins")
+            logger.info("Filtered to %d eligible coins", len(eligible_ids))
 
         price_data = {cid: df for cid, df in price_data.items() if cid in eligible_ids}
 
@@ -129,7 +134,7 @@ class Total2bProcessor(BaseTotal2Processor):
 
         # Build aligned DataFrames
         if show_progress:
-            print("Building aligned DataFrames...")
+            logger.info("Building aligned DataFrames...")
 
         close_df, volume_df, volume_outliers = self.build_aligned_dataframes(
             price_data, show_progress=show_progress
@@ -137,7 +142,7 @@ class Total2bProcessor(BaseTotal2Processor):
 
         # Apply volume SMA smoothing
         if show_progress:
-            print("Applying volume SMA smoothing...")
+            logger.info("Applying volume SMA smoothing...")
 
         smoothed_volume_df = self.apply_volume_sma_smoothing(volume_df)
 
@@ -148,11 +153,11 @@ class Total2bProcessor(BaseTotal2Processor):
         )
 
         if show_progress:
-            print(f"Tracking first-seen dates for {len(first_seen_dates)} coins")
+            logger.info("Tracking first-seen dates for %d coins", len(first_seen_dates))
 
         # Calculate TOTAL2b with freeze period and scaling
         if show_progress:
-            print("Calculating TOTAL2b with freeze period and scaling...")
+            logger.info("Calculating TOTAL2b with freeze period and scaling...")
 
         index_df, composition_records, scaling_events = self._calculate_total2b_iterative(
             close_df,
@@ -253,8 +258,10 @@ class Total2bProcessor(BaseTotal2Processor):
             initial_first_seen = both_valid.idxmax()
 
             # Check for symbol replacement (extreme price jumps)
-            replacement_date = self._detect_symbol_replacement(
-                close_df[coin_id], initial_first_seen
+            replacement_date = detect_symbol_replacement(
+                close_df[coin_id],
+                threshold=self.symbol_replacement_threshold,
+                first_seen=initial_first_seen,
             )
 
             if replacement_date is not None:
@@ -275,97 +282,18 @@ class Total2bProcessor(BaseTotal2Processor):
                 first_seen[coin_id] = initial_first_seen
 
         if show_progress and symbol_replacements:
-            print(f"  Detected {len(symbol_replacements)} symbol replacement(s):")
+            logger.info("  Detected %d symbol replacement(s):", len(symbol_replacements))
             for event in symbol_replacements:
-                print(
-                    f"    {event['coin']:6s}: {event['original_first_seen']} → "
-                    f"{event['replacement_date']} "
-                    f"(price {event['price_before']:.2e} → {event['price_after']:.2e})"
+                logger.info(
+                    "    %6s: %s → %s (price %.2e → %.2e)",
+                    event["coin"],
+                    event["original_first_seen"],
+                    event["replacement_date"],
+                    event["price_before"],
+                    event["price_after"],
                 )
 
         return first_seen, symbol_replacements
-
-    def _detect_symbol_replacement(
-        self,
-        price_series: pd.Series,
-        first_seen: pd.Timestamp,
-    ) -> pd.Timestamp | None:
-        """
-        Detect if a coin's symbol was replaced by a different token.
-
-        CryptoCompare sometimes reuses symbols for different tokens (e.g.,
-        old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
-        or old "MOVE" token replaced by Movement Labs "MOVE" in Dec 2024).
-
-        Detection methods (using backward search from most recent date):
-        1. **Extreme ratio jump**: Price changes by >threshold (e.g., 30x) between
-           consecutive days where both prices are positive.
-        2. **Resurrection from zero**: Price transitions from zero to positive after
-           a period of zero prices, when there was trading before the zero period.
-           This catches cases like MOVE where the old token went to exactly 0.
-
-        Args:
-            price_series: Series of close prices for a coin
-            first_seen: The initial first-seen date
-
-        Returns:
-            The date of the last symbol replacement, or None if no replacement detected
-        """
-        # Threshold for considering a price as "zero" (numerical precision)
-        zero_threshold = 1e-15
-
-        # Get previous day's price
-        prev_price = price_series.shift(1)
-
-        # Method 1: Extreme ratio detection (existing logic)
-        # Calculate daily price change ratios (only where both prices are positive)
-        valid_ratio_mask = (price_series > zero_threshold) & (prev_price > zero_threshold)
-        price_ratio = price_series / prev_price
-
-        # Find dates with extreme price jumps (either direction)
-        extreme_jumps = (
-            (price_ratio > self.symbol_replacement_threshold)
-            | (price_ratio < 1 / self.symbol_replacement_threshold)
-        ) & valid_ratio_mask
-
-        # Method 2: Resurrection from zero detection (new logic)
-        # Find dates where price goes from zero to positive
-        resurrection_mask = (price_series > zero_threshold) & (prev_price <= zero_threshold)
-
-        # For resurrection to be a symbol replacement (not just coin starting to trade),
-        # there must have been trading BEFORE the zero period
-        resurrection_dates = price_series.index[resurrection_mask]
-        valid_resurrection_dates = []
-
-        for res_date in resurrection_dates:
-            # Check if there was any trading before this resurrection
-            before_mask = price_series.index < res_date
-            if before_mask.any():
-                prices_before = price_series[before_mask]
-                # If there was any positive price before this date, it's a resurrection
-                if (prices_before > zero_threshold).any():
-                    valid_resurrection_dates.append(res_date)
-
-        # Combine both detection methods
-        all_replacement_dates = set()
-
-        if extreme_jumps.any():
-            all_replacement_dates.update(price_series.index[extreme_jumps])
-
-        all_replacement_dates.update(valid_resurrection_dates)
-
-        if not all_replacement_dates:
-            return None
-
-        # Return the date of the LAST replacement (most recent)
-        # This handles cases where a symbol might be replaced multiple times
-        last_jump_date = max(all_replacement_dates)
-
-        # Only consider it a replacement if it happened after the first_seen date
-        if last_jump_date > first_seen:
-            return last_jump_date
-
-        return None
 
     def _build_eligibility_mask(
         self,
@@ -489,7 +417,7 @@ class Total2bProcessor(BaseTotal2Processor):
             eligible_mask_row = eligibility_values[date_idx]
             eligible_coins = [coin_ids[i] for i in range(len(coin_ids)) if eligible_mask_row[i]]
 
-            if len(eligible_coins) < 3:
+            if len(eligible_coins) < TOTAL2_MIN_COINS_FOR_INDEX:
                 # Not enough coins yet
                 continue
 
@@ -586,14 +514,17 @@ class Total2bProcessor(BaseTotal2Processor):
             index_df.set_index("date", inplace=True)
 
         if show_progress and scaling_events:
-            print(f"  Applied scaling to {len(scaling_events)} new coin entries:")
+            logger.info("  Applied scaling to %d new coin entries:", len(scaling_events))
             for event in scaling_events[:10]:
-                print(
-                    f"    {event['coin']:6s} {event['date']}: "
-                    f"scaled by {event['change_factor']:.6f} (prev TOTAL2b: {event['prev_total2b']:.4f})"
+                logger.info(
+                    "    %6s %s: scaled by %.6f (prev TOTAL2b: %.4f)",
+                    event["coin"],
+                    event["date"],
+                    event["change_factor"],
+                    event["prev_total2b"],
                 )
             if len(scaling_events) > 10:
-                print(f"    ... and {len(scaling_events) - 10} more")
+                logger.info("    ... and %d more", len(scaling_events) - 10)
 
         return index_df, composition_records, scaling_events
 

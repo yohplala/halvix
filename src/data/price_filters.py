@@ -17,6 +17,7 @@ all analysis modules.
 import numpy as np
 import pandas as pd
 
+from config import TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -338,3 +339,97 @@ def apply_volume_sma_smoothing_to_dataframe(
         smoothed_df = volume_df.rolling(window=window).mean()
 
     return smoothed_df
+
+
+# =============================================================================
+# Symbol Replacement Detection
+# =============================================================================
+
+# Default threshold for numerical zero (avoids division by zero issues)
+DEFAULT_ZERO_THRESHOLD = 1e-15
+
+
+def detect_symbol_replacement(
+    price_series: pd.Series,
+    threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
+    first_seen: pd.Timestamp | None = None,
+) -> pd.Timestamp | None:
+    """
+    Detect if a coin's symbol was replaced by a different token.
+
+    CryptoCompare sometimes reuses symbols for different tokens (e.g.,
+    old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
+    or old "MOVE" token replaced by Movement Labs "MOVE" in Dec 2024).
+
+    Detection methods:
+    1. **Extreme ratio jump**: Price changes by >threshold (e.g., 30x) between
+       consecutive days where both prices are positive.
+    2. **Resurrection from zero**: Price transitions from zero to positive after
+       a period of zero prices, when there was trading before the zero period.
+       This catches cases like MOVE where the old token went to exactly 0.
+
+    Args:
+        price_series: Series of close prices for a coin with DatetimeIndex
+        threshold: Ratio threshold for extreme jumps (default: 30x)
+        first_seen: Optional first-seen date; if provided, only returns
+                   replacement dates that occur after this date
+
+    Returns:
+        The date of the last symbol replacement, or None if no replacement detected
+    """
+    if price_series.empty:
+        return None
+
+    # Get previous day's price
+    prev_price = price_series.shift(1)
+
+    # Method 1: Extreme ratio detection
+    # Calculate daily price change ratios (only where both prices are positive)
+    valid_ratio_mask = (price_series > DEFAULT_ZERO_THRESHOLD) & (
+        prev_price > DEFAULT_ZERO_THRESHOLD
+    )
+    price_ratio = price_series / prev_price
+
+    # Find dates with extreme price jumps (either direction)
+    extreme_jumps = ((price_ratio > threshold) | (price_ratio < 1 / threshold)) & valid_ratio_mask
+
+    # Method 2: Resurrection from zero detection
+    # Find dates where price goes from zero to positive
+    resurrection_mask = (price_series > DEFAULT_ZERO_THRESHOLD) & (
+        prev_price <= DEFAULT_ZERO_THRESHOLD
+    )
+
+    # For resurrection to be a symbol replacement (not just coin starting to trade),
+    # there must have been trading BEFORE the zero period
+    resurrection_dates = price_series.index[resurrection_mask]
+    valid_resurrection_dates = []
+
+    for res_date in resurrection_dates:
+        # Check if there was any trading before this resurrection
+        before_mask = price_series.index < res_date
+        if before_mask.any():
+            prices_before = price_series[before_mask]
+            # If there was any positive price before this date, it's a resurrection
+            if (prices_before > DEFAULT_ZERO_THRESHOLD).any():
+                valid_resurrection_dates.append(res_date)
+
+    # Combine both detection methods
+    all_replacement_dates: set[pd.Timestamp] = set()
+
+    if extreme_jumps.any():
+        all_replacement_dates.update(price_series.index[extreme_jumps])
+
+    all_replacement_dates.update(valid_resurrection_dates)
+
+    if not all_replacement_dates:
+        return None
+
+    # Return the date of the LAST replacement (most recent)
+    # This handles cases where a symbol might be replaced multiple times
+    last_jump_date = max(all_replacement_dates)
+
+    # Only consider it a replacement if it happened after the first_seen date
+    if first_seen is not None and last_jump_date <= first_seen:
+        return None
+
+    return last_jump_date

@@ -19,6 +19,7 @@ import pandas as pd
 import pytest
 
 from data.cache import PriceDataCache
+from data.price_filters import detect_symbol_replacement
 from data.processor import (
     ProcessorError,
     Total2bProcessor,
@@ -507,7 +508,7 @@ class TestTotal2bEdgeCases:
 
 
 class TestSymbolReplacementDetection:
-    """Tests for symbol replacement detection in TOTAL2b.
+    """Tests for symbol replacement detection (shared utility).
 
     Symbol replacement occurs when CryptoCompare reuses a ticker symbol
     for a different token (e.g., old MOVE token replaced by Movement Labs MOVE).
@@ -517,21 +518,16 @@ class TestSymbolReplacementDetection:
     2. Resurrection from zero: price goes from 0 to positive after prior trading
     """
 
-    @pytest.fixture
-    def processor(self):
-        """Create a TOTAL2b processor with default settings."""
-        return Total2bProcessor()
-
-    def test_no_replacement_for_stable_prices(self, processor):
+    def test_no_replacement_for_stable_prices(self):
         """Test no replacement detected for coins with stable price history."""
         dates = pd.date_range("2024-01-01", periods=30, freq="D")
         prices = pd.Series([0.05 + i * 0.001 for i in range(30)], index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
         assert result is None
 
-    def test_extreme_ratio_detection(self, processor):
+    def test_extreme_ratio_detection(self):
         """Test detection of extreme price ratio jumps (both prices > 0)."""
         dates = pd.date_range("2024-01-01", periods=30, freq="D")
         # Price stable at ~1e-10, then jumps 1000x on day 15
@@ -539,12 +535,12 @@ class TestSymbolReplacementDetection:
         prices = pd.Series(prices_list, index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         assert result is not None
         assert result == dates[14]  # The day of the jump
 
-    def test_resurrection_from_zero_detection(self, processor):
+    def test_resurrection_from_zero_detection(self):
         """Test detection of resurrection from zero prices.
 
         This catches cases like MOVE where the old token went to exactly 0
@@ -556,12 +552,12 @@ class TestSymbolReplacementDetection:
         prices = pd.Series(prices_list, index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         assert result is not None
         assert result == dates[15]  # The day of resurrection
 
-    def test_no_replacement_for_initial_zero_to_trading(self, processor):
+    def test_no_replacement_for_initial_zero_to_trading(self):
         """Test that starting from zero is NOT detected as replacement.
 
         When a coin first starts trading (0 -> positive), this is normal
@@ -573,12 +569,12 @@ class TestSymbolReplacementDetection:
         prices = pd.Series(prices_list, index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         # Should NOT detect replacement - this is just starting to trade
         assert result is None
 
-    def test_multiple_replacements_returns_last(self, processor):
+    def test_multiple_replacements_returns_last(self):
         """Test that multiple replacements return the most recent one."""
         dates = pd.date_range("2024-01-01", periods=50, freq="D")
         # First token, then gap, second token, then gap, third token
@@ -592,13 +588,13 @@ class TestSymbolReplacementDetection:
         prices = pd.Series(prices_list, index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         assert result is not None
         # Should return the LAST replacement date (third token start)
         assert result == dates[35]
 
-    def test_replacement_must_be_after_first_seen(self, processor):
+    def test_replacement_must_be_after_first_seen(self):
         """Test that replacement date must be after the first_seen date."""
         dates = pd.date_range("2024-01-01", periods=30, freq="D")
         # Jump happens on day 5
@@ -608,12 +604,12 @@ class TestSymbolReplacementDetection:
         # Set first_seen to AFTER the jump
         first_seen = dates[10]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         # Should NOT detect replacement since it happened before first_seen
         assert result is None
 
-    def test_near_zero_threshold(self, processor):
+    def test_near_zero_threshold(self):
         """Test that very small prices (near zero threshold) are handled correctly."""
         dates = pd.date_range("2024-01-01", periods=30, freq="D")
         # Prices just BELOW zero threshold (1e-16 < 1e-15), then actual zero, then real prices
@@ -621,14 +617,14 @@ class TestSymbolReplacementDetection:
         prices = pd.Series(prices_list, index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         # The near-zero prices (1e-16) are below the threshold (1e-15),
         # so there's NO "prior trading" - this is just the coin starting to trade
         # Therefore NO resurrection should be detected
         assert result is None
 
-    def test_above_threshold_then_zero_then_trading(self, processor):
+    def test_above_threshold_then_zero_then_trading(self):
         """Test resurrection when prior prices are above the zero threshold."""
         dates = pd.date_range("2024-01-01", periods=30, freq="D")
         # Prices ABOVE zero threshold (1e-14 > 1e-15), then actual zero, then real prices
@@ -636,7 +632,7 @@ class TestSymbolReplacementDetection:
         prices = pd.Series(prices_list, index=dates)
         first_seen = dates[0]
 
-        result = processor._detect_symbol_replacement(prices, first_seen)
+        result = detect_symbol_replacement(prices, first_seen=first_seen)
 
         # The prior prices (1e-14) are above the threshold (1e-15),
         # so there IS prior trading - resurrection should be detected

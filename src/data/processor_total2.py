@@ -28,6 +28,9 @@ from data.processor_base import (
     ProcessorError,
     Total2Result,
 )
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Total2Processor(BaseTotal2Processor):
@@ -103,7 +106,7 @@ class Total2Processor(BaseTotal2Processor):
         """
         # Load and filter price data
         if show_progress:
-            print("Loading price data...")
+            logger.info("Loading price data...")
 
         price_data = self.load_all_price_data(coin_ids, show_progress=show_progress)
 
@@ -113,7 +116,7 @@ class Total2Processor(BaseTotal2Processor):
         # Filter for TOTAL2 eligibility
         eligible_ids = self.filter_coins_for_total2(list(price_data.keys()))
         if show_progress:
-            print(f"Filtered to {len(eligible_ids)} eligible coins")
+            logger.info("Filtered to %d eligible coins", len(eligible_ids))
 
         price_data = {cid: df for cid, df in price_data.items() if cid in eligible_ids}
 
@@ -122,7 +125,7 @@ class Total2Processor(BaseTotal2Processor):
 
         # Build aligned DataFrames
         if show_progress:
-            print("Building aligned DataFrames...")
+            logger.info("Building aligned DataFrames...")
 
         close_df, volume_df, volume_outliers = self.build_aligned_dataframes(
             price_data, show_progress=show_progress
@@ -130,7 +133,7 @@ class Total2Processor(BaseTotal2Processor):
 
         # Apply volume SMA smoothing
         if show_progress:
-            print("Applying volume SMA smoothing...")
+            logger.info("Applying volume SMA smoothing...")
 
         smoothed_volume_df = self.apply_volume_sma_smoothing(volume_df)
 
@@ -139,13 +142,13 @@ class Total2Processor(BaseTotal2Processor):
 
         # First pass: Calculate raw TOTAL2 (needed as baseline for entry capping)
         if show_progress:
-            print("First pass: Calculating raw TOTAL2...")
+            logger.info("First pass: Calculating raw TOTAL2...")
 
         raw_total2, _, _ = self.calculate_weighted_average(close_df, smoothed_volume_df, mask_df)
 
         # Apply entry warmup price capping
         if show_progress:
-            print("Applying entry warmup price capping...")
+            logger.info("Applying entry warmup price capping...")
 
         capped_close_df, warmup_events = self._apply_entry_warmup_capping(
             close_df.copy(),
@@ -156,7 +159,7 @@ class Total2Processor(BaseTotal2Processor):
 
         # Second pass: Recalculate TOTAL2 with capped prices
         if show_progress:
-            print("Second pass: Recalculating TOTAL2 with capped prices...")
+            logger.info("Second pass: Recalculating TOTAL2 with capped prices...")
 
         total2_series, volume_sum, coin_count = self.calculate_weighted_average(
             capped_close_df, smoothed_volume_df, mask_df
@@ -193,7 +196,7 @@ class Total2Processor(BaseTotal2Processor):
 
         # Build composition records (using capped prices)
         if show_progress:
-            print("Building composition records...")
+            logger.info("Building composition records...")
 
         composition_records = self.build_composition_records(
             capped_close_df, smoothed_volume_df, rank_df, mask_df, index_df.index
@@ -355,15 +358,18 @@ class Total2Processor(BaseTotal2Processor):
                     capped_df.loc[dt, coin_id] = capped_price
 
         if events and show_progress:
-            print(f"  Entry warmup capping: {len(events)} price caps applied")
+            logger.info("  Entry warmup capping: %d price caps applied", len(events))
             for e in events[:5]:
-                print(
-                    f"    {e['coin']} {e['date']}: "
-                    f"{e['original']:.6f} → {e['corrected']:.6f} "
-                    f"(day {e['days_since_entry']})"
+                logger.info(
+                    "    %s %s: %.6f → %.6f (day %d)",
+                    e["coin"],
+                    e["date"],
+                    e["original"],
+                    e["corrected"],
+                    e["days_since_entry"],
                 )
             if len(events) > 5:
-                print(f"    ... and {len(events) - 5} more")
+                logger.info("    ... and %d more", len(events) - 5)
 
         return capped_df, events
 
@@ -448,9 +454,10 @@ class Total2Processor(BaseTotal2Processor):
             events.extend(corrections_made)
 
             if show_progress and corrections_made:
-                print(
-                    f"  TOTAL2 smoothing iteration {iteration + 1}: "
-                    f"{len(corrections_made)} corrections"
+                logger.info(
+                    "  TOTAL2 smoothing iteration %d: %d corrections",
+                    iteration + 1,
+                    len(corrections_made),
                 )
 
         return working_series, events
