@@ -131,7 +131,7 @@ poetry run python -m main generate-cycle-charts --output-dir ./my-charts
 Run pattern analysis to identify cycle min/max points and project price targets using trendlines, Fibonacci extensions, and diminishing returns models:
 
 ```bash
-# Run pattern analysis (default: top 9 altcoins)
+# Run pattern analysis (default: top 14 altcoins)
 poetry run python -m main analyze-patterns
 
 # Analyze more altcoins

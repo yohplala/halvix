@@ -25,7 +25,7 @@ format YYYY.MM.patch.
 - **Added:** Pattern analysis charts (`visualization/pattern_charts.py`)
   - BTC/USD and altcoin/BTC pattern visualization
   - Interactive charts showing cycle points and target projections
-  - Main pattern analysis page with top 9 altcoins ranking
+  - Main pattern analysis page with top 14 altcoins ranking
   - Refactored target labels for proper log-scale positioning with colored text
 - **Improved:** Stricter data validation for cycle pattern analysis
   - Log-price overflow protection for extreme trendline projections

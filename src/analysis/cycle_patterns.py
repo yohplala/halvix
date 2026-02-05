@@ -27,7 +27,7 @@ Usage:
 
     analyzer = CyclePatternAnalyzer()
     results = analyzer.analyze_all_coins()
-    top_coins = analyzer.get_top_coins(n=9)
+    top_coins = analyzer.get_top_coins(n=14)
 """
 
 import json

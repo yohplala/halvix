@@ -53,6 +53,7 @@ from config import (
     DOWNLOAD_SKIPPED_CSV,
     FETCH_METADATA_JSON,
     OUTPUT_DIR,
+    PATTERN_ANALYSIS_TOP_N,
     PROJECT_ROOT,
     TOP_N_BY_MARKETCAP_TO_FETCH,
     TOP_N_BY_VOLUME_FOR_TOTAL2,
@@ -870,8 +871,8 @@ def main() -> int:
         "--top-n",
         "-n",
         type=int,
-        default=9,
-        help="Number of top altcoins to include (default: 9)",
+        default=PATTERN_ANALYSIS_TOP_N,
+        help=f"Number of top altcoins to include (default: {PATTERN_ANALYSIS_TOP_N})",
     )
 
     # status command

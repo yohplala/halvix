@@ -679,6 +679,9 @@ CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
 # Pattern Analysis Coin Selection
 # =============================================================================
 
+# Number of top altcoins to include in pattern analysis page (ranked by composite score)
+PATTERN_ANALYSIS_TOP_N = 14
+
 # How far back to look for coins that were in TOTAL2 (years)
 # Coins must have been in TOTAL2 within this period to be analyzed.
 # This expanded selection allows analysis of coins even if they temporarily

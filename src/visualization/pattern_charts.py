@@ -25,6 +25,7 @@ from config import (
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
+    PATTERN_ANALYSIS_TOP_N,
     PROJECTED_5TH_HALVING,
 )
 from data.cache import PriceDataCache
@@ -1246,7 +1247,7 @@ def generate_pattern_analysis_page(
 
 def generate_all_pattern_charts(
     output_dir: Path,
-    top_n: int = 9,
+    top_n: int = PATTERN_ANALYSIS_TOP_N,
     show_progress: bool = True,
 ) -> dict[str, Path]:
     """

@@ -353,7 +353,7 @@ Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30)
 ### CLI Command
 
 ```bash
-# Run pattern analysis (default: top 9 altcoins)
+# Run pattern analysis (default: top 14 altcoins)
 poetry run python -m main analyze-patterns
 
 # Specify number of top coins
