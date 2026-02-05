@@ -477,7 +477,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
 | `LOW_CONFIDENCE_PENALTY_FACTOR` | 0.3 | Penalty multiplier for low confidence coins |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
-| `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Fallback for single-cycle coins |
+| `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 
 ## Halving Cycle Windows
 

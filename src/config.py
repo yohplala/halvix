@@ -69,6 +69,11 @@ DAYS_BEFORE_HALVING = 550
 DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
 TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1500 days
 
+# Expected peak timing: ~550 days after halving (~18 months)
+# This is when the bull market typically peaks before the next bear market.
+# Note: This equals DAYS_BEFORE_HALVING by design (peak is when next cycle's pre-window starts)
+EXPECTED_PEAK_DAYS_AFTER_HALVING = 550
+
 
 # =============================================================================
 # HalvingCycle Value Object
@@ -669,6 +674,16 @@ LOW_CONFIDENCE_PENALTY_FACTOR = 0.3
 # reference point for regression calculations regardless of when the actual minimum occurs.
 # Note: The actual detected min1 date/price is still used for display and other methods.
 CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
+
+# =============================================================================
+# Pattern Analysis Coin Selection
+# =============================================================================
+
+# How far back to look for coins that were in TOTAL2 (years)
+# Coins must have been in TOTAL2 within this period to be analyzed.
+# This expanded selection allows analysis of coins even if they temporarily
+# dropped out of the TOTAL2 top 30.
+TOTAL2_LOOKBACK_YEARS = 3
 
 
 # =============================================================================

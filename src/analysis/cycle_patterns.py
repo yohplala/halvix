@@ -45,6 +45,7 @@ from config import (
     DAYS_BEFORE_HALVING,
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
+    EXPECTED_PEAK_DAYS_AFTER_HALVING,
     HALVING_DATES,
     LOW_CONFIDENCE_PENALTY_FACTOR,
     MIN_COIN_AGE_DAYS,
@@ -53,6 +54,7 @@ from config import (
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
+    TOTAL2_LOOKBACK_YEARS,
     TRENDLINE_LOG_PRICE_LIMIT,
     TRENDLINE_MAJOR_POINT_WEIGHT,
     TRENDLINE_MINOR_POINT_WEIGHT,
@@ -203,9 +205,6 @@ class CyclePatternAnalyzer:
     Then applies 3 projection methods and ranks by composite target.
     """
 
-    # How far back to look for coins in TOTAL2 (years)
-    TOTAL2_LOOKBACK_YEARS = 3
-
     def __init__(
         self,
         price_cache: PriceDataCache | None = None,
@@ -265,7 +264,7 @@ class CyclePatternAnalyzer:
         comp_df = self._load_total2_composition()
         if comp_df is not None:
             # Filter to coins that were in TOTAL2 within the lookback period
-            lookback_cutoff = date.today() - timedelta(days=self.TOTAL2_LOOKBACK_YEARS * 365)
+            lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
 
             # Convert date column if needed
             if "date" in comp_df.columns:
@@ -283,7 +282,7 @@ class CyclePatternAnalyzer:
                 logger.info(
                     "Found %d coins in TOTAL2 within past %d years (from %s)",
                     len(self._total2_coins),
-                    self.TOTAL2_LOOKBACK_YEARS,
+                    TOTAL2_LOOKBACK_YEARS,
                     lookback_cutoff.isoformat(),
                 )
             else:
@@ -1126,7 +1125,7 @@ class CyclePatternAnalyzer:
 
             # Project to expected peak of cycle 5
             # Approximate: halving + 550 days (typical peak timing)
-            target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
+            target_date = PROJECTED_5TH_HALVING + timedelta(days=EXPECTED_PEAK_DAYS_AFTER_HALVING)
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
             if target is not None:
                 result.trendline_target = target
@@ -1218,7 +1217,7 @@ class CyclePatternAnalyzer:
         # Check that coin was in TOTAL2 within the lookback period
         # This is now handled by _get_total2_coins, but double-check here
         if last_total2 is not None:
-            lookback_cutoff = date.today() - timedelta(days=self.TOTAL2_LOOKBACK_YEARS * 365)
+            lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
             if last_total2 < lookback_cutoff:
                 logger.debug(
                     "%s: Last in TOTAL2 on %s, before lookback cutoff %s, skipping",
@@ -1306,7 +1305,7 @@ class CyclePatternAnalyzer:
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
             # Project to cycle 5 peak (halving + 550 days)
-            target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
+            target_date = PROJECTED_5TH_HALVING + timedelta(days=EXPECTED_PEAK_DAYS_AFTER_HALVING)
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
             if target is not None:
                 result.trendline_target = target
@@ -1403,7 +1402,7 @@ class CyclePatternAnalyzer:
             logger.info(
                 "Analyzing %d coins (in TOTAL2 within past %d years, from %d cached)",
                 len(coins_to_analyze),
-                self.TOTAL2_LOOKBACK_YEARS,
+                TOTAL2_LOOKBACK_YEARS,
                 len(cached_coins),
             )
         else:

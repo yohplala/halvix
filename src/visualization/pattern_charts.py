@@ -10,6 +10,7 @@ Generates HTML pages with cycle pattern analysis charts showing:
 All charts use the same time scale (cycles 3, 4, and projected 5).
 """
 
+import math
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -78,6 +79,25 @@ CYCLE_COLORS = {
 }
 
 
+def _format_pct(value: float, decimals: int = 0) -> str:
+    """
+    Format a percentage value with proper sign handling.
+
+    Positive values get a '+' prefix, negative values get '-' (no double sign).
+
+    Args:
+        value: The percentage value
+        decimals: Number of decimal places (default: 0)
+
+    Returns:
+        Formatted string like "+42%" or "-15%"
+    """
+    if decimals == 0:
+        return f"{value:+.0f}%"
+    else:
+        return f"{value:+.{decimals}f}%"
+
+
 def _add_target_predictions(
     fig: go.Figure,
     targets: list[tuple[str, float, float, str]],
@@ -123,7 +143,7 @@ def _add_target_predictions(
                 hovertemplate=(
                     f"<b>{label} Target</b><br>"
                     f"Price: {price_fmt}<br>"
-                    f"Gain: +{target_pct:.1f}%"
+                    f"Gain: {_format_pct(target_pct, 1)}"
                     "<extra></extra>"
                 ),
             )
@@ -135,7 +155,7 @@ def _add_target_predictions(
 
     # Add composite line first (at the top)
     if composite_pct is not None:
-        text_lines.append((f"Composite: +{composite_pct:.0f}%", grey_color))
+        text_lines.append((f"Composite: {_format_pct(composite_pct)}", grey_color))
 
     # Add targets in same order as stars (by price descending)
     for label, target_price, target_pct, color in targets_sorted:
@@ -143,7 +163,7 @@ def _add_target_predictions(
             price_k = target_price / 1000 if target_price >= 1000 else target_price
             price_str = f"${price_k:.0f}k" if target_price >= 1000 else f"${target_price:.2f}"
         else:
-            price_str = f"+{target_pct:.0f}%"
+            price_str = _format_pct(target_pct)
         text_lines.append((f"{label}: {price_str}", color))
 
     # Add text annotations in bottom right corner
@@ -260,6 +280,53 @@ def _add_historical_peak_line(
         line={"dash": "dot", "color": TRENDLINE_COLOR, "width": 1},
         annotation_text="",
     )
+
+
+def _calculate_y_axis_range(
+    price_series: list[float],
+    point_prices: list[float],
+    target_prices: list[float],
+    hist_peak: float | None = None,
+    padding: float = 0.3,
+) -> list[float] | None:
+    """
+    Calculate y-axis range for log-scale charts based on actual data.
+
+    This prevents trendlines extrapolated to empty regions (e.g., backwards to 2020
+    for coins that didn't exist) from stretching the axis to extreme values like 1 BTC.
+
+    IMPORTANT: For Plotly log scale, the range must be specified in exponents (powers of 10),
+    not actual values. For example, to set range from 0.00001 to 0.01:
+    - Actual values: [0.00001, 0.01]
+    - Exponents: [log10(0.00001), log10(0.01)] = [-5, -2]
+
+    See: https://plotly.com/python/log-plot/
+
+    Args:
+        price_series: List of prices from the price curve (e.g., df["close"])
+        point_prices: List of prices from min/max point markers
+        target_prices: List of prices from target star markers
+        hist_peak: Historical peak price (optional)
+        padding: Padding in decades (log10 units) above and below. Default 0.3 (~2x margin)
+
+    Returns:
+        List of [min_exponent, max_exponent] for Plotly yaxis.range, or None if no valid data
+    """
+    # Collect all positive y values from visible data elements
+    y_values = [v for v in price_series if v > 0]
+    y_values.extend([p for p in point_prices if p > 0])
+    y_values.extend([t for t in target_prices if t > 0])
+    if hist_peak and hist_peak > 0:
+        y_values.append(hist_peak)
+
+    if not y_values:
+        return None
+
+    y_min = min(y_values)
+    y_max = max(y_values)
+
+    # Return range in log10 exponents with padding
+    return [math.log10(y_min) - padding, math.log10(y_max) + padding]
 
 
 def _get_cycle5_min1_display_date() -> date:
@@ -503,6 +570,14 @@ def create_btc_pattern_chart(
     # Add halving lines
     _add_halving_lines(fig)
 
+    # Calculate y-axis range from actual visible data (excludes trendlines)
+    y_range = _calculate_y_axis_range(
+        price_series=list(plot_df["close"].dropna()),
+        point_prices=[p.price for p in valid_points],
+        target_prices=[t[1] for t in targets] if targets else [],
+        hist_peak=result.hist_peak_target,
+    )
+
     # Layout
     fig.update_layout(
         title={
@@ -520,6 +595,7 @@ def create_btc_pattern_chart(
             "type": "log",
             "tickprefix": "$",
             "gridcolor": "rgba(128, 128, 128, 0.2)",
+            "range": y_range,
         },
         legend={
             "yanchor": "top",
@@ -757,6 +833,14 @@ def create_altcoin_pattern_chart(
     # Add halving lines
     _add_halving_lines(fig)
 
+    # Calculate y-axis range from actual visible data (excludes trendlines)
+    y_range = _calculate_y_axis_range(
+        price_series=list(plot_df["close"].dropna()),
+        point_prices=[p.price for p in valid_points],
+        target_prices=[t[1] for t in targets] if targets else [],
+        hist_peak=result.hist_peak_target,
+    )
+
     # Layout
     confidence_badge = f"[{result.confidence.upper()}]" if result.confidence else ""
     rank_prefix = f"#{result.rank} - " if result.rank is not None else ""
@@ -775,6 +859,7 @@ def create_altcoin_pattern_chart(
             "title": "Price (BTC)",
             "type": "log",
             "gridcolor": "rgba(128, 128, 128, 0.2)",
+            "range": y_range,
         },
         legend={
             "yanchor": "top",
@@ -991,17 +1076,37 @@ def generate_pattern_analysis_page(
     if btc_result:
         btc_composite = btc_result.composite_target_pct or 0
         composite_class = "positive" if btc_composite > 0 else "negative"
+        btc_trendline = (
+            _format_pct(btc_result.trendline_target_pct)
+            if btc_result.trendline_target_pct is not None
+            else "N/A"
+        )
+        btc_fib = (
+            _format_pct(btc_result.fib_target_pct)
+            if btc_result.fib_target_pct is not None
+            else "N/A"
+        )
+        btc_dim = (
+            _format_pct(btc_result.dim_return_target_pct)
+            if btc_result.dim_return_target_pct is not None
+            else "N/A"
+        )
+        btc_hist = (
+            _format_pct(btc_result.hist_peak_target_pct)
+            if btc_result.hist_peak_target_pct is not None
+            else "N/A"
+        )
         btc_row = f"""
             <tr class="btc-row">
                 <td>0</td>
                 <td class="coin-name">BTC <span class="pair-type">(/USD)</span></td>
                 <td><span class="chart-badge badge-high">HIGH</span></td>
                 <td class="number">{btc_result.num_cycles}</td>
-                <td class="number target-value {composite_class}">+{btc_composite:.1f}%</td>
-                <td class="number">{f'+{btc_result.trendline_target_pct:.0f}%' if btc_result.trendline_target_pct is not None else 'N/A'}</td>
-                <td class="number">{f'+{btc_result.fib_target_pct:.0f}%' if btc_result.fib_target_pct is not None else 'N/A'}</td>
-                <td class="number">{f'+{btc_result.dim_return_target_pct:.0f}%' if btc_result.dim_return_target_pct is not None else 'N/A'}</td>
-                <td class="number">{f'+{btc_result.hist_peak_target_pct:.0f}%' if btc_result.hist_peak_target_pct is not None else 'N/A'}</td>
+                <td class="number target-value {composite_class}">{_format_pct(btc_composite, 1)}</td>
+                <td class="number">{btc_trendline}</td>
+                <td class="number">{btc_fib}</td>
+                <td class="number">{btc_dim}</td>
+                <td class="number">{btc_hist}</td>
             </tr>
         """
         table_rows.append(btc_row)
@@ -1018,11 +1123,11 @@ def generate_pattern_analysis_page(
                 <td class="coin-name">{coin.coin_id.upper()} <span class="pair-type">(/BTC)</span></td>
                 <td><span class="chart-badge {confidence_class}">{coin.confidence.upper()}</span></td>
                 <td class="number">{coin.num_cycles}</td>
-                <td class="number target-value {composite_class}">+{coin.composite_target_pct:.1f}%</td>
-                <td class="number">{f'+{coin.trendline_target_pct:.0f}%' if coin.trendline_target_pct is not None else 'N/A'}</td>
-                <td class="number">{f'+{coin.fib_target_pct:.0f}%' if coin.fib_target_pct is not None else 'N/A'}</td>
-                <td class="number">{f'+{coin.dim_return_target_pct:.0f}%' if coin.dim_return_target_pct is not None else 'N/A'}</td>
-                <td class="number">{f'+{coin.hist_peak_target_pct:.0f}%' if coin.hist_peak_target_pct is not None else 'N/A'}</td>
+                <td class="number target-value {composite_class}">{_format_pct(coin.composite_target_pct, 1)}</td>
+                <td class="number">{_format_pct(coin.trendline_target_pct) if coin.trendline_target_pct is not None else 'N/A'}</td>
+                <td class="number">{_format_pct(coin.fib_target_pct) if coin.fib_target_pct is not None else 'N/A'}</td>
+                <td class="number">{_format_pct(coin.dim_return_target_pct) if coin.dim_return_target_pct is not None else 'N/A'}</td>
+                <td class="number">{_format_pct(coin.hist_peak_target_pct) if coin.hist_peak_target_pct is not None else 'N/A'}</td>
             </tr>
         """
         table_rows.append(row)

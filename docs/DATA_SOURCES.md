@@ -498,7 +498,7 @@ In this example:
 
 ---
 
-*Last updated: 2025-12-24*
+*Last updated: 2026-02-05*
 
 ---
 

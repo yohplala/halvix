@@ -54,6 +54,10 @@ The TOTAL2 calculation uses these key variables from `src/config.py`:
 # Number of top coins to use for TOTAL2 calculation
 TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
 
+# Minimum coins required to calculate index for a day
+# If fewer coins have valid data, that day's index value is NaN
+TOTAL2_MIN_COINS_FOR_INDEX = 3
+
 # Volume smoothing window for TOTAL2 calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
 # 120 days (~4 months) provides stable ranking and reduces max weight change
