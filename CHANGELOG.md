@@ -12,7 +12,7 @@ format YYYY.MM.patch.
 
 ## 2025.12
 
-### [2025.12.11] - 2026-02-04
+### [2025.12.11] - 2026-02-05
 
 **Cycle pattern analysis with price target projections**
 
@@ -21,17 +21,21 @@ format YYYY.MM.patch.
   - Three projection methods: Log-Linear Trendline, Fibonacci 127.2% Extension, Diminishing Returns
   - Composite scoring with equal-weight average of available methods
   - TOTAL2 composition filtering for altcoin analysis
+  - Symbol replacement detection for tokens with zero price history
 - **Added:** Pattern analysis charts (`visualization/pattern_charts.py`)
   - BTC/USD and altcoin/BTC pattern visualization
   - Interactive charts showing cycle points and target projections
   - Main pattern analysis page with top 9 altcoins ranking
+  - Refactored target labels for proper log-scale positioning with colored text
 - **Improved:** Stricter data validation for cycle pattern analysis
   - Minimum 1200-day span required for trendline fitting
   - Prevents unreliable extrapolations from short data spans
+- **Changed:** Renamed `AGENTS.md` to `CLAUDE.md`
+- **Removed:** Cursor rules file
 - **Fixed:** Edge cases in pattern analysis for coins with limited history
 - **Fixed:** Linter errors (set comprehensions, unused imports/variables)
 
-**Categories:** Features, Analysis, Visualization, Code Quality
+**Categories:** Features, Analysis, Visualization, Code Quality, Refactoring
 
 ### [2025.12.10] - 2025-12-25
 
