@@ -655,6 +655,12 @@ MIN_COIN_AGE_DAYS = 365  # 1 year minimum
 # Threshold: require at least 30 unique price values over the coin's history.
 MIN_UNIQUE_PRICES = 30
 
+# Low confidence penalty factor for composite score
+# Coins with only 1 cycle of data (LOW confidence) have their composite score
+# multiplied by this factor to reflect higher uncertainty.
+# Value of 0.3 means a 70% penalty (composite × 0.3).
+LOW_CONFIDENCE_PENALTY_FACTOR = 0.3
+
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
 # For trendline regression (which uses dates as x-coordinates), we use an approximated date

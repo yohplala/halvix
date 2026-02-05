@@ -39,7 +39,6 @@ import numpy as np
 import pandas as pd
 
 from config import (
-    BTC_CYCLE_BOTTOMS,
     BTC_CYCLE_PEAKS,
     CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
@@ -47,6 +46,7 @@ from config import (
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
     HALVING_DATES,
+    LOW_CONFIDENCE_PENALTY_FACTOR,
     MIN_COIN_AGE_DAYS,
     MIN_LOWER_SLOPE,
     MIN_UNIQUE_PRICES,
@@ -99,6 +99,8 @@ class CoinPatternResult:
     trendline_target_pct: float | None = None
     upper_slope: float | None = None
     lower_slope: float | None = None
+    upper_intercept: float | None = None  # For trendline visualization
+    lower_intercept: float | None = None  # For trendline visualization
 
     # Method 2: Fibonacci extension (127.2%)
     fib_target: float | None = None
@@ -109,7 +111,12 @@ class CoinPatternResult:
     dim_return_target_pct: float | None = None
     dim_return_factor: float | None = None
 
-    # Composite score (equal weight average of 3 methods)
+    # Method 4: Historical peak
+    hist_peak_target: float | None = None
+    hist_peak_target_pct: float | None = None
+    hist_peak_is_absolute: bool | None = None  # True if prev cycle max2 was absolute max
+
+    # Composite score (equal weight average of 4 methods)
     composite_target_pct: float | None = None
 
     # Current price for reference (returns are calculated vs this price)
@@ -154,6 +161,9 @@ class BTCPatternResult:
     dim_return_target: float | None = None
     dim_return_target_pct: float | None = None
     dim_return_factor: float | None = None
+    hist_peak_target: float | None = None
+    hist_peak_target_pct: float | None = None
+    hist_peak_is_absolute: bool | None = None
     composite_target_pct: float | None = None
 
     # Current price (returns are calculated vs this price)
@@ -164,6 +174,8 @@ class BTCPatternResult:
     pattern_type: str | None = None
     upper_slope: float | None = None
     lower_slope: float | None = None
+    upper_intercept: float | None = None
+    lower_intercept: float | None = None
 
 
 class CyclePatternAnalyzer:
@@ -968,6 +980,61 @@ class CyclePatternAnalyzer:
 
         return None, None
 
+    def _calculate_historical_peak(
+        self,
+        points: list[CyclePoint],
+    ) -> tuple[float | None, bool | None]:
+        """
+        Calculate historical peak target.
+
+        Logic:
+        - If previous cycle max2 is the absolute max across all cycles -> use that value
+        - Otherwise -> weighted average of all historical peaks (67% max2, 33% max1)
+
+        Returns:
+            Tuple of (target_price, is_absolute_max)
+        """
+        # Get all max points
+        max2_points = [p for p in points if p.point_type == "max2" and p.price > 0]
+        max1_points = [p for p in points if p.point_type == "max1" and p.price > 0]
+
+        if not max2_points:
+            return None, None
+
+        # Find the most recent cycle with max2 (previous cycle)
+        latest_max2 = max(max2_points, key=lambda p: p.cycle_num)
+
+        # Find absolute max across all max2 points
+        absolute_max2 = max(max2_points, key=lambda p: p.price)
+
+        # Case A: Previous cycle max2 is the absolute maximum
+        if latest_max2.price >= absolute_max2.price:
+            return latest_max2.price, True
+
+        # Case B: Previous cycle max2 is NOT the absolute max
+        # Calculate weighted average of all historical peaks
+        all_peaks = max2_points + max1_points
+        if not all_peaks:
+            return None, None
+
+        # Weighted sum: max2 gets 67%, max1 gets 33%
+        weighted_sum = 0.0
+        weight_total = 0.0
+
+        for p in max2_points:
+            weighted_sum += p.price * TRENDLINE_MAJOR_POINT_WEIGHT
+            weight_total += TRENDLINE_MAJOR_POINT_WEIGHT
+
+        for p in max1_points:
+            weighted_sum += p.price * TRENDLINE_MINOR_POINT_WEIGHT
+            weight_total += TRENDLINE_MINOR_POINT_WEIGHT
+
+        if weight_total == 0:
+            return None, None
+
+        weighted_avg = weighted_sum / weight_total
+        return weighted_avg, False
+
     def _classify_pattern(
         self,
         upper_slope: float | None,
@@ -997,7 +1064,10 @@ class CyclePatternAnalyzer:
 
     def analyze_btc(self) -> BTCPatternResult | None:
         """
-        Analyze BTC/USD pattern using predefined peaks and bottoms.
+        Analyze BTC/USD pattern using the same cycle point detection as altcoins.
+
+        This uses _find_cycle_points to detect all 4 point types (min1, max1, min2, max2)
+        for each cycle, ensuring consistent visualization with altcoin charts.
 
         Returns:
             BTCPatternResult or None if data unavailable
@@ -1011,91 +1081,34 @@ class CyclePatternAnalyzer:
 
         result = BTCPatternResult()
 
-        # Use hardcoded BTC peaks and bottoms (verified data)
-        # Map to CyclePoints using cycles 2, 3, 4
-        # Get prices at known peak/bottom dates
-        for i, (halving_date, peak_date) in enumerate(
-            zip(HALVING_DATES[1:], BTC_CYCLE_PEAKS, strict=False)
-        ):
-            cycle_num = i + 2  # Cycles 2, 3, 4
+        # Use _find_cycle_points for each halving cycle (same as altcoins)
+        # This detects all 4 point types: min1, max1, min2, max2
+        for i, halving_date in enumerate(self.all_halvings):
+            if halving_date in HALVING_DATES:
+                cycle_num = HALVING_DATES.index(halving_date) + 1
+            else:
+                # Projected halving (cycle 5)
+                cycle_num = 5
+            is_current = halving_date == PROJECTED_5TH_HALVING
 
-            # Find the bottom that precedes this halving
-            for bottom_date in BTC_CYCLE_BOTTOMS:
-                if bottom_date < halving_date:
-                    # Check if this bottom is in the pre-halving window
-                    window_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
-                    if window_start <= bottom_date < halving_date:
-                        # Get price at bottom date
-                        try:
-                            bottom_ts = pd.Timestamp(bottom_date)
-                            if bottom_ts in btc_df.index:
-                                price = float(btc_df.loc[bottom_ts, "close"])
-                            else:
-                                # Find nearest date
-                                nearest = btc_df.index[
-                                    btc_df.index.get_indexer([bottom_ts], method="nearest")[0]
-                                ]
-                                price = float(btc_df.loc[nearest, "close"])
+            # Get next halving date to prevent window overlap
+            next_halving = self.all_halvings[i + 1] if i + 1 < len(self.all_halvings) else None
 
-                            result.points.append(
-                                CyclePoint(
-                                    date=bottom_date,
-                                    price=price,
-                                    cycle_num=cycle_num,
-                                    point_type="min1",
-                                    days_from_halving=(bottom_date - halving_date).days,
-                                )
-                            )
-                        except Exception as e:
-                            logger.debug("Could not get price for %s: %s", bottom_date, e)
-
-            # Get peak price
-            try:
-                peak_ts = pd.Timestamp(peak_date)
-                if peak_ts in btc_df.index:
-                    price = float(btc_df.loc[peak_ts, "close"])
-                else:
-                    nearest = btc_df.index[btc_df.index.get_indexer([peak_ts], method="nearest")[0]]
-                    price = float(btc_df.loc[nearest, "close"])
-
-                result.points.append(
-                    CyclePoint(
-                        date=peak_date,
-                        price=price,
-                        cycle_num=cycle_num,
-                        point_type="max2",
-                        days_from_halving=(peak_date - halving_date).days,
-                    )
-                )
-            except Exception as e:
-                logger.debug("Could not get price for %s: %s", peak_date, e)
-
-        # Add cycle 5 first point (min1 since last BTC peak - October 2025)
-        halving_5 = HALVING_DATES[3]  # 2024 halving
-        last_btc_peak = BTC_CYCLE_PEAKS[-1] if BTC_CYCLE_PEAKS else halving_5
-        post_peak_mask = btc_df.index.date >= last_btc_peak
-        post_peak_data = btc_df[post_peak_mask]
-
-        if not post_peak_data.empty:
-            min5_idx = post_peak_data["close"].idxmin()
-            min5_price = post_peak_data.loc[min5_idx, "close"]
-            min5_date = min5_idx.date() if hasattr(min5_idx, "date") else min5_idx
-
-            result.points.append(
-                CyclePoint(
-                    date=min5_date,
-                    price=float(min5_price),
-                    cycle_num=5,
-                    point_type="min1",
-                    days_from_halving=(min5_date - halving_5).days,
-                )
+            cycle_points = self._find_cycle_points(
+                btc_df,
+                halving_date,
+                cycle_num,
+                is_current_cycle=is_current,
+                next_halving_date=next_halving,
             )
+            result.points.extend(cycle_points)
 
         if not result.points:
             logger.warning("No BTC cycle points found")
             return None
 
-        result.num_cycles = len({p.cycle_num for p in result.points})
+        # Count cycles based on min1 points (consistent with altcoin logic)
+        result.num_cycles = len({p.cycle_num for p in result.points if p.point_type == "min1"})
 
         # Get current price (returns are calculated vs this price)
         result.current_price = float(btc_df["close"].iloc[-1])
@@ -1107,6 +1120,8 @@ class CyclePatternAnalyzer:
         if upper_slope is not None:
             result.upper_slope = upper_slope
             result.lower_slope = lower_slope
+            result.upper_intercept = upper_int
+            result.lower_intercept = lower_int
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
             # Project to expected peak of cycle 5
@@ -1130,13 +1145,21 @@ class CyclePatternAnalyzer:
             result.dim_return_target_pct = (dim_target / result.current_price - 1) * 100
             result.dim_return_factor = dim_factor
 
-        # Composite target (equal weight)
+        # Historical peak
+        hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(result.points)
+        if hist_peak_target:
+            result.hist_peak_target = hist_peak_target
+            result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
+            result.hist_peak_is_absolute = hist_peak_is_absolute
+
+        # Composite target (equal weight of all 4 methods)
         pcts = [
             p
             for p in [
                 result.trendline_target_pct,
                 result.fib_target_pct,
                 result.dim_return_target_pct,
+                result.hist_peak_target_pct,
             ]
             if p is not None
         ]
@@ -1243,7 +1266,9 @@ class CyclePatternAnalyzer:
             logger.debug("%s: No cycle points found", coin_id.upper())
             return None
 
-        result.num_cycles = len({p.cycle_num for p in result.points})
+        # Count cycles where coin has min1 (pre-halving data proves coin existed before halving)
+        # Post-halving-only data (min2/max2) doesn't count as experiencing a full cycle
+        result.num_cycles = len({p.cycle_num for p in result.points if p.point_type == "min1"})
 
         # Check minimum cycles requirement
         if result.num_cycles < self.min_cycles:
@@ -1276,6 +1301,8 @@ class CyclePatternAnalyzer:
         if upper_slope is not None:
             result.upper_slope = upper_slope
             result.lower_slope = lower_slope
+            result.upper_intercept = upper_int
+            result.lower_intercept = lower_int
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
             # Project to cycle 5 peak (halving + 550 days)
@@ -1298,20 +1325,46 @@ class CyclePatternAnalyzer:
             result.dim_return_target_pct = (dim_target / result.current_price - 1) * 100
             result.dim_return_factor = dim_factor
 
+        # Historical peak
+        hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(result.points)
+        if hist_peak_target:
+            result.hist_peak_target = hist_peak_target
+            result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
+            result.hist_peak_is_absolute = hist_peak_is_absolute
+
         # Composite target (equal weight of available methods)
-        # No cap - show raw projections to expose any issues
-        pcts = [
-            p
-            for p in [
-                result.trendline_target_pct,
-                result.fib_target_pct,
-                result.dim_return_target_pct,
+        # For low confidence coins (1 cycle):
+        #   1. Exclude trendline - it's unreliable with only 2 points
+        #   2. Apply penalty factor to reflect higher uncertainty
+        if result.confidence == "low":
+            # Exclude trendline for low confidence - 2-point trendline is statistically meaningless
+            pcts = [
+                p
+                for p in [
+                    result.fib_target_pct,
+                    result.dim_return_target_pct,
+                    result.hist_peak_target_pct,
+                ]
+                if p is not None
             ]
-            if p is not None
-        ]
+        else:
+            pcts = [
+                p
+                for p in [
+                    result.trendline_target_pct,
+                    result.fib_target_pct,
+                    result.dim_return_target_pct,
+                    result.hist_peak_target_pct,
+                ]
+                if p is not None
+            ]
 
         if pcts:
-            result.composite_target_pct = np.mean(pcts)
+            composite = np.mean(pcts)
+            # Apply penalty factor for low confidence coins
+            if result.confidence == "low":
+                composite *= LOW_CONFIDENCE_PENALTY_FACTOR
+            result.composite_target_pct = composite
         else:
             result.composite_target_pct = None
 
@@ -1477,6 +1530,9 @@ class CyclePatternAnalyzer:
                 "fib_target_pct": btc_result.fib_target_pct,
                 "dim_return_target": btc_result.dim_return_target,
                 "dim_return_target_pct": btc_result.dim_return_target_pct,
+                "hist_peak_target": btc_result.hist_peak_target,
+                "hist_peak_target_pct": btc_result.hist_peak_target_pct,
+                "hist_peak_is_absolute": btc_result.hist_peak_is_absolute,
                 "composite_target_pct": btc_result.composite_target_pct,
             }
 
@@ -1502,6 +1558,9 @@ class CyclePatternAnalyzer:
                 "dim_return_target": result.dim_return_target,
                 "dim_return_target_pct": result.dim_return_target_pct,
                 "dim_return_factor": result.dim_return_factor,
+                "hist_peak_target": result.hist_peak_target,
+                "hist_peak_target_pct": result.hist_peak_target_pct,
+                "hist_peak_is_absolute": result.hist_peak_is_absolute,
                 "composite_target_pct": result.composite_target_pct,
             }
 

@@ -291,13 +291,17 @@ def apply_volume_corrections_to_dataframe(
         logger.info("Volume outlier corrections (%d total):", len(all_corrections))
         for c in all_corrections[:20]:
             iter_str = f" (iter {c['iteration']})" if c.get("iteration", 1) > 1 else ""
+            # Pre-format numbers with thousand separators (% formatting doesn't support ,)
+            original_str = f"{c['original']:>15,.2f}"
+            corrected_str = f"{c['corrected']:>12,.2f}"
+            ratio_str = f"{c['ratio']:,.0f}"
             logger.info(
-                "  %6s %s: %15,.2f → %12,.2f (%,.0fx median)%s",
+                "  %6s %s: %s → %s (%sx median)%s",
                 c["coin"],
                 c["date"],
-                c["original"],
-                c["corrected"],
-                c["ratio"],
+                original_str,
+                corrected_str,
+                ratio_str,
                 iter_str,
             )
         if len(all_corrections) > 20:

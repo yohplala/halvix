@@ -8,13 +8,14 @@ This document explains the cycle pattern analysis feature in Halvix, which ident
 
 ## Overview
 
-The pattern analysis identifies characteristic points within each halving cycle and uses three methods to project price targets:
+The pattern analysis identifies characteristic points within each halving cycle and uses four methods to project price targets:
 
 1. **Log-Linear Trendline Regression** - Fits regression lines through cycle peaks and troughs
 2. **Fibonacci Extension (127.2%)** - Projects targets based on previous cycle moves
 3. **Diminishing Returns Model** - Accounts for decreasing cycle-over-cycle gains
+4. **Historical Peak** - Uses historical cycle peaks as a price reference
 
-A **composite score** (equal-weight average) ranks altcoins by expected return.
+A **composite score** (equal-weight average of available methods) ranks altcoins by expected return. Low-confidence coins receive adjustments (see [Low Confidence Adjustments](#low-confidence-adjustments)).
 
 **IMPORTANT**: Returns are calculated as percentage gain from the **current price** to the projected target.
 
@@ -206,6 +207,51 @@ For coins with only 1 cycle of data, a conservative **50% diminishing factor** i
 next_cycle_gain = single_cycle_gain * 0.5
 ```
 
+### 4. Historical Peak
+
+Uses historical cycle peaks to establish a price target reference.
+
+**Logic:**
+
+1. If the **previous cycle's max2** is the **absolute maximum** across all historical cycles → use that value as the target
+2. Otherwise → calculate a **weighted average** of all historical peaks
+
+**Weighted Average Formula:**
+
+When the previous cycle max2 is NOT the absolute maximum:
+
+```
+target = (sum(max2_prices) × 0.67 + sum(max1_prices) × 0.33) /
+         (count(max2) × 0.67 + count(max1) × 0.33)
+```
+
+The weighting uses the same scheme as trendline regression:
+- **max2 points** (true cycle peaks): 67% weight
+- **max1 points** (pre-halving highs): 33% weight
+
+**Example:**
+
+For a coin with 3 cycles of data:
+- Cycle 2: max1 = 0.008 BTC, max2 = 0.012 BTC
+- Cycle 3: max1 = 0.006 BTC, max2 = 0.015 BTC (previous cycle)
+- Cycle 4: max1 = 0.004 BTC, max2 = 0.010 BTC
+
+Since max2 of cycle 3 (0.015) is the absolute maximum:
+- **Target = 0.015 BTC** (previous cycle max2 used directly)
+
+If cycle 4 max2 were 0.020 BTC instead (making it the absolute max):
+- Weighted sum = (0.012 + 0.015 + 0.020) × 0.67 + (0.008 + 0.006 + 0.004) × 0.33
+- Weighted sum = 0.047 × 0.67 + 0.018 × 0.33 = 0.03149 + 0.00594 = 0.03743
+- Weight total = 3 × 0.67 + 3 × 0.33 = 2.01 + 0.99 = 3.0
+- **Target = 0.03743 / 3.0 = 0.01248 BTC**
+
+**Rationale:**
+
+The historical peak method provides an anchor based on actual achieved prices:
+- If the previous cycle set an all-time high, that peak represents proven market valuation
+- If not, the weighted average of peaks gives a balanced view of historical highs
+- This complements the projection-based methods (trendline, Fibonacci, diminishing returns)
+
 ## Return Calculation
 
 All returns are calculated as:
@@ -218,19 +264,37 @@ Where `current_price` is the last available price in the TOTAL2-filtered data fo
 
 ## Confidence Levels
 
-Coins are assigned confidence levels based on data availability:
+Coins are assigned confidence levels based on the number of cycles where they have **pre-halving data** (min1 point). A cycle only counts if the coin existed before that halving.
 
-| Level | Cycles | Description |
-|-------|--------|-------------|
+| Level | Cycles with min1 | Description |
+|-------|------------------|-------------|
 | **HIGH** | 3+ | Full historical data (2016+ halving) |
 | **MEDIUM** | 2 | Two complete cycles (2020+ halving) |
 | **LOW** | 1 | Single cycle only (limited statistical confidence) |
+
+**Note**: Coins launched after a halving (with only post-halving data like min2/max2) do not count that cycle toward confidence. For example, a coin launched in June 2024 (after the 4th halving) only has cycle 5 min1, resulting in LOW confidence.
+
+### Low Confidence Adjustments
+
+For **LOW confidence** coins, two adjustments are applied to the composite score:
+
+**1. Trendline Exclusion**
+
+The trendline projection is excluded because:
+- A 2-point trendline (one min1 + one max point) is statistically unreliable
+- Small variations in those 2 points lead to wildly different extrapolations
+
+**2. Penalty Factor (70%)**
+
+After calculating the average of the remaining methods, a **70% penalty** is applied (composite × 0.3). This reflects the higher uncertainty of projections based on limited historical data.
+
+**Result**: Low-confidence composite = average(Fib, Diminishing, HistPeak) × 0.3
 
 ## Ranking and Filtering
 
 ### Ranking Criterion
 
-Coins are **ranked by composite target percentage** (descending). The composite score is an equal-weight average of all available projection methods (trendline, Fibonacci, diminishing returns), providing a balanced view of expected returns.
+Coins are **ranked by composite target percentage** (descending). The composite score is an equal-weight average of available projection methods (see [Low Confidence Adjustments](#low-confidence-adjustments)).
 
 ### Filtering Rules
 
@@ -325,6 +389,8 @@ The `pattern_targets.json` includes for each coin:
   "trendline_target_pct": 245.5,
   "fib_target_pct": 180.3,
   "dim_return_target_pct": -15.2,
+  "hist_peak_target_pct": 120.8,
+  "hist_peak_is_absolute": false,
   "composite_target_pct": 136.9
 }
 ```
@@ -351,9 +417,11 @@ poetry run python -m main calculate-total2
 
 Each chart shows:
 - **Light grey line**: Full price history (background context)
+- **Dashed grey lines**: Upper and lower trendlines (when available)
 - **Colored solid lines**: Cycle segments connecting min/max points
 - **Colored markers**: Individual min/max points (color-coded by type)
 - **Star markers**: Projected targets for cycle 5
+- **Dotted horizontal line**: Historical peak level (for Hist. Peak method)
 
 ### Point Colors
 
@@ -371,11 +439,12 @@ Each chart shows:
 | Blue | Trendline projection |
 | Orange | Fibonacci 127.2% extension |
 | Purple | Diminishing returns |
+| Green | Historical peak |
 
 ### Limitations
 
 - **Very new coins** (e.g., HYPE) may have insufficient cycle data for any projections - they need at least one complete cycle with min+max points
-- **Single-cycle coins** have low statistical confidence
+- **Single-cycle coins** have low statistical confidence (trendline excluded from composite)
 - **Projections are not financial advice** - they represent mathematical extrapolations
 - **Market conditions change** - historical patterns may not repeat
 - **Alt/BTC ratios** can diverge significantly from projections during market regime changes
@@ -406,6 +475,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MIN_LOWER_SLOPE_ANNUAL_PCT` | 8 | Minimum annual floor appreciation (%) |
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
+| `LOW_CONFIDENCE_PENALTY_FACTOR` | 0.3 | Penalty multiplier for low confidence coins |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Fallback for single-cycle coins |
 

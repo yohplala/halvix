@@ -3,8 +3,9 @@ Pattern Analysis Charts for Halvix.
 
 Generates HTML pages with cycle pattern analysis charts showing:
 - Full price curve in light grey
+- Dashed upper/lower trendlines
 - Min/max points with solid lines
-- Target projections from 3 methods
+- Target projections from 4 methods (trendline, fibonacci, diminishing, historical peak)
 
 All charts use the same time scale (cycles 3, 4, and projected 5).
 """
@@ -42,8 +43,11 @@ logger = get_logger(__name__)
 # Color Configuration
 # =============================================================================
 
-# Background curve color (light grey, very transparent)
-CURVE_COLOR = "rgba(128, 128, 128, 0.25)"
+# Background curve color (nearly white)
+CURVE_COLOR = "rgba(245, 245, 245, 0.7)"
+
+# Trendline and reference line color (darker grey for visibility)
+TRENDLINE_COLOR = "rgba(160, 160, 160, 0.7)"
 
 # Point colors by type
 POINT_COLORS = {
@@ -62,6 +66,7 @@ TARGET_COLORS = {
     "trendline": "#58a6ff",  # Blue
     "fibonacci": "#f0883e",  # Orange
     "diminishing": "#a371f7",  # Purple
+    "historical": "#3fb950",  # Green (matches max2 point color)
 }
 
 # Cycle colors (matching charts.py)
@@ -78,23 +83,20 @@ def _add_target_predictions(
     targets: list[tuple[str, float, float, str]],
     target_date: date,
     is_btc: bool = False,
-    pattern_type: str | None = None,
     composite_pct: float | None = None,
 ) -> None:
     """
     Add target prediction stars and text label to a chart.
 
-    Uses go.Scatter() for proper positioning in log scale.
-    Text is positioned at the average of min/max prices, with each line
-    having its own color matching its star. Pattern type and composite
-    are shown in grey below the targets.
+    Stars are positioned at the target date/price. Text labels are displayed
+    in the bottom right corner of the chart, starting a few days after the
+    2028 halving.
 
     Args:
         fig: Plotly figure to add traces to
         targets: List of (label, target_price, target_pct, color) tuples
-        target_date: Date to position the targets at
+        target_date: Date to position the star markers at
         is_btc: True for BTC/USD formatting, False for altcoin/BTC formatting
-        pattern_type: Pattern type string (e.g., "higher_highs")
         composite_pct: Composite target percentage
     """
     if not targets:
@@ -102,11 +104,6 @@ def _add_target_predictions(
 
     # Sort targets by price (descending) - highest first
     targets_sorted = sorted(targets, key=lambda t: t[1], reverse=True)
-
-    # Calculate text Y position: geometric mean of min and max prices (for log scale)
-    min_price = min(t[1] for t in targets)
-    max_price = max(t[1] for t in targets)
-    text_y_position = (min_price * max_price) ** 0.5  # Geometric mean for log scale
 
     # Add star markers for all targets
     for label, target_price, target_pct, color in targets:
@@ -126,17 +123,21 @@ def _add_target_predictions(
                 hovertemplate=(
                     f"<b>{label} Target</b><br>"
                     f"Price: {price_fmt}<br>"
-                    f"Gain: +{target_pct:.1f}%<br>"
-                    f"Date: ~{target_date}"
+                    f"Gain: +{target_pct:.1f}%"
                     "<extra></extra>"
                 ),
             )
         )
 
-    # Build list of all text lines: targets + pattern + composite
+    # Build list of all text lines: composite first, then targets (same order as stars)
     text_lines: list[tuple[str, str]] = []  # (text, color)
     grey_color = "#8b949e"
 
+    # Add composite line first (at the top)
+    if composite_pct is not None:
+        text_lines.append((f"Composite: +{composite_pct:.0f}%", grey_color))
+
+    # Add targets in same order as stars (by price descending)
     for label, target_price, target_pct, color in targets_sorted:
         if is_btc:
             price_k = target_price / 1000 if target_price >= 1000 else target_price
@@ -145,38 +146,120 @@ def _add_target_predictions(
             price_str = f"+{target_pct:.0f}%"
         text_lines.append((f"{label}: {price_str}", color))
 
-    # Add pattern type line in grey
-    if pattern_type:
-        pattern_display = pattern_type.replace("_", " ").title()
-        text_lines.append((f"Pattern: {pattern_display}", grey_color))
-
-    # Add composite line in grey
-    if composite_pct is not None:
-        text_lines.append((f"Composite: +{composite_pct:.0f}%", grey_color))
-
-    # Add separate text trace for each line (each with its own color)
-    # Use vertical spacing in log scale (multiply/divide by factor)
+    # Add text annotations in bottom right corner
+    # Position: x = few days after 2028 halving, y = bottom using paper coordinates
+    text_x_date = PROJECTED_5TH_HALVING + timedelta(days=30)
     num_lines = len(text_lines)
-    line_spacing_factor = 1.32  # Spacing between lines in log scale
+    line_spacing = 0.035  # Vertical spacing in paper coordinates
 
     for i, (text_label, color) in enumerate(text_lines):
-        # Calculate Y position for this line (offset from center in log space)
-        # Center the lines around text_y_position
-        center_offset = (num_lines - 1) / 2
-        line_y = text_y_position * (line_spacing_factor ** (center_offset - i))
+        # Y position from bottom up (0.05 base, increasing for each line)
+        y_paper = 0.05 + (num_lines - 1 - i) * line_spacing
 
-        fig.add_trace(
-            go.Scatter(
-                x=[target_date + timedelta(days=45)],  # Shift right to avoid star overlap
-                y=[line_y],
-                mode="text",
-                text=[text_label],
-                textposition="middle right",
-                textfont={"size": 13, "color": color},
-                showlegend=False,
-                hoverinfo="skip",
-            )
+        fig.add_annotation(
+            x=text_x_date,
+            y=y_paper,
+            xref="x",
+            yref="paper",
+            text=text_label,
+            showarrow=False,
+            font={"size": 13, "color": color},
+            xanchor="left",
+            yanchor="middle",
         )
+
+
+def _add_trendlines(
+    fig: go.Figure,
+    upper_slope: float | None,
+    upper_intercept: float | None,
+    lower_slope: float | None,
+    lower_intercept: float | None,
+    start_date: date,
+    end_date: date,
+) -> None:
+    """
+    Add dashed upper and lower trendlines to a chart.
+
+    Draws log-linear trendlines using the fitted slopes and intercepts.
+    Uses the same color as the price curve with dashed style.
+
+    Args:
+        fig: Plotly figure to add traces to
+        upper_slope: Slope of upper trendline (log scale)
+        upper_intercept: Y-intercept of upper trendline (log scale)
+        lower_slope: Slope of lower trendline (log scale)
+        lower_intercept: Y-intercept of lower trendline (log scale)
+        start_date: Chart start date
+        end_date: Chart end date
+    """
+    if upper_slope is None or upper_intercept is None:
+        return
+    if lower_slope is None or lower_intercept is None:
+        return
+
+    # Reference date for x-axis (same as in cycle_patterns.py)
+    reference_date = HALVING_DATES[1]  # 2016-07-09
+
+    # Calculate x values (days from reference)
+    x_start_days = (start_date - reference_date).days
+    x_end_days = (end_date - reference_date).days
+
+    # Calculate y values (log scale, then convert back)
+    # Guard against overflow
+    try:
+        upper_y_start = 10 ** (upper_slope * x_start_days + upper_intercept)
+        upper_y_end = 10 ** (upper_slope * x_end_days + upper_intercept)
+        lower_y_start = 10 ** (lower_slope * x_start_days + lower_intercept)
+        lower_y_end = 10 ** (lower_slope * x_end_days + lower_intercept)
+    except (OverflowError, ValueError):
+        return
+
+    # Draw upper trendline
+    fig.add_trace(
+        go.Scatter(
+            x=[start_date, end_date],
+            y=[upper_y_start, upper_y_end],
+            mode="lines",
+            name="Upper Trendline",
+            line={"color": TRENDLINE_COLOR, "width": 1, "dash": "dash"},
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+
+    # Draw lower trendline
+    fig.add_trace(
+        go.Scatter(
+            x=[start_date, end_date],
+            y=[lower_y_start, lower_y_end],
+            mode="lines",
+            name="Lower Trendline",
+            line={"color": TRENDLINE_COLOR, "width": 1, "dash": "dash"},
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+
+
+def _add_historical_peak_line(
+    fig: go.Figure,
+    hist_peak_target: float,
+) -> None:
+    """
+    Add horizontal dotted line at the historical peak level.
+
+    Uses same color as price curve with dotted style (distinct from dashed trendlines).
+
+    Args:
+        fig: Plotly figure to add the line to
+        hist_peak_target: Price level for the horizontal line
+    """
+    fig.add_hline(
+        y=hist_peak_target,
+        line={"dash": "dot", "color": TRENDLINE_COLOR, "width": 1},
+        annotation_text="",
+    )
 
 
 def _get_cycle5_min1_display_date() -> date:
@@ -208,8 +291,7 @@ def _get_time_range() -> tuple[date, date]:
     start = HALVING_DATES[2] - timedelta(days=DAYS_BEFORE_HALVING)
 
     # End: 950 days after projected 5th halving (cycle 5 end)
-    # Add extra 300 days to accommodate prediction text labels on the right
-    end = PROJECTED_5TH_HALVING + timedelta(days=DAYS_AFTER_HALVING + 300)
+    end = PROJECTED_5TH_HALVING + timedelta(days=DAYS_AFTER_HALVING)
 
     return start, end
 
@@ -264,8 +346,19 @@ def create_btc_pattern_chart(
             mode="lines",
             name="BTC/USD",
             line={"color": CURVE_COLOR, "width": 1},
-            hovertemplate="Date: %{x|%Y-%m-%d}<br>Price: $%{y:,.2f}<extra></extra>",
+            hovertemplate="<b>BTC/USD</b><br>Price: $%{y:,.2f}<extra></extra>",
         )
+    )
+
+    # 1b. Add dashed trendlines
+    _add_trendlines(
+        fig,
+        result.upper_slope,
+        result.upper_intercept,
+        result.lower_slope,
+        result.lower_intercept,
+        start_date,
+        end_date,
     )
 
     # 2. Add min/max points with connecting lines
@@ -311,6 +404,7 @@ def create_btc_pattern_chart(
                 name=f"Cycle {cycle_num}",
                 line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 2.5},
                 showlegend=True,
+                hoverinfo="skip",
             )
         )
 
@@ -330,8 +424,7 @@ def create_btc_pattern_chart(
                     name=f"{p.point_type.upper()} C{p.cycle_num}",
                     showlegend=False,
                     hovertemplate=(
-                        f"{p.point_type.upper()} (Cycle {p.cycle_num})<br>"
-                        f"Date: {display_date}<br>"
+                        f"<b>{p.point_type.upper()} (Cycle {p.cycle_num})</b><br>"
                         f"Price: ${p.price:,.2f}<br>"
                         f"Days from halving: {p.days_from_halving:+d}"
                         "<extra></extra>"
@@ -357,10 +450,11 @@ def create_btc_pattern_chart(
                     name=f"Cycle {next_cycle}",
                     line={"color": CYCLE_COLORS.get(next_cycle, "#888"), "width": 2.5},
                     showlegend=False,
+                    hoverinfo="skip",
                 )
             )
 
-    # 3. Add target predictions (stars + text label)
+    # 4. Add target predictions (stars + text label)
     target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
 
     targets = []
@@ -386,13 +480,23 @@ def create_btc_pattern_chart(
                 TARGET_COLORS["diminishing"],
             )
         )
+    if result.hist_peak_target:
+        targets.append(
+            (
+                "Hist. Peak",
+                result.hist_peak_target,
+                result.hist_peak_target_pct,
+                TARGET_COLORS["historical"],
+            )
+        )
+        # Add horizontal line at historical peak level
+        _add_historical_peak_line(fig, result.hist_peak_target)
 
     _add_target_predictions(
         fig,
         targets,
         target_date,
         is_btc=True,
-        pattern_type=result.pattern_type,
         composite_pct=result.composite_target_pct,
     )
 
@@ -409,6 +513,7 @@ def create_btc_pattern_chart(
             "title": "Date",
             "gridcolor": "rgba(128, 128, 128, 0.2)",
             "range": [start_date, end_date],
+            "hoverformat": "%Y-%m-%d",
         },
         yaxis={
             "title": "Price (USD)",
@@ -485,8 +590,19 @@ def create_altcoin_pattern_chart(
             mode="lines",
             name=f"{result.coin_id.upper()}/BTC",
             line={"color": CURVE_COLOR, "width": 1},
-            hovertemplate="Date: %{x|%Y-%m-%d}<br>Price: %{y:.8f} BTC<extra></extra>",
+            hovertemplate=f"<b>{result.coin_id.upper()}/BTC</b><br>Price: %{{y:.8f}} BTC<extra></extra>",
         )
+    )
+
+    # 1b. Add dashed trendlines
+    _add_trendlines(
+        fig,
+        result.upper_slope,
+        result.upper_intercept,
+        result.lower_slope,
+        result.lower_intercept,
+        start_date,
+        end_date,
     )
 
     # 2. Add min/max points with connecting lines
@@ -540,6 +656,7 @@ def create_altcoin_pattern_chart(
                 name=f"Cycle {cycle_num}",
                 line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 2.5},
                 showlegend=True,
+                hoverinfo="skip",
             )
         )
 
@@ -559,8 +676,7 @@ def create_altcoin_pattern_chart(
                     name=f"{p.point_type.upper()} C{p.cycle_num}",
                     showlegend=False,
                     hovertemplate=(
-                        f"{p.point_type.upper()} (Cycle {p.cycle_num})<br>"
-                        f"Date: {display_date}<br>"
+                        f"<b>{p.point_type.upper()} (Cycle {p.cycle_num})</b><br>"
                         f"Price: {p.price:.8f} BTC<br>"
                         f"Days from halving: {p.days_from_halving:+d}"
                         "<extra></extra>"
@@ -588,6 +704,7 @@ def create_altcoin_pattern_chart(
                     name=f"Cycle {next_cycle}",
                     line={"color": CYCLE_COLORS.get(next_cycle, "#888"), "width": 2.5},
                     showlegend=False,
+                    hoverinfo="skip",
                 )
             )
 
@@ -617,13 +734,23 @@ def create_altcoin_pattern_chart(
                 TARGET_COLORS["diminishing"],
             )
         )
+    if result.hist_peak_target:
+        targets.append(
+            (
+                "Hist. Peak",
+                result.hist_peak_target,
+                result.hist_peak_target_pct,
+                TARGET_COLORS["historical"],
+            )
+        )
+        # Add horizontal line at historical peak level
+        _add_historical_peak_line(fig, result.hist_peak_target)
 
     _add_target_predictions(
         fig,
         targets,
         target_date,
         is_btc=False,
-        pattern_type=result.pattern_type,
         composite_pct=result.composite_target_pct,
     )
 
@@ -642,6 +769,7 @@ def create_altcoin_pattern_chart(
             "title": "Date",
             "gridcolor": "rgba(128, 128, 128, 0.2)",
             "range": [start_date, end_date],
+            "hoverformat": "%Y-%m-%d",
         },
         yaxis={
             "title": "Price (BTC)",
@@ -870,9 +998,10 @@ def generate_pattern_analysis_page(
                 <td><span class="chart-badge badge-high">HIGH</span></td>
                 <td class="number">{btc_result.num_cycles}</td>
                 <td class="number target-value {composite_class}">+{btc_composite:.1f}%</td>
-                <td class="number">{f'+{btc_result.trendline_target_pct:.0f}%' if btc_result.trendline_target_pct else 'N/A'}</td>
-                <td class="number">{f'+{btc_result.fib_target_pct:.0f}%' if btc_result.fib_target_pct else 'N/A'}</td>
-                <td class="number">{f'+{btc_result.dim_return_target_pct:.0f}%' if btc_result.dim_return_target_pct else 'N/A'}</td>
+                <td class="number">{f'+{btc_result.trendline_target_pct:.0f}%' if btc_result.trendline_target_pct is not None else 'N/A'}</td>
+                <td class="number">{f'+{btc_result.fib_target_pct:.0f}%' if btc_result.fib_target_pct is not None else 'N/A'}</td>
+                <td class="number">{f'+{btc_result.dim_return_target_pct:.0f}%' if btc_result.dim_return_target_pct is not None else 'N/A'}</td>
+                <td class="number">{f'+{btc_result.hist_peak_target_pct:.0f}%' if btc_result.hist_peak_target_pct is not None else 'N/A'}</td>
             </tr>
         """
         table_rows.append(btc_row)
@@ -890,9 +1019,10 @@ def generate_pattern_analysis_page(
                 <td><span class="chart-badge {confidence_class}">{coin.confidence.upper()}</span></td>
                 <td class="number">{coin.num_cycles}</td>
                 <td class="number target-value {composite_class}">+{coin.composite_target_pct:.1f}%</td>
-                <td class="number">{f'+{coin.trendline_target_pct:.0f}%' if coin.trendline_target_pct else 'N/A'}</td>
-                <td class="number">{f'+{coin.fib_target_pct:.0f}%' if coin.fib_target_pct else 'N/A'}</td>
-                <td class="number">{f'+{coin.dim_return_target_pct:.0f}%' if coin.dim_return_target_pct else 'N/A'}</td>
+                <td class="number">{f'+{coin.trendline_target_pct:.0f}%' if coin.trendline_target_pct is not None else 'N/A'}</td>
+                <td class="number">{f'+{coin.fib_target_pct:.0f}%' if coin.fib_target_pct is not None else 'N/A'}</td>
+                <td class="number">{f'+{coin.dim_return_target_pct:.0f}%' if coin.dim_return_target_pct is not None else 'N/A'}</td>
+                <td class="number">{f'+{coin.hist_peak_target_pct:.0f}%' if coin.hist_peak_target_pct is not None else 'N/A'}</td>
             </tr>
         """
         table_rows.append(row)
@@ -955,8 +1085,8 @@ def generate_pattern_analysis_page(
         <h2>Cycle Pattern Analysis</h2>
         <p class="description">
             Analysis of price patterns across Bitcoin halving cycles (2020, 2024) with projections
-            for cycle 5 (2028). Three methods are used to estimate targets: log-linear trendline
-            regression, Fibonacci 127.2% extension, and diminishing returns model.
+            for cycle 5 (2028). Four methods are used to estimate targets: log-linear trendline
+            regression, Fibonacci 127.2% extension, diminishing returns model, and historical peak.
             <strong>Ranking is by composite score (descending).</strong> Coins with negative
             trendline predictions are filtered out (underperforming BTC).
             The composite score is an equal-weight average of all available methods.
@@ -974,6 +1104,7 @@ def generate_pattern_analysis_page(
                         <th>Trendline</th>
                         <th>Fibonacci</th>
                         <th>Dim. Return</th>
+                        <th>Hist. Peak</th>
                     </tr>
                 </thead>
                 <tbody>

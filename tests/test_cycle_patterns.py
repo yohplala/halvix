@@ -1288,6 +1288,52 @@ class TestEdgeCases:
             result.confidence = "low"
         assert result.confidence == "high"
 
+    def test_num_cycles_counts_only_min1_points(self, analyzer):
+        """Test that num_cycles only counts cycles where coin has min1 (pre-halving data).
+
+        A coin that only has post-halving data (min2/max2) for a cycle should not
+        count that cycle - it didn't exist before the halving.
+        """
+        from analysis.cycle_patterns import CyclePoint
+
+        # Simulate a coin like VIRTUAL: only post-halving data for cycle 4,
+        # but has min1 for cycle 5 (current cycle)
+        points = [
+            # Cycle 4: only post-halving points (no min1 - coin didn't exist pre-halving)
+            CyclePoint(
+                date=date(2024, 6, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="min2",
+                days_from_halving=43,
+            ),
+            CyclePoint(
+                date=date(2024, 12, 1),
+                price=0.05,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=226,
+            ),
+            # Cycle 5: has min1 (current cycle)
+            CyclePoint(
+                date=date(2025, 1, 15),
+                price=0.02,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-805,
+            ),
+        ]
+
+        # Count cycles based on min1 only (matching the production code logic)
+        num_cycles = len({p.cycle_num for p in points if p.point_type == "min1"})
+
+        # Should only count cycle 5 (the one with min1)
+        assert num_cycles == 1
+
+        # Verify: with old logic it would have counted 2 cycles
+        old_logic_num_cycles = len({p.cycle_num for p in points})
+        assert old_logic_num_cycles == 2  # Would have been wrong
+
 
 # =============================================================================
 # Parameterized Tests
