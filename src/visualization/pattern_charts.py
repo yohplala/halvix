@@ -570,10 +570,14 @@ def create_btc_pattern_chart(
     # Add halving lines
     _add_halving_lines(fig)
 
+    # Filter points to visible date range for y-axis calculation
+    # This prevents points from earlier cycles (outside chart range) from stretching the axis
+    visible_points = [p for p in valid_points if start_date <= p.date <= end_date]
+
     # Calculate y-axis range from actual visible data (excludes trendlines)
     y_range = _calculate_y_axis_range(
         price_series=list(plot_df["close"].dropna()),
-        point_prices=[p.price for p in valid_points],
+        point_prices=[p.price for p in visible_points],
         target_prices=[t[1] for t in targets] if targets else [],
         hist_peak=result.hist_peak_target,
     )
@@ -833,10 +837,14 @@ def create_altcoin_pattern_chart(
     # Add halving lines
     _add_halving_lines(fig)
 
+    # Filter points to visible date range for y-axis calculation
+    # This prevents points from earlier cycles (outside chart range) from stretching the axis
+    visible_points = [p for p in valid_points if start_date <= p.date <= end_date]
+
     # Calculate y-axis range from actual visible data (excludes trendlines)
     y_range = _calculate_y_axis_range(
         price_series=list(plot_df["close"].dropna()),
-        point_prices=[p.price for p in valid_points],
+        point_prices=[p.price for p in visible_points],
         target_prices=[t[1] for t in targets] if targets else [],
         hist_peak=result.hist_peak_target,
     )
