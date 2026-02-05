@@ -108,36 +108,13 @@ class CoinFilter:
 
         coin_id_lower = coin_id.lower()
 
-        # Check exact ID match
+        # Check exact ID match (handles coin_id as lowercase symbol)
         if coin_id_lower in EXCLUDED_STABLECOINS:
             return True
 
-        # Check if symbol matches common stablecoin symbols
+        # Check if symbol matches stablecoin list (uses same authoritative list)
         symbol_lower = symbol.lower() if symbol else ""
-        stablecoin_symbols = {
-            "usdt",
-            "usdc",
-            "dai",
-            "usds",
-            "usde",
-            "pyusd",
-            "tusd",
-            "busd",
-            "gusd",
-            "usdp",
-            "lusd",
-            "frax",
-            "mim",
-            "gho",
-            "fdusd",
-            "usdd",
-            "susd",
-            "eurs",
-            "eurt",
-            "usdy",
-            "usdg",
-        }
-        if symbol_lower in stablecoin_symbols:
+        if symbol_lower in EXCLUDED_STABLECOINS:
             return True
 
         return False

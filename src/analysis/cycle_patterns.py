@@ -9,7 +9,7 @@ analysis methods to project price targets for the next cycle:
 3. Diminishing Returns Model
 
 COIN SELECTION:
-- Analyzes all coins that have been in TOTAL2 at any point in the past 2 years
+- Analyzes all coins that have been in TOTAL2 at any point in the past 3 years
 - This expanded selection allows analysis of coins even if they temporarily
   dropped out of the TOTAL2 top 30
 
@@ -51,7 +51,6 @@ from config import (
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
-    TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
     TRENDLINE_LOG_PRICE_LIMIT,
     TRENDLINE_MAJOR_POINT_WEIGHT,
     TRENDLINE_MINOR_POINT_WEIGHT,
@@ -61,6 +60,7 @@ from data.cache import PriceDataCache
 from data.price_filters import (
     apply_volume_sma_smoothing,
     correct_volume_outliers,
+    detect_symbol_replacement,
 )
 from utils.logging import get_logger
 
@@ -174,7 +174,7 @@ class CyclePatternAnalyzer:
     - min1: minimum from halving to current date (or last available price if before halving)
 
     COIN SELECTION:
-    - Analyzes all coins that have been in TOTAL2 at any point in the past 2 years
+    - Analyzes all coins that have been in TOTAL2 at any point in the past 3 years
     - Coins must have been in TOTAL2 within the TOTAL2_LOOKBACK_YEARS period
 
     DATA APPROACH:
@@ -186,7 +186,7 @@ class CyclePatternAnalyzer:
     """
 
     # How far back to look for coins in TOTAL2 (years)
-    TOTAL2_LOOKBACK_YEARS = 2
+    TOTAL2_LOOKBACK_YEARS = 3
 
     def __init__(
         self,
@@ -382,76 +382,13 @@ class CyclePatternAnalyzer:
 
         return result
 
-    def _detect_symbol_replacement(
-        self,
-        price_series: pd.Series,
-        threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
-    ) -> pd.Timestamp | None:
-        """
-        Detect if a coin's symbol was replaced by a different token.
-
-        CryptoCompare sometimes reuses symbols for different tokens (e.g.,
-        old "MOVE" token replaced by Movement Labs "MOVE" in Dec 2024).
-
-        Detection methods:
-        1. Extreme ratio jump: Price changes by >threshold between consecutive
-           days where both prices are positive.
-        2. Resurrection from zero: Price transitions from zero to positive after
-           a period of zero prices, when there was trading before the zero period.
-
-        Args:
-            price_series: Series of close prices for a coin
-            threshold: Ratio threshold for extreme jumps (default: 30x)
-
-        Returns:
-            The date of the last symbol replacement, or None if no replacement detected
-        """
-        # Threshold for considering a price as "zero" (numerical precision)
-        zero_threshold = 1e-15
-
-        # Get previous day's price
-        prev_price = price_series.shift(1)
-
-        # Method 1: Extreme ratio detection
-        valid_ratio_mask = (price_series > zero_threshold) & (prev_price > zero_threshold)
-        price_ratio = price_series / prev_price
-
-        extreme_jumps = (
-            (price_ratio > threshold) | (price_ratio < 1 / threshold)
-        ) & valid_ratio_mask
-
-        # Method 2: Resurrection from zero detection
-        resurrection_mask = (price_series > zero_threshold) & (prev_price <= zero_threshold)
-
-        resurrection_dates = price_series.index[resurrection_mask]
-        valid_resurrection_dates = []
-
-        for res_date in resurrection_dates:
-            before_mask = price_series.index < res_date
-            if before_mask.any():
-                prices_before = price_series[before_mask]
-                if (prices_before > zero_threshold).any():
-                    valid_resurrection_dates.append(res_date)
-
-        # Combine both detection methods
-        all_replacement_dates = set()
-
-        if extreme_jumps.any():
-            all_replacement_dates.update(price_series.index[extreme_jumps])
-
-        all_replacement_dates.update(valid_resurrection_dates)
-
-        if not all_replacement_dates:
-            return None
-
-        return max(all_replacement_dates)
-
     def _find_cycle_points(
         self,
         df: pd.DataFrame,
         halving_date: date,
         cycle_num: int,
         is_current_cycle: bool = False,
+        next_halving_date: date | None = None,
     ) -> list[CyclePoint]:
         """
         Find the 4 characteristic points for a cycle.
@@ -459,7 +396,7 @@ class CyclePatternAnalyzer:
         Points:
         - min1: minimum in [halving-550; halving]
         - max1: maximum in [min1 date; halving]
-        - max2: maximum in [halving; halving+950]
+        - max2: maximum in [halving; min(halving+950, next_cycle_pre_start)]
         - min2: minimum in [halving; max2 date]
 
         For current cycle (cycle 5), only min1 is available:
@@ -470,6 +407,7 @@ class CyclePatternAnalyzer:
             halving_date: The halving date for this cycle
             cycle_num: Cycle number (2, 3, 4, 5)
             is_current_cycle: If True, this is cycle 5 (in progress)
+            next_halving_date: The next cycle's halving date (to prevent window overlap)
 
         Returns:
             List of CyclePoint objects (0-4 points depending on data availability)
@@ -482,6 +420,11 @@ class CyclePatternAnalyzer:
         # Define windows
         pre_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
         post_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
+
+        # Prevent overlap with next cycle's pre-halving window
+        if next_halving_date is not None:
+            next_pre_start = next_halving_date - timedelta(days=DAYS_BEFORE_HALVING)
+            post_end = min(post_end, next_pre_start)
 
         # For current cycle, we only look for min1 since the last BTC peak
         if is_current_cycle:
@@ -1178,7 +1121,7 @@ class CyclePatternAnalyzer:
         # Detect symbol replacement (e.g., old MOVE token replaced by Movement Labs MOVE)
         # If detected, filter price data to only include the new token's data
         if "close" in df.columns:
-            replacement_date = self._detect_symbol_replacement(df["close"])
+            replacement_date = detect_symbol_replacement(df["close"])
             if replacement_date is not None:
                 logger.info(
                     "%s: Symbol replacement detected on %s, filtering to post-replacement data",
@@ -1225,7 +1168,7 @@ class CyclePatternAnalyzer:
 
         # Find points for each halving cycle using FULL price data
         # Cycle 2 = 2016, Cycle 3 = 2020, Cycle 4 = 2024, Cycle 5 = 2028 (current)
-        for halving_date in self.all_halvings:
+        for i, halving_date in enumerate(self.all_halvings):
             if halving_date in HALVING_DATES:
                 cycle_num = HALVING_DATES.index(halving_date) + 1
             else:
@@ -1233,8 +1176,15 @@ class CyclePatternAnalyzer:
                 cycle_num = 5
             is_current = halving_date == PROJECTED_5TH_HALVING  # Cycle 5 is current
 
+            # Get next halving date to prevent window overlap
+            next_halving = self.all_halvings[i + 1] if i + 1 < len(self.all_halvings) else None
+
             cycle_points = self._find_cycle_points(
-                filtered_df, halving_date, cycle_num, is_current_cycle=is_current
+                filtered_df,
+                halving_date,
+                cycle_num,
+                is_current_cycle=is_current,
+                next_halving_date=next_halving,
             )
             result.points.extend(cycle_points)
 
@@ -1323,7 +1273,7 @@ class CyclePatternAnalyzer:
         Analyze all available altcoins.
 
         When filter_total2=True (default), only analyzes coins that have been
-        in TOTAL2 within the past TOTAL2_LOOKBACK_YEARS (default: 2 years).
+        in TOTAL2 within the past TOTAL2_LOOKBACK_YEARS (default: 3 years).
         This expanded selection allows analysis of coins even if they temporarily
         dropped out of the TOTAL2 top 30.
 
@@ -1331,7 +1281,7 @@ class CyclePatternAnalyzer:
         applied, allowing accurate min/max detection even outside TOTAL2 dates.
 
         Args:
-            filter_total2: If True, only analyze coins in TOTAL2 within past 2 years
+            filter_total2: If True, only analyze coins in TOTAL2 within past 3 years
             show_progress: If True, show progress bar
 
         Returns:

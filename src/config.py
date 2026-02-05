@@ -325,6 +325,7 @@ TOTAL2_SERIES_MAX_DECREASE = 0.35  # Cap TOTAL2 decrease at 0.35x per day (65% l
 # is the coin price at entry day d). This preserves day-over-day price changes.
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
+TOTAL2_MIN_COINS_FOR_INDEX = 3  # Minimum coins required to calculate index for a day
 
 # Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
@@ -595,20 +596,10 @@ USE_YESTERDAY_AS_END_DATE = True
 # Pattern Analysis Configuration
 # =============================================================================
 
-# Minimum overall data span required for trendline fitting (~2 years)
-# This is the span from earliest to latest point across all peaks and troughs
-# Ensures we have enough temporal spread for meaningful regression
-MIN_TRENDLINE_SPAN_DAYS = 700
-
 # Maximum log10 price value for trendline projection (guards against float64 overflow)
 # Values > 308 would overflow; we use 300 as a safety margin
 # This happens with very steep slopes from short data spans or outliers
 TRENDLINE_LOG_PRICE_LIMIT = 300
-
-# Maximum trendline projection percentage (guards against unrealistic extrapolations)
-# Projections beyond this are likely from fitting short data spans and extrapolating far ahead
-# 50000% = 500x gain, which is still very optimistic but not astronomical
-MAX_TRENDLINE_TARGET_PCT = 50000
 
 # Fibonacci extension levels for price projection (most common trading levels)
 FIBONACCI_LEVELS = {
@@ -660,3 +651,134 @@ MIN_LOWER_SLOPE = math.log10(1 + MIN_LOWER_SLOPE_ANNUAL_PCT / 100) / 365
 # reference point for regression calculations regardless of when the actual minimum occurs.
 # Note: The actual detected min1 date/price is still used for display and other methods.
 CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
+
+
+# =============================================================================
+# Configuration Validation
+# =============================================================================
+
+
+class ConfigurationError(Exception):
+    """Raised when configuration values are invalid or inconsistent."""
+
+
+def validate_config() -> None:
+    """
+    Validate configuration values for consistency and correctness.
+
+    Raises:
+        ConfigurationError: If any configuration values are invalid
+
+    Checks performed:
+    - Halving dates are in chronological order
+    - Time window constants are positive and consistent
+    - Numeric thresholds are within reasonable ranges
+    - Required lists/sets are not empty
+    """
+    errors: list[str] = []
+
+    # Validate halving dates are chronological
+    for i in range(len(HALVING_DATES) - 1):
+        if HALVING_DATES[i] >= HALVING_DATES[i + 1]:
+            errors.append(
+                f"HALVING_DATES must be chronological: "
+                f"{HALVING_DATES[i]} >= {HALVING_DATES[i + 1]}"
+            )
+
+    # Validate projected halving is after the last known halving
+    if HALVING_DATES and PROJECTED_5TH_HALVING <= HALVING_DATES[-1]:
+        errors.append(
+            f"PROJECTED_5TH_HALVING ({PROJECTED_5TH_HALVING}) must be after "
+            f"last halving ({HALVING_DATES[-1]})"
+        )
+
+    # Validate time window constants
+    if DAYS_BEFORE_HALVING <= 0:
+        errors.append(f"DAYS_BEFORE_HALVING must be positive: {DAYS_BEFORE_HALVING}")
+    if DAYS_AFTER_HALVING <= 0:
+        errors.append(f"DAYS_AFTER_HALVING must be positive: {DAYS_AFTER_HALVING}")
+    if TOTAL_WINDOW_DAYS != DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING:
+        errors.append(
+            f"TOTAL_WINDOW_DAYS ({TOTAL_WINDOW_DAYS}) must equal "
+            f"DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING "
+            f"({DAYS_BEFORE_HALVING} + {DAYS_AFTER_HALVING})"
+        )
+
+    # Validate TOTAL2 settings
+    if TOP_N_BY_MARKETCAP_TO_FETCH <= 0:
+        errors.append(
+            f"TOP_N_BY_MARKETCAP_TO_FETCH must be positive: {TOP_N_BY_MARKETCAP_TO_FETCH}"
+        )
+    if TOP_N_BY_VOLUME_FOR_TOTAL2 <= 0:
+        errors.append(f"TOP_N_BY_VOLUME_FOR_TOTAL2 must be positive: {TOP_N_BY_VOLUME_FOR_TOTAL2}")
+    if VOLUME_SMA_WINDOW <= 0:
+        errors.append(f"VOLUME_SMA_WINDOW must be positive: {VOLUME_SMA_WINDOW}")
+    if TOTAL2_MIN_COINS_FOR_INDEX <= 0:
+        errors.append(f"TOTAL2_MIN_COINS_FOR_INDEX must be positive: {TOTAL2_MIN_COINS_FOR_INDEX}")
+    if TOTAL2_MIN_COINS_FOR_INDEX > TOP_N_BY_VOLUME_FOR_TOTAL2:
+        errors.append(
+            f"TOTAL2_MIN_COINS_FOR_INDEX ({TOTAL2_MIN_COINS_FOR_INDEX}) should not exceed "
+            f"TOP_N_BY_VOLUME_FOR_TOTAL2 ({TOP_N_BY_VOLUME_FOR_TOTAL2})"
+        )
+
+    # Validate entry warmup parameters
+    if TOTAL2_ENTRY_MAX_INCREASE <= 1.0:
+        errors.append(f"TOTAL2_ENTRY_MAX_INCREASE must be > 1.0: {TOTAL2_ENTRY_MAX_INCREASE}")
+    if not (0.0 < TOTAL2_ENTRY_MAX_DECREASE < 1.0):
+        errors.append(
+            f"TOTAL2_ENTRY_MAX_DECREASE must be between 0 and 1: {TOTAL2_ENTRY_MAX_DECREASE}"
+        )
+    if TOTAL2_ENTRY_WARMUP_PERIOD_DAYS <= 0:
+        errors.append(
+            f"TOTAL2_ENTRY_WARMUP_PERIOD_DAYS must be positive: {TOTAL2_ENTRY_WARMUP_PERIOD_DAYS}"
+        )
+
+    # Validate TOTAL2b parameters
+    if TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS <= 0:
+        errors.append(
+            f"TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS must be positive: {TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS}"
+        )
+    if TOTAL2B_MIN_COINS_FOR_SCALING <= 0:
+        errors.append(
+            f"TOTAL2B_MIN_COINS_FOR_SCALING must be positive: {TOTAL2B_MIN_COINS_FOR_SCALING}"
+        )
+    if TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD <= 1.0:
+        errors.append(
+            f"TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD must be > 1.0: "
+            f"{TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD}"
+        )
+
+    # Validate required sets are not empty
+    if not EXCLUDED_STABLECOINS:
+        errors.append("EXCLUDED_STABLECOINS must not be empty")
+    if not EXCLUDED_WRAPPED_STAKED_IDS:
+        errors.append("EXCLUDED_WRAPPED_STAKED_IDS must not be empty")
+    if not EXCLUDED_PATTERNS:
+        errors.append("EXCLUDED_PATTERNS must not be empty")
+
+    # Validate trendline parameters
+    if TRENDLINE_LOG_PRICE_LIMIT <= 0:
+        errors.append(f"TRENDLINE_LOG_PRICE_LIMIT must be positive: {TRENDLINE_LOG_PRICE_LIMIT}")
+    if not (0.0 < TRENDLINE_MAJOR_POINT_WEIGHT <= 1.0):
+        errors.append(
+            f"TRENDLINE_MAJOR_POINT_WEIGHT must be between 0 and 1: "
+            f"{TRENDLINE_MAJOR_POINT_WEIGHT}"
+        )
+    if not (0.0 < TRENDLINE_MINOR_POINT_WEIGHT <= 1.0):
+        errors.append(
+            f"TRENDLINE_MINOR_POINT_WEIGHT must be between 0 and 1: "
+            f"{TRENDLINE_MINOR_POINT_WEIGHT}"
+        )
+
+    # Validate Fibonacci level
+    if DEFAULT_FIBONACCI_LEVEL <= 1.0:
+        errors.append(f"DEFAULT_FIBONACCI_LEVEL must be > 1.0: {DEFAULT_FIBONACCI_LEVEL}")
+
+    # Validate diminishing factor
+    if not (0.0 < DEFAULT_DIMINISHING_FACTOR < 1.0):
+        errors.append(
+            f"DEFAULT_DIMINISHING_FACTOR must be between 0 and 1: " f"{DEFAULT_DIMINISHING_FACTOR}"
+        )
+
+    if errors:
+        raise ConfigurationError("Configuration validation failed:\n" + "\n".join(errors))

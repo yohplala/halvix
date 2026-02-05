@@ -20,13 +20,13 @@ A **composite score** (equal-weight average) ranks altcoins by expected return.
 
 ## Coin Selection
 
-The pattern analyzer selects coins that have been in TOTAL2 at any point within the **past 2 years**. This expanded selection:
+The pattern analyzer selects coins that have been in TOTAL2 at any point within the **past 3 years**. This expanded selection:
 
 - Allows analysis of coins even if they temporarily dropped out of the TOTAL2 top 30
 - Includes coins that have historical TOTAL2 presence (validated by volume)
 - Provides more comprehensive market coverage
 
-**Important**: Only coins that were in TOTAL2 within the past 2 years are analyzed. Coins that have never been in TOTAL2 or were last in TOTAL2 more than 2 years ago are excluded.
+**Important**: Only coins that were in TOTAL2 within the past 3 years are analyzed. Coins that have never been in TOTAL2 or were last in TOTAL2 more than 3 years ago are excluded.
 
 ## Data Approach: Full Price History with TOTAL2 Filtering
 
@@ -58,7 +58,9 @@ For each completed halving cycle, the analyzer identifies **4 characteristic poi
 | **min1** | [halving - 550 days, halving] | Lowest price in pre-halving window |
 | **max1** | [min1 date, halving] | Highest price between min1 and halving |
 | **min2** | [halving, max2 date] | Lowest price between halving and max2 |
-| **max2** | [halving, halving + 950 days] | Highest price in post-halving window |
+| **max2** | [halving, min(halving + 950, next_pre_start)] | Highest price in post-halving window* |
+
+*The max2 window is capped at the start of the next cycle's pre-halving window to prevent overlap between cycles.
 
 ### Cycle 5 (Current Cycle)
 
@@ -355,7 +357,7 @@ Each chart shows:
 - **Projections are not financial advice** - they represent mathematical extrapolations
 - **Market conditions change** - historical patterns may not repeat
 - **Alt/BTC ratios** can diverge significantly from projections during market regime changes
-- **Coins must have been in TOTAL2** within the past 2 years to be analyzed
+- **Coins must have been in TOTAL2** within the past 3 years to be analyzed
 - **Full price history** - uses complete price data, not just TOTAL2 dates, which may include volatile periods
 
 ## Algorithm Details
