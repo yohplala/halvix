@@ -26,6 +26,7 @@ from config import (
     PROJECTED_5TH_HALVING,
 )
 from data.cache import PriceDataCache
+from data.price_filters import detect_symbol_replacement
 from utils.logging import get_logger
 from visualization.charts import (
     _get_base_css,
@@ -457,6 +458,17 @@ def create_altcoin_pattern_chart(
     coin_df = price_cache.get_prices(result.coin_id, "BTC")
     if coin_df is None or coin_df.empty:
         raise ValueError(f"{result.coin_id.upper()}/BTC data not available")
+
+    # Apply symbol replacement detection (same filtering as analysis)
+    if "close" in coin_df.columns:
+        replacement_date = detect_symbol_replacement(coin_df["close"])
+        if replacement_date is not None:
+            logger.info(
+                "Symbol replacement detected for %s at %s, filtering chart data",
+                result.coin_id,
+                replacement_date,
+            )
+            coin_df = coin_df[coin_df.index >= replacement_date]
 
     # Filter to time range
     start_date, end_date = _get_time_range()
