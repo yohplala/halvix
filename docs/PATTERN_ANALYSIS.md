@@ -82,6 +82,8 @@ This gives:
 - **1 point for current cycle** (cycle 5)
 - Up to **13 points for coins** present since cycle 2 (2016 halving)
 
+**Partial Cycles**: Coins launched mid-cycle (without pre-halving data) will have partial cycle points. For example, a coin launched in June 2022 would have cycle 3 post-halving points (min2, max2) but no pre-halving points (min1, max1). This allows analysis of newer coins while still capturing their cycle extremes.
+
 ## Analysis Methods
 
 ### 1. Log-Linear Trendline Regression
@@ -139,11 +141,13 @@ Target = C + (B - A) * 1.272
 ```
 
 Where:
-- **A** = Previous cycle minimum (min1)
-- **B** = Previous cycle maximum (max2)
-- **C** = Current cycle minimum (min1, including cycle 5 min1)
+- **A** = Previous cycle minimum (prefer min1, fallback to min2)
+- **B** = Previous cycle maximum (max2 only - true cycle peak)
+- **C** = Current cycle minimum (min1 only - true cycle start)
 
 This projects where price might reach if it extends 127.2% of the previous cycle's move from the current cycle's low.
+
+**Fallback Logic**: Only the previous cycle minimum has a fallback (min1 → min2). This allows coins with partial pre-halving data to get Fib projections while maintaining chronological order (min → max → min). No fallback is allowed for B (max) or C (current min) to preserve the correct sequence of extrema.
 
 ### 3. Diminishing Returns Model
 
@@ -230,7 +234,7 @@ Coins are **ranked by composite target percentage** (descending). The composite 
 
 ### Filtering Rules
 
-Coins are filtered to exclude assets expected to underperform BTC:
+Coins are filtered to exclude assets expected to underperform BTC or with insufficient data quality:
 
 **1. Trendline Prediction Filter:**
 
@@ -242,15 +246,33 @@ Coins are filtered to exclude assets expected to underperform BTC:
 
 **2. Floor Appreciation Filter:**
 
-Coins with declining floors (min points getting lower over cycles) are excluded. The lower trendline slope must indicate at least **10% annual floor appreciation** (`MIN_LOWER_SLOPE_ANNUAL_PCT` in config).
+Coins with declining floors (min points getting lower over cycles) are excluded. The lower trendline slope must indicate at least **8% annual floor appreciation** (`MIN_LOWER_SLOPE_ANNUAL_PCT` in config).
 
 | Floor Trend | Included? | Example |
 |-------------|-----------|---------|
-| **Appreciating (≥10%/year)** | Yes | Healthy floor growth |
-| **Stagnant (<10%/year)** | No | Floor not keeping pace |
+| **Appreciating (≥8%/year)** | Yes | Healthy floor growth |
+| **Stagnant (<8%/year)** | No | Floor not keeping pace |
 | **Declining (negative)** | No | Bottoms getting lower (e.g., CTXC) |
 
 This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding - a sign of structural weakness.
+
+**3. Coin Age Filter:**
+
+Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 days). This filters out very new coins (e.g., ZORA) with insufficient data for reliable projections.
+
+| Coin Age | Included? | Reason |
+|----------|-----------|--------|
+| **≥ 1 year** | Yes | Sufficient price history |
+| **< 1 year** | No | Too new for reliable analysis |
+
+**4. Price Liquidity Filter:**
+
+Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30) over their price history. This filters out illiquid coins with "staircase" patterns (e.g., ZBCN, HTX) where price stays constant for extended periods, indicating very low trading activity.
+
+| Unique Prices | Included? | Example |
+|---------------|-----------|---------|
+| **≥ 30** | Yes | Normal trading activity |
+| **< 30** | No | Staircase pattern, illiquid (e.g., ZBCN with only 4 price levels) |
 
 **Additional Requirements:**
 - Coins must have a valid **composite score** (at least one projection method must succeed)
@@ -358,6 +380,8 @@ Each chart shows:
 - **Market conditions change** - historical patterns may not repeat
 - **Alt/BTC ratios** can diverge significantly from projections during market regime changes
 - **Coins must have been in TOTAL2** within the past 3 years to be analyzed
+- **Coins must be at least 1 year old** (based on first price date) to be included in top rankings
+- **Coins must have sufficient liquidity** (at least 30 distinct price values) - filters out staircase patterns
 - **Full price history** - uses complete price data, not just TOTAL2 dates, which may include volatile periods
 
 ## Algorithm Details
@@ -379,7 +403,9 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `TRENDLINE_MAJOR_POINT_WEIGHT` | 0.67 | Weight for min1, max2 in regression |
 | `TRENDLINE_MINOR_POINT_WEIGHT` | 0.33 | Weight for max1, min2 in regression |
 | `CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING` | 520 | Approximated min1 date for trendline |
-| `MIN_LOWER_SLOPE_ANNUAL_PCT` | 10 | Minimum annual floor appreciation (%) |
+| `MIN_LOWER_SLOPE_ANNUAL_PCT` | 8 | Minimum annual floor appreciation (%) |
+| `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
+| `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Fallback for single-cycle coins |
 
@@ -396,7 +422,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 
 ---
 
-*Last updated: 2026-02-04*
+*Last updated: 2026-02-05*
 
 ---
 

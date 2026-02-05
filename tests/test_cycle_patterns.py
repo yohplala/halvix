@@ -323,8 +323,9 @@ class TestFitLogTrendlines:
         # Slopes (positions 0 and 2) should be equal (parallel channel)
         assert abs(upper_slope_val - lower_slope_val) < 0.01
 
-    def test_fit_trendlines_insufficient_troughs(self, analyzer):
-        """Test trendline fitting with too few trough points."""
+    def test_fit_trendlines_insufficient_points(self, analyzer):
+        """Test trendline fitting with too few points on both sides."""
+        # Only 1 trough and 1 peak - not enough to fit any trendline
         points = [
             CyclePoint(
                 date=date(2020, 1, 1),
@@ -340,18 +341,11 @@ class TestFitLogTrendlines:
                 point_type="max1",
                 days_from_halving=21,
             ),
-            CyclePoint(
-                date=date(2024, 6, 1),
-                price=0.02,
-                cycle_num=4,
-                point_type="max2",
-                days_from_halving=42,
-            ),
         ]
 
         result = analyzer._fit_log_trendlines(points)
 
-        # Should return all None due to insufficient troughs (only 1 min)
+        # Should return all None due to insufficient points (only 1 min + 1 max)
         assert result == (None, None, None, None)
 
     def test_fit_trendlines_zero_prices(self, analyzer):
@@ -392,9 +386,13 @@ class TestFitLogTrendlines:
         # After filtering zeros, insufficient points remain
         assert result == (None, None, None, None)
 
-    def test_fit_trendlines_short_span(self, analyzer):
-        """Test trendline fitting rejects short data spans."""
-        # Points within same year - span < 1200 days required
+    def test_fit_trendlines_short_span_with_fallback(self, analyzer):
+        """Test trendline fitting with short span uses fallback logic.
+
+        With 2+ total troughs (min1 + min2), the fallback logic computes
+        a trendline even when major extrema (min1, max2) are insufficient.
+        """
+        # Points within same year - short span but 2 troughs available
         points = [
             CyclePoint(
                 date=date(2024, 1, 1),
@@ -427,9 +425,15 @@ class TestFitLogTrendlines:
         ]
 
         result = analyzer._fit_log_trendlines(points)
+        upper_slope, upper_int, lower_slope, lower_int = result
 
-        # Should return None due to short span
-        assert result == (None, None, None, None)
+        # With 2 troughs (min1 + min2), fallback computes trendline with parallel slopes
+        assert upper_slope is not None
+        assert upper_int is not None
+        assert lower_slope is not None
+        assert lower_int is not None
+        # Slopes should be equal (parallel channel)
+        assert abs(upper_slope - lower_slope) < 0.01
 
 
 # =============================================================================
@@ -807,8 +811,8 @@ class TestFindCyclePoints:
         assert points == []
 
     def test_find_cycle_points_no_pre_halving_data(self, analyzer):
-        """Test when no data exists in pre-halving window."""
-        # Data only after halving
+        """Test when no data exists in pre-halving window (partial cycle)."""
+        # Data only after halving - should still find post-halving points
         dates = pd.date_range("2020-06-01", "2022-12-31", freq="D")
         prices = np.random.uniform(0.01, 0.02, len(dates))
         df = pd.DataFrame({"close": prices}, index=dates)
@@ -817,8 +821,14 @@ class TestFindCyclePoints:
             df, date(2020, 5, 11), cycle_num=3, is_current_cycle=False
         )
 
-        # Should return empty since no pre-halving data
-        assert points == []
+        # Should return post-halving points (min2, max2) even without pre-halving data
+        assert len(points) >= 1
+        point_types = {p.point_type for p in points}
+        # Should have max2 at minimum (the cycle peak)
+        assert "max2" in point_types
+        # Should NOT have min1 or max1 (no pre-halving data)
+        assert "min1" not in point_types
+        assert "max1" not in point_types
 
     def test_find_cycle_points_current_cycle(self, analyzer):
         """Test finding points for current (incomplete) cycle."""
@@ -924,15 +934,25 @@ class TestGetTopCoins:
         """Test getting top N coins by composite target, filtered by positive trendline."""
         # trendline_target_pct must be positive to be included (filtering criterion)
         # composite_target_pct determines the ranking order
+        # unique_price_count must be >= MIN_UNIQUE_PRICES (30) to pass liquidity filter
         results = {
             "eth": CoinPatternResult(
-                coin_id="eth", trendline_target_pct=100.0, composite_target_pct=120.0
+                coin_id="eth",
+                trendline_target_pct=100.0,
+                composite_target_pct=120.0,
+                unique_price_count=100,
             ),
             "sol": CoinPatternResult(
-                coin_id="sol", trendline_target_pct=150.0, composite_target_pct=180.0
+                coin_id="sol",
+                trendline_target_pct=150.0,
+                composite_target_pct=180.0,
+                unique_price_count=100,
             ),
             "ada": CoinPatternResult(
-                coin_id="ada", trendline_target_pct=50.0, composite_target_pct=60.0
+                coin_id="ada",
+                trendline_target_pct=50.0,
+                composite_target_pct=60.0,
+                unique_price_count=100,
             ),
         }
 
@@ -945,15 +965,25 @@ class TestGetTopCoins:
 
     def test_get_top_coins_filters_negative_trendline(self, analyzer):
         """Test that coins with negative trendline target are filtered, but None is allowed."""
+        # unique_price_count must be >= MIN_UNIQUE_PRICES (30) to pass liquidity filter
         results = {
             "eth": CoinPatternResult(
-                coin_id="eth", trendline_target_pct=100.0, composite_target_pct=100.0
+                coin_id="eth",
+                trendline_target_pct=100.0,
+                composite_target_pct=100.0,
+                unique_price_count=100,
             ),
             "sol": CoinPatternResult(
-                coin_id="sol", trendline_target_pct=None, composite_target_pct=200.0
+                coin_id="sol",
+                trendline_target_pct=None,
+                composite_target_pct=200.0,
+                unique_price_count=100,
             ),
             "btc": CoinPatternResult(
-                coin_id="btc", trendline_target_pct=-50.0, composite_target_pct=150.0
+                coin_id="btc",
+                trendline_target_pct=-50.0,
+                composite_target_pct=150.0,
+                unique_price_count=100,
             ),
         }
 

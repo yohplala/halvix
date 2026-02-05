@@ -638,10 +638,22 @@ TRENDLINE_MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate po
 # The slope is in log10-space per day. To convert annual percentage to slope:
 #   annual_gain = 10^(slope * 365)
 #   slope = log10(1 + annual_pct/100) / 365
-# For 10% annual floor appreciation: slope = log10(1.10) / 365 ≈ 0.000113
+# For 8% annual floor appreciation: slope = log10(1.08) / 365 ≈ 0.0000915
 # Coins with lower_slope below this threshold are filtered out as underperforming.
-MIN_LOWER_SLOPE_ANNUAL_PCT = 10  # Require at least 10% annual floor appreciation
+MIN_LOWER_SLOPE_ANNUAL_PCT = 8  # Require at least 8% annual floor appreciation
 MIN_LOWER_SLOPE = math.log10(1 + MIN_LOWER_SLOPE_ANNUAL_PCT / 100) / 365
+
+# Minimum coin age for pattern analysis (filters out very new coins)
+# Coins with first price date less than this many days ago are excluded from top coins
+# This helps avoid unreliable projections from coins with very limited price history
+MIN_COIN_AGE_DAYS = 365  # 1 year minimum
+
+# Minimum unique prices for pattern analysis (filters out illiquid/staircase patterns)
+# Coins with very few distinct price values indicate low trading activity or liquidity issues.
+# Examples: ZBCN, HTX show "staircase" patterns where price stays constant for extended periods.
+# Such coins should be filtered out as their price data is not representative of market dynamics.
+# Threshold: require at least 30 unique price values over the coin's history.
+MIN_UNIQUE_PRICES = 30
 
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.

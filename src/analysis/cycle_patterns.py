@@ -47,7 +47,9 @@ from config import (
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
     HALVING_DATES,
+    MIN_COIN_AGE_DAYS,
     MIN_LOWER_SLOPE,
+    MIN_UNIQUE_PRICES,
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
     TOTAL2_COMPOSITION_FILE,
@@ -124,6 +126,10 @@ class CoinPatternResult:
     first_in_total2: date | None = None
     last_in_total2: date | None = None
     days_in_total2: int = 0
+
+    # Price data info
+    first_price_date: date | None = None  # First date with price data (for age filtering)
+    unique_price_count: int = 0  # Number of unique price values (filters staircase patterns)
 
     # Rank in trendline prediction ranking (set after sorting)
     rank: int | None = None
@@ -469,53 +475,49 @@ class CyclePatternAnalyzer:
             return points
 
         # Regular cycle (completed or mostly complete)
-        # Pre-halving window: find min1
+        # Pre-halving window: find min1 and max1 (if data available)
         pre_mask = (df.index.date >= pre_start) & (df.index.date < halving_date)
         pre_data = df[pre_mask]
 
-        if pre_data.empty:
-            return points
+        if not pre_data.empty:
+            # Filter out zero/negative prices before finding minima
+            valid_pre_data = pre_data[pre_data["close"] > 0]
+            if not valid_pre_data.empty:
+                # min1: absolute minimum in pre-halving window (excluding zeros)
+                min1_idx = valid_pre_data["close"].idxmin()
+                min1_price = pre_data.loc[min1_idx, "close"]
+                min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
 
-        # Filter out zero/negative prices before finding minima
-        valid_pre_data = pre_data[pre_data["close"] > 0]
-        if valid_pre_data.empty:
-            return points
-
-        # min1: absolute minimum in pre-halving window (excluding zeros)
-        min1_idx = valid_pre_data["close"].idxmin()
-        min1_price = pre_data.loc[min1_idx, "close"]
-        min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
-
-        points.append(
-            CyclePoint(
-                date=min1_date,
-                price=float(min1_price),
-                cycle_num=cycle_num,
-                point_type="min1",
-                days_from_halving=(min1_date - halving_date).days,
-            )
-        )
-
-        # max1: maximum between min1 and halving
-        max1_mask = (df.index >= min1_idx) & (df.index.date < halving_date)
-        max1_data = df[max1_mask]
-
-        if not max1_data.empty:
-            max1_idx = max1_data["close"].idxmax()
-            max1_price = max1_data.loc[max1_idx, "close"]
-            max1_date = max1_idx.date() if hasattr(max1_idx, "date") else max1_idx
-
-            points.append(
-                CyclePoint(
-                    date=max1_date,
-                    price=float(max1_price),
-                    cycle_num=cycle_num,
-                    point_type="max1",
-                    days_from_halving=(max1_date - halving_date).days,
+                points.append(
+                    CyclePoint(
+                        date=min1_date,
+                        price=float(min1_price),
+                        cycle_num=cycle_num,
+                        point_type="min1",
+                        days_from_halving=(min1_date - halving_date).days,
+                    )
                 )
-            )
 
-        # Post-halving window: find max2 first
+                # max1: maximum between min1 and halving
+                max1_mask = (df.index >= min1_idx) & (df.index.date < halving_date)
+                max1_data = df[max1_mask]
+
+                if not max1_data.empty:
+                    max1_idx = max1_data["close"].idxmax()
+                    max1_price = max1_data.loc[max1_idx, "close"]
+                    max1_date = max1_idx.date() if hasattr(max1_idx, "date") else max1_idx
+
+                    points.append(
+                        CyclePoint(
+                            date=max1_date,
+                            price=float(max1_price),
+                            cycle_num=cycle_num,
+                            point_type="max1",
+                            days_from_halving=(max1_date - halving_date).days,
+                        )
+                    )
+
+        # Post-halving window: find max2 and min2 (independent of pre-halving data)
         post_mask = (df.index.date >= halving_date) & (df.index.date <= post_end)
         post_data = df[post_mask]
 
@@ -617,14 +619,21 @@ class CyclePatternAnalyzer:
         has_enough_peaks = len(major_peaks) >= 2
         has_enough_troughs = len(major_troughs) >= 2
 
-        # Need at least one side with 2+ major extrema
+        # Fallback: check if we have 2+ total points on either side (any min or max type)
+        has_enough_total_troughs = len(troughs) >= 2
+        has_enough_total_peaks = len(peaks) >= 2
+
+        # Need at least one side with 2+ major extrema, OR 2+ total points as fallback
         if not has_enough_peaks and not has_enough_troughs:
-            logger.debug(
-                "Insufficient major extrema for trendline: %d max2, %d min1 (need 2+ on at least one side)",
-                len(major_peaks),
-                len(major_troughs),
-            )
-            return None, None, None, None
+            if not has_enough_total_troughs and not has_enough_total_peaks:
+                logger.debug(
+                    "Insufficient extrema for trendline: %d max2, %d min1, %d total peaks, %d total troughs",
+                    len(major_peaks),
+                    len(major_troughs),
+                    len(peaks),
+                    len(troughs),
+                )
+                return None, None, None, None
 
         # Convert to arrays with days as x-axis (days from first halving date)
         # Use HALVING_DATES[1] (2016) as reference
@@ -701,7 +710,7 @@ class CyclePatternAnalyzer:
                     float(lower_fit[1]),
                 )
 
-            else:
+            elif has_enough_peaks:
                 # Only peaks have enough major points - fit peaks, use same slope for troughs
                 upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1, w=peak_weights)
                 slope = upper_fit[0]
@@ -722,6 +731,38 @@ class CyclePatternAnalyzer:
                     ).days
                     major_trough_y = np.log10(lowest_trough.price)
                 lower_intercept = major_trough_y - slope * major_trough_x
+                return (
+                    float(upper_fit[0]),
+                    float(upper_fit[1]),
+                    float(slope),
+                    float(lower_intercept),
+                )
+
+            elif has_enough_total_troughs:
+                # Fallback: 2+ total troughs but not enough major - fit all troughs, use same slope for peaks
+                lower_fit = np.polyfit(trough_x.flatten(), trough_y, 1, w=trough_weights)
+                slope = lower_fit[0]
+                # Calculate intercept for upper line passing through the highest peak
+                highest_peak = max(peaks, key=lambda p: p.price)
+                peak_x_val = (self._get_regression_date(highest_peak) - reference_date).days
+                peak_y_val = np.log10(highest_peak.price)
+                upper_intercept = peak_y_val - slope * peak_x_val
+                return (
+                    float(slope),
+                    float(upper_intercept),
+                    float(lower_fit[0]),
+                    float(lower_fit[1]),
+                )
+
+            else:
+                # Fallback: 2+ total peaks but not enough major - fit all peaks, use same slope for troughs
+                upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1, w=peak_weights)
+                slope = upper_fit[0]
+                # Calculate intercept for lower line passing through the lowest trough
+                lowest_trough = min(troughs, key=lambda p: p.price)
+                trough_x_val = (self._get_regression_date(lowest_trough) - reference_date).days
+                trough_y_val = np.log10(lowest_trough.price)
+                lower_intercept = trough_y_val - slope * trough_x_val
                 return (
                     float(upper_fit[0]),
                     float(upper_fit[1]),
@@ -771,11 +812,15 @@ class CyclePatternAnalyzer:
         Calculate Fibonacci extension target.
 
         Uses the most recent complete cycle:
-        A = cycle min (min1 or min2)
-        B = cycle max (max2)
-        C = next cycle min (min1)
+        A = previous cycle min (prefer min1, fallback to min2)
+        B = previous cycle max (max2 only - true cycle peak)
+        C = current cycle min (min1 only - true cycle start)
 
         Extension = C + (B - A) * level
+
+        The fallback for A (min1 -> min2) allows coins with partial pre-halving
+        data to still get Fib projections, while maintaining chronological order
+        (min -> max -> min).
 
         Args:
             points: All cycle points
@@ -808,29 +853,35 @@ class CyclePatternAnalyzer:
         latest_cycle = max(cycles)
         prev_cycle = max(c for c in cycles if c < latest_cycle)
 
-        # Get max2 from previous cycle
+        # Get max2 from previous cycle (no fallback - must be true cycle peak)
         prev_max2 = None
         for p in points:
             if p.cycle_num == prev_cycle and p.point_type == "max2":
                 prev_max2 = p
                 break
 
-        # Get min1 from previous cycle
-        prev_min1 = None
+        # Get min from previous cycle (prefer min1, fallback to min2)
+        # This allows coins with partial pre-halving data to still get Fib projections
+        prev_min = None
         for p in points:
             if p.cycle_num == prev_cycle and p.point_type == "min1":
-                prev_min1 = p
+                prev_min = p
                 break
+        if prev_min is None:
+            for p in points:
+                if p.cycle_num == prev_cycle and p.point_type == "min2":
+                    prev_min = p
+                    break
 
-        # Get min1 from latest cycle (retracement point)
+        # Get min1 from latest cycle (no fallback - must be true cycle start)
         latest_min1 = None
         for p in points:
             if p.cycle_num == latest_cycle and p.point_type == "min1":
                 latest_min1 = p
                 break
 
-        if prev_min1 and prev_max2 and latest_min1:
-            a = prev_min1.price
+        if prev_min and prev_max2 and latest_min1:
+            a = prev_min.price
             b = prev_max2.price
             c = latest_min1.price
             move = b - a
@@ -1216,6 +1267,8 @@ class CyclePatternAnalyzer:
         # Use last available price in full data
         result.current_price = float(filtered_df["close"].iloc[-1])
         result.current_date = filtered_df.index[-1].date()
+        result.first_price_date = filtered_df.index[0].date()
+        result.unique_price_count = filtered_df["close"].nunique()
 
         # Fit trendlines (need at least 2 points each for min/max)
         upper_slope, upper_int, lower_slope, lower_int = self._fit_log_trendlines(result.points)
@@ -1337,6 +1390,8 @@ class CyclePatternAnalyzer:
         - Coins with declining floor (lower_slope < MIN_LOWER_SLOPE) are excluded
         - Coins with missing trendline (None) are included if they have a composite score
         - Coins must have a valid composite score
+        - Coins must be at least MIN_COIN_AGE_DAYS old (1 year)
+        - Coins must have at least MIN_UNIQUE_PRICES distinct price values (filters illiquid/staircase)
 
         Args:
             results: Dictionary of coin results
@@ -1345,9 +1400,14 @@ class CyclePatternAnalyzer:
         Returns:
             List of top N CoinPatternResult sorted by composite_target_pct (descending)
         """
+        today = date.today()
+        min_first_price_date = today - timedelta(days=MIN_COIN_AGE_DAYS)
+
         # Filter out coins with:
         # 1. Negative trendline predictions (underperforming BTC)
         # 2. Declining floor (lower_slope below threshold = MIN_LOWER_SLOPE_ANNUAL_PCT% annual)
+        # 3. Too new (first_price_date < 1 year ago)
+        # 4. Too few unique prices (staircase/illiquid patterns like ZBCN, HTX)
         # Coins with trendline=None are allowed if they have valid composite scores
         valid = [
             r
@@ -1355,6 +1415,8 @@ class CyclePatternAnalyzer:
             if r.composite_target_pct is not None
             and (r.trendline_target_pct is None or r.trendline_target_pct > 0)
             and (r.lower_slope is None or r.lower_slope >= MIN_LOWER_SLOPE)
+            and (r.first_price_date is None or r.first_price_date <= min_first_price_date)
+            and r.unique_price_count >= MIN_UNIQUE_PRICES
         ]
 
         # Sort by composite target (descending) - primary ranking criterion
