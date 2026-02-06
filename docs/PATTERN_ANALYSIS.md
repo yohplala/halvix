@@ -310,30 +310,32 @@ Instead of separate code paths for different confidence levels, a **single weigh
 
 When a method is unavailable (returns None), its weight is excluded and the remaining weights are renormalized before applying the scale factor.
 
-### Retracement Penalty
+### Fibonacci Retracement Filter
 
-A coin that peaked during its cycle and then **crashed back near its trough** gets an additional penalty on its composite score. This prevents coins with extreme single-cycle rallies followed by heavy drawdowns (e.g., COOKIE) from dominating the rankings over coins that hold their gains better (e.g., VIRTUAL).
-
-**Measurement** (in log-space, consistent with log-scale trendlines):
+Coins that have **retraced too deeply** from their last cycle peak are filtered out. This uses the standard Fibonacci retracement framework with three structural points:
 
 ```
-log_retracement = log10(peak / current) / log10(peak / trough)
+A = previous cycle min (min1 preferred, min2 fallback)
+B = previous cycle max2 (peak)
+C = current cycle min1 (new trough)
+
+log_retracement = log10(B / C) / log10(B / A)
 ```
 
-Where:
-- `peak` = last cycle max2 price
-- `trough` = min1 (or min2) from the same cycle
-- `current` = current price
+Standard Fibonacci retracement levels:
 
-| Log Retracement | Meaning | Penalty |
-|-----------------|---------|---------|
-| 0.0 | Coin at peak | None (×1.0) |
-| 0.50 | Half of log-gain given back | None (×1.0) |
-| 0.75 | Threshold | None (×1.0) |
-| 0.875 | Between threshold and full | Moderate (×0.75) |
-| 1.0 | Coin back at trough | Maximum (×0.50) |
+| Level | Meaning | Status |
+|-------|---------|--------|
+| 23.6% | Shallow pullback | Very healthy |
+| 38.2% | Normal correction | Healthy |
+| 50.0% | Moderate correction | Acceptable |
+| 61.8% | Deep (golden ratio) | Caution |
+| **78.6%** | **Very deep (√0.618)** | **Filtered out** |
+| 100% | Full retracement | Filtered out |
 
-The penalty ramps linearly from 1.0 at the threshold to (1 − `RETRACEMENT_PENALTY_MAX`) at full retracement.
+Coins with retracement > `MAX_RETRACEMENT_LEVEL` (78.6%) are excluded from the ranking. Beyond this level, the "higher low" structure is broken — the coin has given back so much of its cycle gain that the pattern is structurally unhealthy. This complements the floor slope filter: both catch declining coins, but the retracement filter works even with a single completed cycle.
+
+Coins without a computable retracement (e.g., no previous max2 or no current min1) are not filtered.
 
 ## Ranking and Filtering
 
@@ -374,7 +376,17 @@ Coins with declining floors (min points getting lower over cycles) are excluded.
 
 This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding - a sign of structural weakness.
 
-**3. Coin Age Filter:**
+**3. Fibonacci Retracement Filter:**
+
+Coins that retraced more than **78.6%** of their last cycle gain (in log-space) are excluded. See [Fibonacci Retracement Filter](#fibonacci-retracement-filter) for details.
+
+| Retracement | Included? | Example |
+|-------------|-----------|---------|
+| **≤ 78.6%** | Yes | Healthy correction (e.g., VIRTUAL at ~38%) |
+| **> 78.6%** | No | Structural breakdown (e.g., COOKIE at ~87%) |
+| **None** | Yes | Insufficient data (no previous cycle peak) |
+
+**4. Coin Age Filter:**
 
 Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 days). This filters out very new coins (e.g., ZORA) with insufficient data for reliable projections.
 
@@ -383,7 +395,7 @@ Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 
 | **≥ 1 year** | Yes | Sufficient price history |
 | **< 1 year** | No | Too new for reliable analysis |
 
-**4. Price Liquidity Filter:**
+**5. Price Liquidity Filter:**
 
 Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30) over their price history. This filters out illiquid coins with "staircase" patterns (e.g., ZBCN, HTX) where price stays constant for extended periods, indicating very low trading activity.
 
@@ -530,8 +542,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
 | `COMPOSITE_WEIGHT_PROFILES` | dict | Weight profiles per confidence level (see above) |
-| `RETRACEMENT_PENALTY_THRESHOLD` | 0.75 | Log-retracement level below which no penalty is applied |
-| `RETRACEMENT_PENALTY_MAX` | 0.5 | Maximum composite reduction at full retracement |
+| `MAX_RETRACEMENT_LEVEL` | 0.786 | Fibonacci retracement filter (78.6% = √0.618) |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 

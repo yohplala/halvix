@@ -720,27 +720,30 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
 # a neutral prediction rather than a misleading negative one.
 DIM_RETURN_MIN_GAIN_RATIO = 1.0
 
-# Retracement penalty: penalizes coins that have given back most of their cycle gains
+# Fibonacci retracement filter: filters out coins that retraced too much of their
+# last cycle's gain (trough → peak).
 #
 # Motivation: A coin like COOKIE can peak at 30x its cycle low, then crash back down
 # to near the low. All projection methods still produce huge targets (relative to the
 # low), inflating the composite. Meanwhile a coin like VIRTUAL holds up much better.
 #
-# Measured in log-space (consistent with log-scale trendlines):
-#   log_retracement = log10(peak / current) / log10(peak / trough)
+# Measured in log-space (consistent with log-scale trendlines) using last cycle points:
+#   A = prev cycle min (min1 or min2)
+#   B = prev cycle max2 (peak)
+#   C = current cycle min1 (new trough)
+#   log_retracement = log10(B / C) / log10(B / A)
 #   0.0 = coin at peak, 1.0 = coin back at cycle trough
 #
-# The penalty is a multiplier on the composite score:
-#   - Below threshold: no penalty (multiplier = 1.0)
-#   - Above threshold: linear ramp down to (1 - RETRACEMENT_PENALTY_MAX) at full retracement
+# Standard Fibonacci retracement levels:
+#   23.6% - shallow pullback (very healthy)
+#   38.2% - normal correction
+#   50.0% - moderate
+#   61.8% - deep (golden ratio boundary)
+#   78.6% - very deep (structural weakness, sqrt of 0.618)
 #
-# Example with default values (threshold=0.75, max=0.5):
-#   retracement=0.50 → multiplier=1.00 (below threshold)
-#   retracement=0.75 → multiplier=1.00 (at threshold)
-#   retracement=0.875 → multiplier=0.75 (half penalty)
-#   retracement=1.00 → multiplier=0.50 (full penalty)
-RETRACEMENT_PENALTY_THRESHOLD = 0.75  # No penalty below 75% log-retracement
-RETRACEMENT_PENALTY_MAX = 0.5  # Maximum penalty: 50% reduction at full retracement
+# We use 78.6% as the cutoff: beyond this, the coin has retraced so deeply that
+# the "higher low" structure is broken — similar to a declining floor slope.
+MAX_RETRACEMENT_LEVEL = 0.786
 
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
@@ -936,13 +939,9 @@ def validate_config() -> None:
             f"DIM_RETURN_MIN_GAIN_RATIO must be non-negative: {DIM_RETURN_MIN_GAIN_RATIO}"
         )
 
-    # Validate retracement penalty parameters
-    if not (0.0 < RETRACEMENT_PENALTY_THRESHOLD <= 1.0):
-        errors.append(
-            f"RETRACEMENT_PENALTY_THRESHOLD must be in (0, 1]: {RETRACEMENT_PENALTY_THRESHOLD}"
-        )
-    if not (0.0 < RETRACEMENT_PENALTY_MAX <= 1.0):
-        errors.append(f"RETRACEMENT_PENALTY_MAX must be in (0, 1]: {RETRACEMENT_PENALTY_MAX}")
+    # Validate retracement filter threshold
+    if not (0.0 < MAX_RETRACEMENT_LEVEL <= 1.0):
+        errors.append(f"MAX_RETRACEMENT_LEVEL must be in (0, 1]: {MAX_RETRACEMENT_LEVEL}")
 
     if errors:
         raise ConfigurationError("Configuration validation failed:\n" + "\n".join(errors))

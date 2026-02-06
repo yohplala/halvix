@@ -1764,15 +1764,49 @@ class TestTrendlineRecencyWeighting:
 
 
 # =============================================================================
-# Retracement Penalty Tests
+# Fibonacci Retracement Filter Tests
 # =============================================================================
 
 
-class TestRetracementPenalty:
-    """Tests for _calculate_retracement_penalty method."""
+class TestRetracementFilter:
+    """Tests for _calculate_retracement_ratio method (Fibonacci retracement filter)."""
 
-    def test_retracement_at_peak_no_penalty(self):
-        """Coin at cycle peak should have zero retracement, no penalty."""
+    def test_retracement_shallow_pullback(self):
+        """New min1 near previous peak → low retracement (healthy)."""
+        points = [
+            # Cycle 4: A=0.001 (min1), B=0.01 (max2)
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.001,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+            # Cycle 5: C=0.008 (min1) → shallow pullback
+            CyclePoint(
+                date=date(2027, 6, 1),
+                price=0.008,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-300,
+            ),
+        ]
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        assert ratio is not None
+        # log10(0.01/0.008) / log10(0.01/0.001) = log10(1.25) / log10(10)
+        # = 0.0969 / 1.0 = 0.097 → ~9.7% retracement (very shallow)
+        assert ratio < 0.20
+        assert ratio < 0.786  # Well below filter threshold
+
+    def test_retracement_full_gives_back(self):
+        """New min1 at previous trough level → 100% retracement."""
         points = [
             CyclePoint(
                 date=date(2024, 1, 1),
@@ -1788,47 +1822,28 @@ class TestRetracementPenalty:
                 point_type="max2",
                 days_from_halving=530,
             ),
-        ]
-        # Current price at peak
-        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            points, current_price=0.01
-        )
-        assert retracement is not None
-        assert pytest.approx(retracement, abs=0.01) == 0.0
-        assert penalty == 1.0
-
-    def test_retracement_at_trough_full_penalty(self):
-        """Coin back at cycle trough should have retracement=1.0, full penalty."""
-        points = [
+            # Cycle 5: min1 back at previous trough
             CyclePoint(
-                date=date(2024, 1, 1),
+                date=date(2027, 6, 1),
                 price=0.001,
-                cycle_num=4,
+                cycle_num=5,
                 point_type="min1",
-                days_from_halving=-109,
-            ),
-            CyclePoint(
-                date=date(2025, 10, 1),
-                price=0.01,
-                cycle_num=4,
-                point_type="max2",
-                days_from_halving=530,
+                days_from_halving=-300,
             ),
         ]
-        # Current price at trough
-        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            points, current_price=0.001
-        )
-        assert retracement is not None
-        assert pytest.approx(retracement, abs=0.01) == 1.0
-        # penalty = 1 - 0.5 = 0.5
-        assert pytest.approx(penalty, abs=0.01) == 0.5
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        assert ratio is not None
+        assert pytest.approx(ratio, abs=0.01) == 1.0
+        assert ratio > 0.786  # Above filter threshold → would be filtered
 
     def test_retracement_cookie_vs_virtual_scenario(self):
-        """COOKIE-like coin (heavy retracement) penalized more than VIRTUAL-like.
+        """COOKIE-like coin (heavy retracement) filtered, VIRTUAL-like kept.
 
-        COOKIE: peaked at 30x, crashed back near trough (~87% log retracement)
-        VIRTUAL: peaked at 100x, holding at ~10x above trough (~38% log retracement)
+        COOKIE: cycle 4 min1=0.2μ → max2=6μ (30x), cycle 5 min1=0.3μ
+          → retracement ≈ log(6/0.3)/log(6/0.2) ≈ 0.87
+
+        VIRTUAL: cycle 4 min1=0.4μ → max2=40μ (100x), cycle 5 min1=7μ
+          → retracement ≈ log(40/7)/log(40/0.4) ≈ 0.38
         """
         cookie_points = [
             CyclePoint(
@@ -1845,11 +1860,15 @@ class TestRetracementPenalty:
                 point_type="max2",
                 days_from_halving=257,
             ),
+            CyclePoint(
+                date=date(2027, 6, 1),
+                price=0.0000003,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-300,
+            ),
         ]
-        # COOKIE current near trough (crashed ~87% in log space)
-        cookie_retracement, cookie_penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            cookie_points, current_price=0.0000003
-        )
+        cookie_ratio = CyclePatternAnalyzer._calculate_retracement_ratio(cookie_points)
 
         virtual_points = [
             CyclePoint(
@@ -1866,23 +1885,29 @@ class TestRetracementPenalty:
                 point_type="max2",
                 days_from_halving=257,
             ),
+            CyclePoint(
+                date=date(2027, 6, 1),
+                price=0.000007,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-300,
+            ),
         ]
-        # VIRTUAL current holding well above trough (~38% in log space)
-        virtual_retracement, virtual_penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            virtual_points, current_price=0.000007
-        )
+        virtual_ratio = CyclePatternAnalyzer._calculate_retracement_ratio(virtual_points)
 
-        # COOKIE should have much higher retracement than VIRTUAL
-        assert cookie_retracement > virtual_retracement
-        assert cookie_retracement > 0.75  # Above penalty threshold
-        assert virtual_retracement < 0.75  # Below penalty threshold
+        assert cookie_ratio is not None
+        assert virtual_ratio is not None
 
-        # COOKIE gets penalized, VIRTUAL doesn't
-        assert cookie_penalty < 1.0
-        assert virtual_penalty == 1.0
+        # COOKIE retraced far more than VIRTUAL
+        assert cookie_ratio > virtual_ratio
 
-    def test_retracement_below_threshold_no_penalty(self):
-        """Moderate retracement below threshold should not be penalized."""
+        # COOKIE above 78.6% Fibonacci level → would be filtered out
+        assert cookie_ratio > 0.786
+        # VIRTUAL well below → kept
+        assert virtual_ratio < 0.786
+
+    def test_retracement_no_next_cycle_min1(self):
+        """Without a next cycle min1, retracement cannot be computed."""
         points = [
             CyclePoint(
                 date=date(2024, 1, 1),
@@ -1893,21 +1918,14 @@ class TestRetracementPenalty:
             ),
             CyclePoint(
                 date=date(2025, 10, 1),
-                price=0.1,
+                price=0.01,
                 cycle_num=4,
                 point_type="max2",
                 days_from_halving=530,
             ),
         ]
-        # Current price at ~50% log retracement (geometric midpoint)
-        # log10(0.1/current) / log10(0.1/0.001) = 0.5
-        # current = 0.1 * (0.001/0.1)^0.5 = 0.1 * 0.1 = 0.01
-        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            points, current_price=0.01
-        )
-        assert retracement is not None
-        assert pytest.approx(retracement, abs=0.01) == 0.5
-        assert penalty == 1.0  # Below threshold, no penalty
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        assert ratio is None
 
     def test_retracement_no_max2_returns_none(self):
         """Without max2 point, retracement cannot be computed."""
@@ -1920,24 +1938,18 @@ class TestRetracementPenalty:
                 days_from_halving=-109,
             ),
         ]
-        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            points, current_price=0.001
-        )
-        assert retracement is None
-        assert penalty == 1.0
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        assert ratio is None
 
     def test_retracement_empty_points(self):
-        """Empty points should return None with no penalty."""
-        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            [], current_price=0.01
-        )
-        assert retracement is None
-        assert penalty == 1.0
+        """Empty points should return None."""
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio([])
+        assert ratio is None
 
     def test_retracement_uses_last_cycle_max2(self):
-        """When multiple cycles have max2, uses the most recent one."""
+        """When multiple cycles have max2, uses the most recent peak."""
         points = [
-            # Cycle 3: modest peak
+            # Cycle 3
             CyclePoint(
                 date=date(2020, 1, 1),
                 price=0.001,
@@ -1967,13 +1979,49 @@ class TestRetracementPenalty:
                 point_type="max2",
                 days_from_halving=530,
             ),
+            # Cycle 5: min1 back at cycle 4 trough → full retracement of cycle 4
+            CyclePoint(
+                date=date(2027, 6, 1),
+                price=0.002,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-300,
+            ),
         ]
-        # Current price near cycle 4 trough → high retracement of cycle 4
-        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
-            points, current_price=0.002
-        )
-        assert retracement is not None
-        # Retracement is relative to cycle 4 (0.002→0.02), not cycle 3
-        # log10(0.02/0.002) / log10(0.02/0.002) = 1.0
-        assert pytest.approx(retracement, abs=0.01) == 1.0
-        assert penalty < 1.0
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        assert ratio is not None
+        # Retracement of cycle 4 move (0.002→0.02): log10(0.02/0.002)/log10(0.02/0.002) = 1.0
+        assert pytest.approx(ratio, abs=0.01) == 1.0
+
+    def test_retracement_min2_fallback(self):
+        """Uses min2 from peak cycle when min1 not available."""
+        points = [
+            # Cycle 4: only has min2 (coin launched post-halving), then max2
+            CyclePoint(
+                date=date(2024, 8, 1),
+                price=0.001,
+                cycle_num=4,
+                point_type="min2",
+                days_from_halving=104,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+            # Cycle 5: min1 at 50% log retracement
+            # log10(0.01/C) / log10(0.01/0.001) = 0.5
+            # log10(0.01/C) = 0.5 → C = 0.01 / 10^0.5 ≈ 0.00316
+            CyclePoint(
+                date=date(2027, 6, 1),
+                price=0.00316,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-300,
+            ),
+        ]
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        assert ratio is not None
+        assert pytest.approx(ratio, abs=0.02) == 0.5
