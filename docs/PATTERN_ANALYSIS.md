@@ -15,7 +15,7 @@ The pattern analysis identifies characteristic points within each halving cycle 
 3. **Diminishing Returns Model** - Accounts for decreasing cycle-over-cycle gains
 4. **Historical Peak** - Uses historical cycle peaks as a price reference
 
-A **composite score** (weighted average of available methods) ranks altcoins by expected return. Trendline gets the highest weight (40%) as it captures structural trend direction, while diminishing returns gets the lowest (15%) as it's most sensitive to outlier launch cycles. Low-confidence coins receive adjustments (see [Low Confidence Adjustments](#low-confidence-adjustments)).
+A **composite score** (weighted average of available methods) ranks altcoins by expected return. Each confidence level has its own **weight profile** that determines method weights and a scale factor (see [Confidence-Based Weight Profiles](#confidence-based-weight-profiles)).
 
 **IMPORTANT**: Returns are calculated as percentage gain from the **current price** to the projected target.
 
@@ -292,27 +292,29 @@ Coins are assigned confidence levels based on the number of cycles where they ha
 
 **Note**: Coins launched after a halving (with only post-halving data like min2/max2) do not count that cycle toward confidence. For example, a coin launched in June 2024 (after the 4th halving) only has cycle 5 min1, resulting in LOW confidence.
 
-### Low Confidence Adjustments
+### Confidence-Based Weight Profiles
 
-For **LOW confidence** coins, two adjustments are applied to the composite score:
+Instead of separate code paths for different confidence levels, a **single weight profile** per confidence level controls both method weights and the overall scale factor. This is defined in `COMPOSITE_WEIGHT_PROFILES` in `config.py`.
 
-**1. Trendline Exclusion**
+| Confidence | Trendline | Fibonacci | Historical | Diminishing | Scale | Notes |
+|------------|-----------|-----------|------------|-------------|-------|-------|
+| **HIGH** (3+ cycles) | 40% | 25% | 20% | 15% | 1.0 | Full weights, no penalty |
+| **MEDIUM** (2 cycles) | 40% | 25% | 20% | 15% | 1.0 | Same as high |
+| **LOW** (1 cycle) | **0%** | 25% | 20% | 15% | **0.3** | Trendline excluded, 70% penalty |
 
-The trendline projection is excluded because:
-- A 2-point trendline (one min1 + one max point) is statistically unreliable
-- Small variations in those 2 points lead to wildly different extrapolations
+**Low confidence rationale:**
+- **Trendline weight = 0**: A 2-point trendline (one min1 + one max point) is statistically unreliable; small variations lead to wildly different extrapolations.
+- **Scale = 0.3**: A 70% penalty reflects the higher uncertainty of projections based on limited historical data.
 
-**2. Penalty Factor (70%)**
+**Result**: Low-confidence composite = weighted_avg(Fib, Diminishing, HistPeak) × 0.3
 
-After calculating the average of the remaining methods, a **70% penalty** is applied (composite × 0.3). This reflects the higher uncertainty of projections based on limited historical data.
-
-**Result**: Low-confidence composite = average(Fib, Diminishing, HistPeak) × 0.3
+When a method is unavailable (returns None), its weight is excluded and the remaining weights are renormalized before applying the scale factor.
 
 ## Ranking and Filtering
 
 ### Ranking Criterion
 
-Coins are **ranked by composite target percentage** (descending). The composite score is a weighted average of available projection methods:
+Coins are **ranked by composite target percentage** (descending). The composite score is computed using the confidence-based weight profile (see [Confidence-Based Weight Profiles](#confidence-based-weight-profiles)). For high/medium confidence coins, the default method weights are:
 
 | Method | Weight | Rationale |
 |--------|--------|-----------|
@@ -321,7 +323,7 @@ Coins are **ranked by composite target percentage** (descending). The composite 
 | **Historical Peak** | 20% | Reality anchor based on achieved valuations |
 | **Diminishing Returns** | 15% | Most volatile; sensitive to outlier launch cycles |
 
-When a method is unavailable (returns None), weights are renormalized across the remaining methods. See also [Low Confidence Adjustments](#low-confidence-adjustments).
+When a method is unavailable (returns None), weights are renormalized across the remaining methods. The profile's scale factor is applied after renormalization.
 
 ### Filtering Rules
 
@@ -502,7 +504,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MIN_LOWER_SLOPE_ANNUAL_PCT` | 8 | Minimum annual floor appreciation (%) |
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
-| `LOW_CONFIDENCE_PENALTY_FACTOR` | 0.3 | Penalty multiplier for low confidence coins |
+| `COMPOSITE_WEIGHT_PROFILES` | dict | Weight profiles per confidence level (see above) |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 
