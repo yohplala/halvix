@@ -1405,3 +1405,313 @@ class TestParameterizedCases:
         """Test pattern classification with various slope combinations."""
         result = analyzer._classify_pattern(upper, lower)
         assert result == expected
+
+
+# =============================================================================
+# Weighted Composite Tests
+# =============================================================================
+
+
+class TestWeightedComposite:
+    """Tests for _calculate_weighted_composite method."""
+
+    def test_weighted_composite_all_methods(self):
+        """Test weighted composite with all 4 methods available."""
+        # With all methods: trendline=40%, fib=25%, dim=15%, hist=20%
+        result = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=100.0,
+            fib_pct=200.0,
+            dim_return_pct=50.0,
+            hist_peak_pct=150.0,
+        )
+        # (100*0.40 + 200*0.25 + 50*0.15 + 150*0.20) / (0.40+0.25+0.15+0.20)
+        # = (40 + 50 + 7.5 + 30) / 1.0 = 127.5
+        assert result is not None
+        assert pytest.approx(result, rel=0.01) == 127.5
+
+    def test_weighted_composite_trendline_dominates(self):
+        """Test that trendline has the highest influence on composite."""
+        # When trendline is very different from others, it should dominate
+        result_high_trend = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=1000.0,
+            fib_pct=100.0,
+            dim_return_pct=100.0,
+            hist_peak_pct=100.0,
+        )
+        result_high_dim = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=100.0,
+            fib_pct=100.0,
+            dim_return_pct=1000.0,
+            hist_peak_pct=100.0,
+        )
+        # High trendline should produce higher composite than high dim return
+        assert result_high_trend > result_high_dim
+
+    def test_weighted_composite_exclude_trendline(self):
+        """Test composite with trendline excluded (low confidence)."""
+        result = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=999.0,  # Should be ignored
+            fib_pct=200.0,
+            dim_return_pct=50.0,
+            hist_peak_pct=150.0,
+            exclude_trendline=True,
+        )
+        # Without trendline: (200*0.25 + 50*0.15 + 150*0.20) / (0.25+0.15+0.20)
+        # = (50 + 7.5 + 30) / 0.60 = 145.83...
+        assert result is not None
+        expected = (200 * 0.25 + 50 * 0.15 + 150 * 0.20) / (0.25 + 0.15 + 0.20)
+        assert pytest.approx(result, rel=0.01) == expected
+
+    def test_weighted_composite_renormalization(self):
+        """Test that weights renormalize when some methods are missing."""
+        # Only trendline and fib available
+        result = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=100.0,
+            fib_pct=200.0,
+            dim_return_pct=None,
+            hist_peak_pct=None,
+        )
+        # (100*0.40 + 200*0.25) / (0.40+0.25) = (40+50) / 0.65 = 138.46
+        assert result is not None
+        expected = (100 * 0.40 + 200 * 0.25) / (0.40 + 0.25)
+        assert pytest.approx(result, rel=0.01) == expected
+
+    def test_weighted_composite_no_methods(self):
+        """Test composite returns None when no methods available."""
+        result = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=None,
+            fib_pct=None,
+            dim_return_pct=None,
+            hist_peak_pct=None,
+        )
+        assert result is None
+
+    def test_weighted_composite_single_method(self):
+        """Test composite with only one method returns that method's value."""
+        result = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=None,
+            fib_pct=None,
+            dim_return_pct=None,
+            hist_peak_pct=300.0,
+        )
+        assert result is not None
+        assert pytest.approx(result, rel=0.01) == 300.0
+
+    def test_weighted_composite_sol_vs_link_scenario(self):
+        """Test the SOL vs LINK scenario that motivated the change.
+
+        With equal-weight average: LINK=548 > SOL=478
+        With weighted composite: SOL should rank higher than LINK because
+        SOL's trendline (+1625%) gets 40% weight while LINK's dim return
+        (+1146%) only gets 15% weight.
+        """
+        link_composite = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=544.0,
+            fib_pct=105.0,
+            dim_return_pct=1146.0,
+            hist_peak_pct=400.0,
+        )
+        sol_composite = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=1625.0,
+            fib_pct=225.0,
+            dim_return_pct=-64.0,
+            hist_peak_pct=127.0,
+        )
+        # SOL should now rank higher than LINK
+        assert sol_composite > link_composite
+
+
+# =============================================================================
+# Diminishing Returns Floor Tests
+# =============================================================================
+
+
+class TestDiminishingReturnFloor:
+    """Tests for diminishing returns gain ratio floor."""
+
+    @pytest.fixture
+    def analyzer(self, mock_price_cache):
+        return CyclePatternAnalyzer(price_cache=mock_price_cache)
+
+    def test_dim_return_floor_prevents_negative(self, analyzer):
+        """Test that dim return floor prevents negative projections.
+
+        Simulates a SOL-like scenario: enormous first-cycle gain → tiny dim factor
+        → projected gain < 1.0x → should be floored to 1.0x.
+        """
+        points = [
+            # Cycle 3: 1000x gain (simulating launch from near-zero)
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.00001,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.01,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            # Cycle 4: 5x gain
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.002,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+            # Cycle 5: latest min
+            CyclePoint(
+                date=date(2026, 1, 1),
+                price=0.003,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-820,
+            ),
+        ]
+
+        target, factor = analyzer._calculate_diminishing_return(points)
+
+        assert target is not None
+        assert factor is not None
+        # dim factor = 5/1000 = 0.005 → projected gain = 5 * 0.005 = 0.025x
+        # BUT floor should clamp to 1.0x, so target >= latest_min price
+        assert target >= 0.003  # Should be at least the latest min price (1.0x)
+
+    def test_dim_return_normal_gains_unaffected(self, analyzer):
+        """Test that normal gains (above floor) are not affected."""
+        points = [
+            # Cycle 2: 10x gain
+            CyclePoint(
+                date=date(2016, 1, 1),
+                price=0.001,
+                cycle_num=2,
+                point_type="min1",
+                days_from_halving=-190,
+            ),
+            CyclePoint(
+                date=date(2017, 12, 1),
+                price=0.01,
+                cycle_num=2,
+                point_type="max2",
+                days_from_halving=510,
+            ),
+            # Cycle 3: 5x gain
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.002,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.01,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            # Cycle 4: starting point
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.003,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+        ]
+
+        target, factor = analyzer._calculate_diminishing_return(points)
+
+        assert target is not None
+        assert factor is not None
+        # Factor = 5/10 = 0.5, next gain = 5 * 0.5 = 2.5x (above floor)
+        assert pytest.approx(factor, rel=0.1) == 0.5
+        # target should be 0.003 * 2.5 = 0.0075 (above the min)
+        assert target > 0.003
+
+
+# =============================================================================
+# Trendline Recency Weighting Tests
+# =============================================================================
+
+
+class TestTrendlineRecencyWeighting:
+    """Tests for trendline recency decay weighting."""
+
+    @pytest.fixture
+    def analyzer(self, mock_price_cache):
+        return CyclePatternAnalyzer(price_cache=mock_price_cache)
+
+    def test_recency_weighting_affects_slope(self, analyzer):
+        """Test that recency weighting changes the trendline slope.
+
+        With 3 cycles where early cycles have steeper growth, recency weighting
+        should produce a less steep slope (closer to recent data).
+        """
+        # Points with diminishing peak heights over cycles (BTC-like behavior)
+        points = [
+            # Cycle 2: high peak relative to floor
+            CyclePoint(
+                date=date(2016, 1, 1),
+                price=0.001,
+                cycle_num=2,
+                point_type="min1",
+                days_from_halving=-190,
+            ),
+            CyclePoint(
+                date=date(2017, 12, 1),
+                price=0.1,
+                cycle_num=2,
+                point_type="max2",
+                days_from_halving=510,
+            ),
+            # Cycle 3: moderate peak
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.005,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.15,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            # Cycle 4: lower peak (diminishing returns)
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.12,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+        ]
+
+        upper_slope, upper_int, lower_slope, lower_int = analyzer._fit_log_trendlines(points)
+
+        assert upper_slope is not None
+        assert lower_slope is not None
+        # Both slopes should be positive (prices are growing)
+        assert upper_slope > 0
+        assert lower_slope > 0

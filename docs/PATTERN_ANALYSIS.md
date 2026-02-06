@@ -15,7 +15,7 @@ The pattern analysis identifies characteristic points within each halving cycle 
 3. **Diminishing Returns Model** - Accounts for decreasing cycle-over-cycle gains
 4. **Historical Peak** - Uses historical cycle peaks as a price reference
 
-A **composite score** (equal-weight average of available methods) ranks altcoins by expected return. Low-confidence coins receive adjustments (see [Low Confidence Adjustments](#low-confidence-adjustments)).
+A **composite score** (weighted average of available methods) ranks altcoins by expected return. Trendline gets the highest weight (40%) as it captures structural trend direction, while diminishing returns gets the lowest (15%) as it's most sensitive to outlier launch cycles. Low-confidence coins receive adjustments (see [Low Confidence Adjustments](#low-confidence-adjustments)).
 
 **IMPORTANT**: Returns are calculated as percentage gain from the **current price** to the projected target.
 
@@ -108,6 +108,22 @@ The regression uses weighted least squares to prioritize "major" cycle extremes 
 
 This weighting ensures the trendlines fit more closely to the definitive cycle extremes (min1 and max2) rather than the intermediate points (max1 and min2) which are less representative of long-term trends.
 
+**Recency Decay**:
+
+In addition to point-type weights, a **recency decay factor** (`TRENDLINE_RECENCY_DECAY = 0.7`) is applied so that more recent cycles have greater influence on the trendline. The final weight for each point is:
+
+```
+final_weight = type_weight × recency_decay ^ (max_cycle - point_cycle)
+```
+
+| Cycle Age | Recency Multiplier | Effect |
+|-----------|-------------------|--------|
+| Most recent | 1.0 | Full weight |
+| One cycle back | 0.7 | 70% of type weight |
+| Two cycles back | 0.49 | 49% of type weight |
+
+This prevents early high-growth cycles from making projections overly optimistic, especially for BTC where cycle-over-cycle returns are diminishing.
+
 **Note**: With only 2 points per category, weights have no effect since a line through 2 points is uniquely determined. Weights only affect the regression when 3 or more points are available.
 
 **Requirements (Major Extrema Approach)**:
@@ -190,9 +206,11 @@ If multiple cycles are available, the average of all diminishing factors is used
 **Step 3: Project next cycle target**
 
 ```
-next_cycle_gain = last_cycle_gain * diminishing_factor
+next_cycle_gain = max(last_cycle_gain * diminishing_factor, DIM_RETURN_MIN_GAIN_RATIO)
 target = latest_min_price * next_cycle_gain
 ```
+
+**Gain Floor**: The projected gain is clamped to at least `DIM_RETURN_MIN_GAIN_RATIO` (1.0x = break-even). The "diminishing returns" concept implies decreasing but still positive gains. Without this floor, coins with enormous first-cycle gains (e.g., SOL launching from near-zero) produce tiny diminishing factors that project negative returns, which contradicts the model's premise.
 
 **Example:**
 - Last cycle gain: 8x
@@ -294,7 +312,16 @@ After calculating the average of the remaining methods, a **70% penalty** is app
 
 ### Ranking Criterion
 
-Coins are **ranked by composite target percentage** (descending). The composite score is an equal-weight average of available projection methods (see [Low Confidence Adjustments](#low-confidence-adjustments)).
+Coins are **ranked by composite target percentage** (descending). The composite score is a weighted average of available projection methods:
+
+| Method | Weight | Rationale |
+|--------|--------|-----------|
+| **Trendline** | 40% | Captures structural multi-cycle trend direction |
+| **Fibonacci** | 25% | Technical projection based on previous cycle move |
+| **Historical Peak** | 20% | Reality anchor based on achieved valuations |
+| **Diminishing Returns** | 15% | Most volatile; sensitive to outlier launch cycles |
+
+When a method is unavailable (returns None), weights are renormalized across the remaining methods. See also [Low Confidence Adjustments](#low-confidence-adjustments).
 
 ### Filtering Rules
 
