@@ -167,8 +167,8 @@ def _add_target_predictions(
             price_str = _format_pct(target_pct)
         text_lines.append((f"{label}: {price_str}", color))
 
-    # Add text annotations at the bottom, left of the 4th halving vertical line
-    text_x_date = HALVING_DATES[3] - timedelta(days=30)
+    # Add text annotations at the bottom, left of the 5th halving vertical line
+    text_x_date = PROJECTED_5TH_HALVING - timedelta(days=30)
     num_lines = len(text_lines)
     line_spacing = 0.035  # Vertical spacing in paper coordinates
 
@@ -287,7 +287,7 @@ def _calculate_y_axis_range(
     point_prices: list[float],
     target_prices: list[float],
     hist_peak: float | None = None,
-    padding: float = 0.1,
+    padding: float = 0.2,
 ) -> list[float] | None:
     """
     Calculate y-axis range for log-scale charts based on actual data.
