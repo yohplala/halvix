@@ -668,22 +668,48 @@ MIN_COIN_AGE_DAYS = 365  # 1 year minimum
 # Threshold: require at least 30 unique price values over the coin's history.
 MIN_UNIQUE_PRICES = 30
 
-# Low confidence penalty factor for composite score
-# Coins with only 1 cycle of data (LOW confidence) have their composite score
-# multiplied by this factor to reflect higher uncertainty.
-# Value of 0.3 means a 70% penalty (composite × 0.3).
-LOW_CONFIDENCE_PENALTY_FACTOR = 0.3
-
-# Composite score method weights
-# Instead of equal-weight average, methods are weighted by reliability:
-# - Trendline (40%): Captures structural multi-cycle trend direction (most informative)
-# - Fibonacci (25%): Technical projection based on previous cycle move
-# - Historical Peak (20%): Reality anchor based on achieved valuations
-# - Diminishing Returns (15%): Most volatile/unreliable, sensitive to outlier launch cycles
-COMPOSITE_WEIGHT_TRENDLINE = 0.40
-COMPOSITE_WEIGHT_FIBONACCI = 0.25
-COMPOSITE_WEIGHT_HISTORICAL = 0.20
-COMPOSITE_WEIGHT_DIMINISHING = 0.15
+# Composite score weight profiles by confidence level
+#
+# Each profile defines method weights and an overall scale factor.
+# A single code path uses the profile matching the coin's confidence level,
+# rather than separate logic for low-confidence coins.
+#
+# Method weights (before renormalization):
+# - trendline: Captures structural multi-cycle trend direction (most informative)
+# - fibonacci: Technical projection based on previous cycle move
+# - historical: Reality anchor based on achieved valuations
+# - diminishing: Most volatile/unreliable, sensitive to outlier launch cycles
+#
+# Scale factor:
+# - Applied after computing the weighted average to adjust for confidence uncertainty.
+# - 1.0 for high/medium confidence (no adjustment)
+# - 0.3 for low confidence (70% penalty reflecting higher uncertainty)
+#
+# Low confidence (1 cycle): trendline weight = 0 because a 2-point trendline is
+# statistically unreliable, and scale = 0.3 to penalize for limited data.
+COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
+    "high": {
+        "trendline": 0.40,
+        "fibonacci": 0.25,
+        "historical": 0.20,
+        "diminishing": 0.15,
+        "scale": 1.0,
+    },
+    "medium": {
+        "trendline": 0.40,
+        "fibonacci": 0.25,
+        "historical": 0.20,
+        "diminishing": 0.15,
+        "scale": 1.0,
+    },
+    "low": {
+        "trendline": 0.0,
+        "fibonacci": 0.25,
+        "historical": 0.20,
+        "diminishing": 0.15,
+        "scale": 0.3,
+    },
+}
 
 # Diminishing returns minimum gain floor
 # The dim returns model projects decreasing but still positive gains each cycle.
@@ -846,23 +872,41 @@ def validate_config() -> None:
 
     # Validate trendline recency decay
     if not (0.0 < TRENDLINE_RECENCY_DECAY <= 1.0):
-        errors.append(
-            f"TRENDLINE_RECENCY_DECAY must be between 0 and 1: {TRENDLINE_RECENCY_DECAY}"
-        )
+        errors.append(f"TRENDLINE_RECENCY_DECAY must be between 0 and 1: {TRENDLINE_RECENCY_DECAY}")
 
-    # Validate composite weights sum to 1.0
-    composite_sum = (
-        COMPOSITE_WEIGHT_TRENDLINE
-        + COMPOSITE_WEIGHT_FIBONACCI
-        + COMPOSITE_WEIGHT_HISTORICAL
-        + COMPOSITE_WEIGHT_DIMINISHING
-    )
-    if abs(composite_sum - 1.0) > 0.001:
-        errors.append(
-            f"Composite weights must sum to 1.0, got {composite_sum}: "
-            f"trendline={COMPOSITE_WEIGHT_TRENDLINE}, fibonacci={COMPOSITE_WEIGHT_FIBONACCI}, "
-            f"historical={COMPOSITE_WEIGHT_HISTORICAL}, diminishing={COMPOSITE_WEIGHT_DIMINISHING}"
+    # Validate composite weight profiles
+    required_keys = {"trendline", "fibonacci", "historical", "diminishing", "scale"}
+    for level in ("high", "medium", "low"):
+        if level not in COMPOSITE_WEIGHT_PROFILES:
+            errors.append(f"COMPOSITE_WEIGHT_PROFILES missing '{level}' profile")
+            continue
+        profile = COMPOSITE_WEIGHT_PROFILES[level]
+        missing = required_keys - set(profile.keys())
+        if missing:
+            errors.append(f"COMPOSITE_WEIGHT_PROFILES['{level}'] missing keys: {missing}")
+            continue
+        # Method weights must be non-negative
+        for key in ("trendline", "fibonacci", "historical", "diminishing"):
+            if profile[key] < 0:
+                errors.append(
+                    f"COMPOSITE_WEIGHT_PROFILES['{level}']['{key}'] "
+                    f"must be non-negative: {profile[key]}"
+                )
+        # At least one method weight must be > 0
+        method_sum = sum(
+            profile[k] for k in ("trendline", "fibonacci", "historical", "diminishing")
         )
+        if method_sum <= 0:
+            errors.append(
+                f"COMPOSITE_WEIGHT_PROFILES['{level}'] must have at least one "
+                f"positive method weight, got sum={method_sum}"
+            )
+        # Scale factor must be positive
+        if profile["scale"] <= 0:
+            errors.append(
+                f"COMPOSITE_WEIGHT_PROFILES['{level}']['scale'] "
+                f"must be positive: {profile['scale']}"
+            )
 
     # Validate diminishing returns gain floor
     if DIM_RETURN_MIN_GAIN_RATIO < 0:

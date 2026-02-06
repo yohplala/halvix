@@ -40,10 +40,7 @@ import pandas as pd
 
 from config import (
     BTC_CYCLE_PEAKS,
-    COMPOSITE_WEIGHT_DIMINISHING,
-    COMPOSITE_WEIGHT_FIBONACCI,
-    COMPOSITE_WEIGHT_HISTORICAL,
-    COMPOSITE_WEIGHT_TRENDLINE,
+    COMPOSITE_WEIGHT_PROFILES,
     CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
@@ -52,7 +49,6 @@ from config import (
     DIM_RETURN_MIN_GAIN_RATIO,
     EXPECTED_PEAK_DAYS_AFTER_HALVING,
     HALVING_DATES,
-    LOW_CONFIDENCE_PENALTY_FACTOR,
     MIN_COIN_AGE_DAYS,
     MIN_LOWER_SLOPE,
     MIN_UNIQUE_PRICES,
@@ -1061,48 +1057,53 @@ class CyclePatternAnalyzer:
         fib_pct: float | None,
         dim_return_pct: float | None,
         hist_peak_pct: float | None,
-        exclude_trendline: bool = False,
+        confidence: str = "high",
     ) -> float | None:
         """
         Calculate weighted composite target percentage.
 
-        Uses method-specific weights instead of equal-weight average.
-        The trendline gets the highest weight as it captures the structural
-        multi-cycle trend direction, while diminishing returns gets the lowest
-        weight as it's the most sensitive to outlier launch cycles.
+        Uses confidence-based weight profiles from COMPOSITE_WEIGHT_PROFILES.
+        Each confidence level defines method weights and a scale factor,
+        providing a single code path for all coins regardless of confidence.
 
-        When exclude_trendline=True (for low-confidence coins), the trendline
-        is excluded and weights are renormalized across the remaining methods.
+        For high/medium confidence: all 4 methods are weighted, scale = 1.0.
+        For low confidence: trendline weight = 0 (unreliable with 1 cycle),
+        and scale = 0.3 (70% penalty for limited data).
+
+        When a method is unavailable (None), its weight is excluded and the
+        remaining weights are renormalized.
 
         Args:
             trendline_pct: Trendline projection percentage
             fib_pct: Fibonacci extension percentage
             dim_return_pct: Diminishing returns percentage
             hist_peak_pct: Historical peak percentage
-            exclude_trendline: If True, exclude trendline from composite
+            confidence: Confidence level ("high", "medium", or "low")
 
         Returns:
             Weighted composite percentage, or None if no methods available
         """
+        profile = COMPOSITE_WEIGHT_PROFILES[confidence]
+
         # Build list of (value, weight) pairs for available methods
         components: list[tuple[float, float]] = []
 
-        if not exclude_trendline and trendline_pct is not None:
-            components.append((trendline_pct, COMPOSITE_WEIGHT_TRENDLINE))
-        if fib_pct is not None:
-            components.append((fib_pct, COMPOSITE_WEIGHT_FIBONACCI))
-        if dim_return_pct is not None:
-            components.append((dim_return_pct, COMPOSITE_WEIGHT_DIMINISHING))
-        if hist_peak_pct is not None:
-            components.append((hist_peak_pct, COMPOSITE_WEIGHT_HISTORICAL))
+        if trendline_pct is not None and profile["trendline"] > 0:
+            components.append((trendline_pct, profile["trendline"]))
+        if fib_pct is not None and profile["fibonacci"] > 0:
+            components.append((fib_pct, profile["fibonacci"]))
+        if dim_return_pct is not None and profile["diminishing"] > 0:
+            components.append((dim_return_pct, profile["diminishing"]))
+        if hist_peak_pct is not None and profile["historical"] > 0:
+            components.append((hist_peak_pct, profile["historical"]))
 
         if not components:
             return None
 
-        # Weighted average with renormalization
+        # Weighted average with renormalization, then apply confidence scale
         total_weight = sum(w for _, w in components)
         weighted_sum = sum(v * w for v, w in components)
-        return weighted_sum / total_weight
+        return (weighted_sum / total_weight) * profile["scale"]
 
     def _classify_pattern(
         self,
@@ -1221,12 +1222,13 @@ class CyclePatternAnalyzer:
             result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
             result.hist_peak_is_absolute = hist_peak_is_absolute
 
-        # Composite target (weighted average of all 4 methods)
+        # Composite target (weighted average using high-confidence profile)
         result.composite_target_pct = self._calculate_weighted_composite(
             trendline_pct=result.trendline_target_pct,
             fib_pct=result.fib_target_pct,
             dim_return_pct=result.dim_return_target_pct,
             hist_peak_pct=result.hist_peak_target_pct,
+            confidence="high",
         )
 
         return result
@@ -1395,26 +1397,17 @@ class CyclePatternAnalyzer:
             result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
             result.hist_peak_is_absolute = hist_peak_is_absolute
 
-        # Composite target (weighted average of available methods)
-        # For low confidence coins (1 cycle):
-        #   1. Exclude trendline - it's unreliable with only 2 points
-        #   2. Apply penalty factor to reflect higher uncertainty
-        exclude_trendline = result.confidence == "low"
-        composite = self._calculate_weighted_composite(
+        # Composite target (weighted average using confidence-based weight profile)
+        # The weight profile handles all confidence-specific adjustments:
+        # - Low confidence: trendline weight = 0, scale = 0.3
+        # - Medium/High confidence: full weights, scale = 1.0
+        result.composite_target_pct = self._calculate_weighted_composite(
             trendline_pct=result.trendline_target_pct,
             fib_pct=result.fib_target_pct,
             dim_return_pct=result.dim_return_target_pct,
             hist_peak_pct=result.hist_peak_target_pct,
-            exclude_trendline=exclude_trendline,
+            confidence=result.confidence,
         )
-
-        if composite is not None:
-            # Apply penalty factor for low confidence coins
-            if result.confidence == "low":
-                composite *= LOW_CONFIDENCE_PENALTY_FACTOR
-            result.composite_target_pct = composite
-        else:
-            result.composite_target_pct = None
 
         return result
 

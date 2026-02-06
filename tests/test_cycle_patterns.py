@@ -1416,15 +1416,16 @@ class TestWeightedComposite:
     """Tests for _calculate_weighted_composite method."""
 
     def test_weighted_composite_all_methods(self):
-        """Test weighted composite with all 4 methods available."""
-        # With all methods: trendline=40%, fib=25%, dim=15%, hist=20%
+        """Test weighted composite with all 4 methods available (high confidence)."""
+        # With all methods: trendline=40%, fib=25%, dim=15%, hist=20%, scale=1.0
         result = CyclePatternAnalyzer._calculate_weighted_composite(
             trendline_pct=100.0,
             fib_pct=200.0,
             dim_return_pct=50.0,
             hist_peak_pct=150.0,
+            confidence="high",
         )
-        # (100*0.40 + 200*0.25 + 50*0.15 + 150*0.20) / (0.40+0.25+0.15+0.20)
+        # (100*0.40 + 200*0.25 + 50*0.15 + 150*0.20) / (0.40+0.25+0.15+0.20) * 1.0
         # = (40 + 50 + 7.5 + 30) / 1.0 = 127.5
         assert result is not None
         assert pytest.approx(result, rel=0.01) == 127.5
@@ -1447,20 +1448,38 @@ class TestWeightedComposite:
         # High trendline should produce higher composite than high dim return
         assert result_high_trend > result_high_dim
 
-    def test_weighted_composite_exclude_trendline(self):
-        """Test composite with trendline excluded (low confidence)."""
+    def test_weighted_composite_low_confidence_excludes_trendline(self):
+        """Test composite with low confidence excludes trendline and applies scale."""
         result = CyclePatternAnalyzer._calculate_weighted_composite(
-            trendline_pct=999.0,  # Should be ignored
+            trendline_pct=999.0,  # Should be ignored (weight=0 for low confidence)
             fib_pct=200.0,
             dim_return_pct=50.0,
             hist_peak_pct=150.0,
-            exclude_trendline=True,
+            confidence="low",
         )
-        # Without trendline: (200*0.25 + 50*0.15 + 150*0.20) / (0.25+0.15+0.20)
-        # = (50 + 7.5 + 30) / 0.60 = 145.83...
+        # Without trendline: (200*0.25 + 50*0.15 + 150*0.20) / (0.25+0.15+0.20) * 0.3
+        # = (50 + 7.5 + 30) / 0.60 * 0.3 = 145.83... * 0.3 = 43.75
         assert result is not None
-        expected = (200 * 0.25 + 50 * 0.15 + 150 * 0.20) / (0.25 + 0.15 + 0.20)
+        expected = (200 * 0.25 + 50 * 0.15 + 150 * 0.20) / (0.25 + 0.15 + 0.20) * 0.3
         assert pytest.approx(result, rel=0.01) == expected
+
+    def test_weighted_composite_medium_confidence_same_as_high(self):
+        """Test that medium confidence uses the same weights as high."""
+        result_high = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=100.0,
+            fib_pct=200.0,
+            dim_return_pct=50.0,
+            hist_peak_pct=150.0,
+            confidence="high",
+        )
+        result_medium = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=100.0,
+            fib_pct=200.0,
+            dim_return_pct=50.0,
+            hist_peak_pct=150.0,
+            confidence="medium",
+        )
+        assert result_high == result_medium
 
     def test_weighted_composite_renormalization(self):
         """Test that weights renormalize when some methods are missing."""
@@ -1471,7 +1490,7 @@ class TestWeightedComposite:
             dim_return_pct=None,
             hist_peak_pct=None,
         )
-        # (100*0.40 + 200*0.25) / (0.40+0.25) = (40+50) / 0.65 = 138.46
+        # (100*0.40 + 200*0.25) / (0.40+0.25) * 1.0 = (40+50) / 0.65 = 138.46
         assert result is not None
         expected = (100 * 0.40 + 200 * 0.25) / (0.40 + 0.25)
         assert pytest.approx(result, rel=0.01) == expected
@@ -1487,12 +1506,13 @@ class TestWeightedComposite:
         assert result is None
 
     def test_weighted_composite_single_method(self):
-        """Test composite with only one method returns that method's value."""
+        """Test composite with only one method returns that method's value (scaled)."""
         result = CyclePatternAnalyzer._calculate_weighted_composite(
             trendline_pct=None,
             fib_pct=None,
             dim_return_pct=None,
             hist_peak_pct=300.0,
+            confidence="high",
         )
         assert result is not None
         assert pytest.approx(result, rel=0.01) == 300.0
@@ -1519,6 +1539,32 @@ class TestWeightedComposite:
         )
         # SOL should now rank higher than LINK
         assert sol_composite > link_composite
+
+    def test_weighted_composite_low_vs_high_confidence_penalty(self):
+        """Test that low confidence composite is significantly lower than high.
+
+        For the same inputs (excluding trendline), low confidence should be
+        scale-factor (0.3) times the high-confidence result.
+        """
+        # Use inputs where trendline is None (so both profiles use same methods)
+        result_high = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=None,
+            fib_pct=200.0,
+            dim_return_pct=100.0,
+            hist_peak_pct=150.0,
+            confidence="high",
+        )
+        result_low = CyclePatternAnalyzer._calculate_weighted_composite(
+            trendline_pct=None,
+            fib_pct=200.0,
+            dim_return_pct=100.0,
+            hist_peak_pct=150.0,
+            confidence="low",
+        )
+        assert result_high is not None
+        assert result_low is not None
+        # Low should be 0.3x the high result (same method weights, different scale)
+        assert pytest.approx(result_low / result_high, rel=0.01) == 0.3
 
 
 # =============================================================================
