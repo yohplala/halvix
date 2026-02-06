@@ -167,9 +167,8 @@ def _add_target_predictions(
             price_str = _format_pct(target_pct)
         text_lines.append((f"{label}: {price_str}", color))
 
-    # Add text annotations in bottom right corner
-    # Position: x = few days after 2028 halving, y = bottom using paper coordinates
-    text_x_date = PROJECTED_5TH_HALVING + timedelta(days=30)
+    # Add text annotations at the bottom, left of the 4th halving vertical line
+    text_x_date = HALVING_DATES[3] - timedelta(days=30)
     num_lines = len(text_lines)
     line_spacing = 0.035  # Vertical spacing in paper coordinates
 
@@ -185,7 +184,7 @@ def _add_target_predictions(
             text=text_label,
             showarrow=False,
             font={"size": 13, "color": color},
-            xanchor="left",
+            xanchor="right",
             yanchor="middle",
         )
 
@@ -288,7 +287,7 @@ def _calculate_y_axis_range(
     point_prices: list[float],
     target_prices: list[float],
     hist_peak: float | None = None,
-    padding: float = 0.3,
+    padding: float = 0.1,
 ) -> list[float] | None:
     """
     Calculate y-axis range for log-scale charts based on actual data.
@@ -615,7 +614,7 @@ def create_btc_pattern_chart(
         plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
-        margin={"t": 80, "b": 60, "r": 180},
+        margin={"t": 80, "b": 60, "r": 20},
     )
 
     if output_path:
@@ -883,7 +882,7 @@ def create_altcoin_pattern_chart(
         plot_bgcolor="#0d1117",
         hovermode="x unified",
         height=600,
-        margin={"t": 80, "b": 60, "r": 180},
+        margin={"t": 80, "b": 60, "r": 20},
     )
 
     if output_path:
