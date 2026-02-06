@@ -638,6 +638,14 @@ DEFAULT_DIMINISHING_FACTOR = 0.20
 TRENDLINE_MAJOR_POINT_WEIGHT = 0.67  # Weight for min1 (true bottom) and max2 (true peak)
 TRENDLINE_MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate points)
 
+# Trendline recency decay factor
+# Controls how much older cycles are downweighted relative to recent ones.
+# Applied as: recency_weight = TRENDLINE_RECENCY_DECAY ** (max_cycle - point_cycle)
+# With 0.7: most recent cycle = 1.0, one back = 0.7, two back = 0.49
+# This ensures trendlines follow recent extrema more closely, preventing
+# early high-growth cycles from making projections overly optimistic.
+TRENDLINE_RECENCY_DECAY = 0.7
+
 # Minimum lower trendline slope (floor appreciation) requirement
 # Coins with declining or stagnant floors (min points getting lower) are filtered out.
 # The slope is in log10-space per day. To convert annual percentage to slope:
@@ -665,6 +673,26 @@ MIN_UNIQUE_PRICES = 30
 # multiplied by this factor to reflect higher uncertainty.
 # Value of 0.3 means a 70% penalty (composite × 0.3).
 LOW_CONFIDENCE_PENALTY_FACTOR = 0.3
+
+# Composite score method weights
+# Instead of equal-weight average, methods are weighted by reliability:
+# - Trendline (40%): Captures structural multi-cycle trend direction (most informative)
+# - Fibonacci (25%): Technical projection based on previous cycle move
+# - Historical Peak (20%): Reality anchor based on achieved valuations
+# - Diminishing Returns (15%): Most volatile/unreliable, sensitive to outlier launch cycles
+COMPOSITE_WEIGHT_TRENDLINE = 0.40
+COMPOSITE_WEIGHT_FIBONACCI = 0.25
+COMPOSITE_WEIGHT_HISTORICAL = 0.20
+COMPOSITE_WEIGHT_DIMINISHING = 0.15
+
+# Diminishing returns minimum gain floor
+# The dim returns model projects decreasing but still positive gains each cycle.
+# A projected gain < 1.0x (i.e., a loss from the cycle minimum) is nonsensical
+# for this model - it contradicts the "diminishing positive returns" concept.
+# When the projected gain falls below this floor, it is clamped to this value.
+# 1.0 = break-even (0% return from latest min), meaning the model contributes
+# a neutral prediction rather than a misleading negative one.
+DIM_RETURN_MIN_GAIN_RATIO = 1.0
 
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
@@ -814,6 +842,32 @@ def validate_config() -> None:
     if not (0.0 < DEFAULT_DIMINISHING_FACTOR < 1.0):
         errors.append(
             f"DEFAULT_DIMINISHING_FACTOR must be between 0 and 1: " f"{DEFAULT_DIMINISHING_FACTOR}"
+        )
+
+    # Validate trendline recency decay
+    if not (0.0 < TRENDLINE_RECENCY_DECAY <= 1.0):
+        errors.append(
+            f"TRENDLINE_RECENCY_DECAY must be between 0 and 1: {TRENDLINE_RECENCY_DECAY}"
+        )
+
+    # Validate composite weights sum to 1.0
+    composite_sum = (
+        COMPOSITE_WEIGHT_TRENDLINE
+        + COMPOSITE_WEIGHT_FIBONACCI
+        + COMPOSITE_WEIGHT_HISTORICAL
+        + COMPOSITE_WEIGHT_DIMINISHING
+    )
+    if abs(composite_sum - 1.0) > 0.001:
+        errors.append(
+            f"Composite weights must sum to 1.0, got {composite_sum}: "
+            f"trendline={COMPOSITE_WEIGHT_TRENDLINE}, fibonacci={COMPOSITE_WEIGHT_FIBONACCI}, "
+            f"historical={COMPOSITE_WEIGHT_HISTORICAL}, diminishing={COMPOSITE_WEIGHT_DIMINISHING}"
+        )
+
+    # Validate diminishing returns gain floor
+    if DIM_RETURN_MIN_GAIN_RATIO < 0:
+        errors.append(
+            f"DIM_RETURN_MIN_GAIN_RATIO must be non-negative: {DIM_RETURN_MIN_GAIN_RATIO}"
         )
 
     if errors:

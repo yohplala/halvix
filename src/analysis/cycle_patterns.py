@@ -40,11 +40,16 @@ import pandas as pd
 
 from config import (
     BTC_CYCLE_PEAKS,
+    COMPOSITE_WEIGHT_DIMINISHING,
+    COMPOSITE_WEIGHT_FIBONACCI,
+    COMPOSITE_WEIGHT_HISTORICAL,
+    COMPOSITE_WEIGHT_TRENDLINE,
     CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
+    DIM_RETURN_MIN_GAIN_RATIO,
     EXPECTED_PEAK_DAYS_AFTER_HALVING,
     HALVING_DATES,
     LOW_CONFIDENCE_PENALTY_FACTOR,
@@ -58,6 +63,7 @@ from config import (
     TRENDLINE_LOG_PRICE_LIMIT,
     TRENDLINE_MAJOR_POINT_WEIGHT,
     TRENDLINE_MINOR_POINT_WEIGHT,
+    TRENDLINE_RECENCY_DECAY,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -661,9 +667,16 @@ class CyclePatternAnalyzer:
         ).reshape(-1, 1)
         trough_y = np.log10([p.price for p in troughs])
 
-        # Assign weights based on point type:
+        # Assign weights based on point type AND cycle recency:
         # - max2 (true peak) gets major weight, max1 (intermediate) gets minor weight
         # - min1 (true bottom) gets major weight, min2 (intermediate) gets minor weight
+        # - Recent cycles get higher weight via TRENDLINE_RECENCY_DECAY
+        #   (e.g., 0.7: most recent=1.0, one back=0.7, two back=0.49)
+        max_cycle = max(p.cycle_num for p in peaks + troughs)
+
+        def _recency_weight(cycle_num: int) -> float:
+            return TRENDLINE_RECENCY_DECAY ** (max_cycle - cycle_num)
+
         peak_weights = np.array(
             [
                 (
@@ -671,6 +684,7 @@ class CyclePatternAnalyzer:
                     if p.point_type == "max2"
                     else TRENDLINE_MINOR_POINT_WEIGHT
                 )
+                * _recency_weight(p.cycle_num)
                 for p in peaks
             ]
         )
@@ -681,6 +695,7 @@ class CyclePatternAnalyzer:
                     if p.point_type == "min1"
                     else TRENDLINE_MINOR_POINT_WEIGHT
                 )
+                * _recency_weight(p.cycle_num)
                 for p in troughs
             ]
         )
@@ -939,6 +954,9 @@ class CyclePatternAnalyzer:
             last_gain_ratio = gains[0][1]
             dim_factor = DEFAULT_DIMINISHING_FACTOR
             next_gain_ratio = last_gain_ratio * dim_factor
+            # Floor: projected gain can't be below DIM_RETURN_MIN_GAIN_RATIO
+            # (the "diminishing returns" concept implies decreasing but still positive gains)
+            next_gain_ratio = max(next_gain_ratio, DIM_RETURN_MIN_GAIN_RATIO)
 
             # Get latest min point
             latest_min = None
@@ -965,6 +983,9 @@ class CyclePatternAnalyzer:
             avg_dim_factor = np.mean(dim_factors)
             last_gain_ratio = gains[-1][1]
             next_gain_ratio = last_gain_ratio * avg_dim_factor
+            # Floor: projected gain can't be below DIM_RETURN_MIN_GAIN_RATIO
+            # (the "diminishing returns" concept implies decreasing but still positive gains)
+            next_gain_ratio = max(next_gain_ratio, DIM_RETURN_MIN_GAIN_RATIO)
 
             # Get latest min point
             latest_min = None
@@ -1033,6 +1054,55 @@ class CyclePatternAnalyzer:
 
         weighted_avg = weighted_sum / weight_total
         return weighted_avg, False
+
+    @staticmethod
+    def _calculate_weighted_composite(
+        trendline_pct: float | None,
+        fib_pct: float | None,
+        dim_return_pct: float | None,
+        hist_peak_pct: float | None,
+        exclude_trendline: bool = False,
+    ) -> float | None:
+        """
+        Calculate weighted composite target percentage.
+
+        Uses method-specific weights instead of equal-weight average.
+        The trendline gets the highest weight as it captures the structural
+        multi-cycle trend direction, while diminishing returns gets the lowest
+        weight as it's the most sensitive to outlier launch cycles.
+
+        When exclude_trendline=True (for low-confidence coins), the trendline
+        is excluded and weights are renormalized across the remaining methods.
+
+        Args:
+            trendline_pct: Trendline projection percentage
+            fib_pct: Fibonacci extension percentage
+            dim_return_pct: Diminishing returns percentage
+            hist_peak_pct: Historical peak percentage
+            exclude_trendline: If True, exclude trendline from composite
+
+        Returns:
+            Weighted composite percentage, or None if no methods available
+        """
+        # Build list of (value, weight) pairs for available methods
+        components: list[tuple[float, float]] = []
+
+        if not exclude_trendline and trendline_pct is not None:
+            components.append((trendline_pct, COMPOSITE_WEIGHT_TRENDLINE))
+        if fib_pct is not None:
+            components.append((fib_pct, COMPOSITE_WEIGHT_FIBONACCI))
+        if dim_return_pct is not None:
+            components.append((dim_return_pct, COMPOSITE_WEIGHT_DIMINISHING))
+        if hist_peak_pct is not None:
+            components.append((hist_peak_pct, COMPOSITE_WEIGHT_HISTORICAL))
+
+        if not components:
+            return None
+
+        # Weighted average with renormalization
+        total_weight = sum(w for _, w in components)
+        weighted_sum = sum(v * w for v, w in components)
+        return weighted_sum / total_weight
 
     def _classify_pattern(
         self,
@@ -1151,19 +1221,13 @@ class CyclePatternAnalyzer:
             result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
             result.hist_peak_is_absolute = hist_peak_is_absolute
 
-        # Composite target (equal weight of all 4 methods)
-        pcts = [
-            p
-            for p in [
-                result.trendline_target_pct,
-                result.fib_target_pct,
-                result.dim_return_target_pct,
-                result.hist_peak_target_pct,
-            ]
-            if p is not None
-        ]
-        if pcts:
-            result.composite_target_pct = np.mean(pcts)
+        # Composite target (weighted average of all 4 methods)
+        result.composite_target_pct = self._calculate_weighted_composite(
+            trendline_pct=result.trendline_target_pct,
+            fib_pct=result.fib_target_pct,
+            dim_return_pct=result.dim_return_target_pct,
+            hist_peak_pct=result.hist_peak_target_pct,
+        )
 
         return result
 
@@ -1331,35 +1395,20 @@ class CyclePatternAnalyzer:
             result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
             result.hist_peak_is_absolute = hist_peak_is_absolute
 
-        # Composite target (equal weight of available methods)
+        # Composite target (weighted average of available methods)
         # For low confidence coins (1 cycle):
         #   1. Exclude trendline - it's unreliable with only 2 points
         #   2. Apply penalty factor to reflect higher uncertainty
-        if result.confidence == "low":
-            # Exclude trendline for low confidence - 2-point trendline is statistically meaningless
-            pcts = [
-                p
-                for p in [
-                    result.fib_target_pct,
-                    result.dim_return_target_pct,
-                    result.hist_peak_target_pct,
-                ]
-                if p is not None
-            ]
-        else:
-            pcts = [
-                p
-                for p in [
-                    result.trendline_target_pct,
-                    result.fib_target_pct,
-                    result.dim_return_target_pct,
-                    result.hist_peak_target_pct,
-                ]
-                if p is not None
-            ]
+        exclude_trendline = result.confidence == "low"
+        composite = self._calculate_weighted_composite(
+            trendline_pct=result.trendline_target_pct,
+            fib_pct=result.fib_target_pct,
+            dim_return_pct=result.dim_return_target_pct,
+            hist_peak_pct=result.hist_peak_target_pct,
+            exclude_trendline=exclude_trendline,
+        )
 
-        if pcts:
-            composite = np.mean(pcts)
+        if composite is not None:
             # Apply penalty factor for low confidence coins
             if result.confidence == "low":
                 composite *= LOW_CONFIDENCE_PENALTY_FACTOR
