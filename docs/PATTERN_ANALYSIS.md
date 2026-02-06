@@ -310,6 +310,31 @@ Instead of separate code paths for different confidence levels, a **single weigh
 
 When a method is unavailable (returns None), its weight is excluded and the remaining weights are renormalized before applying the scale factor.
 
+### Retracement Penalty
+
+A coin that peaked during its cycle and then **crashed back near its trough** gets an additional penalty on its composite score. This prevents coins with extreme single-cycle rallies followed by heavy drawdowns (e.g., COOKIE) from dominating the rankings over coins that hold their gains better (e.g., VIRTUAL).
+
+**Measurement** (in log-space, consistent with log-scale trendlines):
+
+```
+log_retracement = log10(peak / current) / log10(peak / trough)
+```
+
+Where:
+- `peak` = last cycle max2 price
+- `trough` = min1 (or min2) from the same cycle
+- `current` = current price
+
+| Log Retracement | Meaning | Penalty |
+|-----------------|---------|---------|
+| 0.0 | Coin at peak | None (×1.0) |
+| 0.50 | Half of log-gain given back | None (×1.0) |
+| 0.75 | Threshold | None (×1.0) |
+| 0.875 | Between threshold and full | Moderate (×0.75) |
+| 1.0 | Coin back at trough | Maximum (×0.50) |
+
+The penalty ramps linearly from 1.0 at the threshold to (1 − `RETRACEMENT_PENALTY_MAX`) at full retracement.
+
 ## Ranking and Filtering
 
 ### Ranking Criterion
@@ -505,6 +530,8 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
 | `COMPOSITE_WEIGHT_PROFILES` | dict | Weight profiles per confidence level (see above) |
+| `RETRACEMENT_PENALTY_THRESHOLD` | 0.75 | Log-retracement level below which no penalty is applied |
+| `RETRACEMENT_PENALTY_MAX` | 0.5 | Maximum composite reduction at full retracement |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 

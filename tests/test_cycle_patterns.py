@@ -1761,3 +1761,219 @@ class TestTrendlineRecencyWeighting:
         # Both slopes should be positive (prices are growing)
         assert upper_slope > 0
         assert lower_slope > 0
+
+
+# =============================================================================
+# Retracement Penalty Tests
+# =============================================================================
+
+
+class TestRetracementPenalty:
+    """Tests for _calculate_retracement_penalty method."""
+
+    def test_retracement_at_peak_no_penalty(self):
+        """Coin at cycle peak should have zero retracement, no penalty."""
+        points = [
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.001,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+        ]
+        # Current price at peak
+        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            points, current_price=0.01
+        )
+        assert retracement is not None
+        assert pytest.approx(retracement, abs=0.01) == 0.0
+        assert penalty == 1.0
+
+    def test_retracement_at_trough_full_penalty(self):
+        """Coin back at cycle trough should have retracement=1.0, full penalty."""
+        points = [
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.001,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+        ]
+        # Current price at trough
+        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            points, current_price=0.001
+        )
+        assert retracement is not None
+        assert pytest.approx(retracement, abs=0.01) == 1.0
+        # penalty = 1 - 0.5 = 0.5
+        assert pytest.approx(penalty, abs=0.01) == 0.5
+
+    def test_retracement_cookie_vs_virtual_scenario(self):
+        """COOKIE-like coin (heavy retracement) penalized more than VIRTUAL-like.
+
+        COOKIE: peaked at 30x, crashed back near trough (~87% log retracement)
+        VIRTUAL: peaked at 100x, holding at ~10x above trough (~38% log retracement)
+        """
+        cookie_points = [
+            CyclePoint(
+                date=date(2024, 6, 1),
+                price=0.0000002,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=43,
+            ),
+            CyclePoint(
+                date=date(2025, 1, 1),
+                price=0.000006,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=257,
+            ),
+        ]
+        # COOKIE current near trough (crashed ~87% in log space)
+        cookie_retracement, cookie_penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            cookie_points, current_price=0.0000003
+        )
+
+        virtual_points = [
+            CyclePoint(
+                date=date(2024, 6, 1),
+                price=0.0000004,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=43,
+            ),
+            CyclePoint(
+                date=date(2025, 1, 1),
+                price=0.00004,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=257,
+            ),
+        ]
+        # VIRTUAL current holding well above trough (~38% in log space)
+        virtual_retracement, virtual_penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            virtual_points, current_price=0.000007
+        )
+
+        # COOKIE should have much higher retracement than VIRTUAL
+        assert cookie_retracement > virtual_retracement
+        assert cookie_retracement > 0.75  # Above penalty threshold
+        assert virtual_retracement < 0.75  # Below penalty threshold
+
+        # COOKIE gets penalized, VIRTUAL doesn't
+        assert cookie_penalty < 1.0
+        assert virtual_penalty == 1.0
+
+    def test_retracement_below_threshold_no_penalty(self):
+        """Moderate retracement below threshold should not be penalized."""
+        points = [
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.001,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.1,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+        ]
+        # Current price at ~50% log retracement (geometric midpoint)
+        # log10(0.1/current) / log10(0.1/0.001) = 0.5
+        # current = 0.1 * (0.001/0.1)^0.5 = 0.1 * 0.1 = 0.01
+        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            points, current_price=0.01
+        )
+        assert retracement is not None
+        assert pytest.approx(retracement, abs=0.01) == 0.5
+        assert penalty == 1.0  # Below threshold, no penalty
+
+    def test_retracement_no_max2_returns_none(self):
+        """Without max2 point, retracement cannot be computed."""
+        points = [
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.001,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+        ]
+        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            points, current_price=0.001
+        )
+        assert retracement is None
+        assert penalty == 1.0
+
+    def test_retracement_empty_points(self):
+        """Empty points should return None with no penalty."""
+        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            [], current_price=0.01
+        )
+        assert retracement is None
+        assert penalty == 1.0
+
+    def test_retracement_uses_last_cycle_max2(self):
+        """When multiple cycles have max2, uses the most recent one."""
+        points = [
+            # Cycle 3: modest peak
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.001,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.005,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            # Cycle 4: higher peak
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.002,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.02,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+        ]
+        # Current price near cycle 4 trough → high retracement of cycle 4
+        retracement, penalty = CyclePatternAnalyzer._calculate_retracement_penalty(
+            points, current_price=0.002
+        )
+        assert retracement is not None
+        # Retracement is relative to cycle 4 (0.002→0.02), not cycle 3
+        # log10(0.02/0.002) / log10(0.02/0.002) = 1.0
+        assert pytest.approx(retracement, abs=0.01) == 1.0
+        assert penalty < 1.0
