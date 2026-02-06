@@ -720,6 +720,28 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
 # a neutral prediction rather than a misleading negative one.
 DIM_RETURN_MIN_GAIN_RATIO = 1.0
 
+# Retracement penalty: penalizes coins that have given back most of their cycle gains
+#
+# Motivation: A coin like COOKIE can peak at 30x its cycle low, then crash back down
+# to near the low. All projection methods still produce huge targets (relative to the
+# low), inflating the composite. Meanwhile a coin like VIRTUAL holds up much better.
+#
+# Measured in log-space (consistent with log-scale trendlines):
+#   log_retracement = log10(peak / current) / log10(peak / trough)
+#   0.0 = coin at peak, 1.0 = coin back at cycle trough
+#
+# The penalty is a multiplier on the composite score:
+#   - Below threshold: no penalty (multiplier = 1.0)
+#   - Above threshold: linear ramp down to (1 - RETRACEMENT_PENALTY_MAX) at full retracement
+#
+# Example with default values (threshold=0.75, max=0.5):
+#   retracement=0.50 → multiplier=1.00 (below threshold)
+#   retracement=0.75 → multiplier=1.00 (at threshold)
+#   retracement=0.875 → multiplier=0.75 (half penalty)
+#   retracement=1.00 → multiplier=0.50 (full penalty)
+RETRACEMENT_PENALTY_THRESHOLD = 0.75  # No penalty below 75% log-retracement
+RETRACEMENT_PENALTY_MAX = 0.5  # Maximum penalty: 50% reduction at full retracement
+
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
 # For trendline regression (which uses dates as x-coordinates), we use an approximated date
@@ -913,6 +935,14 @@ def validate_config() -> None:
         errors.append(
             f"DIM_RETURN_MIN_GAIN_RATIO must be non-negative: {DIM_RETURN_MIN_GAIN_RATIO}"
         )
+
+    # Validate retracement penalty parameters
+    if not (0.0 < RETRACEMENT_PENALTY_THRESHOLD <= 1.0):
+        errors.append(
+            f"RETRACEMENT_PENALTY_THRESHOLD must be in (0, 1]: {RETRACEMENT_PENALTY_THRESHOLD}"
+        )
+    if not (0.0 < RETRACEMENT_PENALTY_MAX <= 1.0):
+        errors.append(f"RETRACEMENT_PENALTY_MAX must be in (0, 1]: {RETRACEMENT_PENALTY_MAX}")
 
     if errors:
         raise ConfigurationError("Configuration validation failed:\n" + "\n".join(errors))

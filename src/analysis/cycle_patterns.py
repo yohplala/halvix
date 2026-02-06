@@ -31,6 +31,7 @@ Usage:
 """
 
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -54,6 +55,8 @@ from config import (
     MIN_UNIQUE_PRICES,
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
+    RETRACEMENT_PENALTY_MAX,
+    RETRACEMENT_PENALTY_THRESHOLD,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_LOOKBACK_YEARS,
     TRENDLINE_LOG_PRICE_LIMIT,
@@ -122,6 +125,9 @@ class CoinPatternResult:
 
     # Composite score (weighted average of available methods)
     composite_target_pct: float | None = None
+
+    # Retracement: how much of the last cycle gain has been given back (log-space, 0-1)
+    retracement_ratio: float | None = None
 
     # Current price for reference (returns are calculated vs this price)
     current_price: float | None = None
@@ -1105,6 +1111,80 @@ class CyclePatternAnalyzer:
         weighted_sum = sum(v * w for v, w in components)
         return (weighted_sum / total_weight) * profile["scale"]
 
+    @staticmethod
+    def _calculate_retracement_penalty(
+        points: list[CyclePoint],
+        current_price: float,
+    ) -> tuple[float | None, float]:
+        """
+        Calculate retracement ratio and corresponding composite penalty.
+
+        Measures how much of the last cycle's gain (trough→peak) has been
+        given back, in log-space. A coin that crashed back near its cycle low
+        gets penalized; one holding near its peak does not.
+
+        The retracement is computed from the **last cycle that has a max2**
+        (i.e., the last completed peak), using the min point from that same cycle
+        (min1 if available, else min2) as the trough reference.
+
+        Args:
+            points: List of cycle points
+            current_price: Current coin price
+
+        Returns:
+            Tuple of (retracement_ratio, penalty_multiplier).
+            retracement_ratio is None if insufficient data.
+            penalty_multiplier is 1.0 (no penalty) when ratio is None or below threshold.
+        """
+        if not points or current_price <= 0:
+            return None, 1.0
+
+        # Find the last cycle that has a max2 (completed peak)
+        max2_points = [p for p in points if p.point_type == "max2" and p.price > 0]
+        if not max2_points:
+            return None, 1.0
+
+        last_max2 = max(max2_points, key=lambda p: p.cycle_num)
+        peak_cycle = last_max2.cycle_num
+        peak_price = last_max2.price
+
+        # Find trough from the same cycle: prefer min1 (true bottom), fallback to min2
+        cycle_mins = [
+            p
+            for p in points
+            if p.cycle_num == peak_cycle and p.point_type in ("min1", "min2") and p.price > 0
+        ]
+        if not cycle_mins:
+            return None, 1.0
+
+        # Pick min1 if available, otherwise min2; if multiple, use lowest price
+        min1s = [p for p in cycle_mins if p.point_type == "min1"]
+        trough = min(min1s if min1s else cycle_mins, key=lambda p: p.price)
+        trough_price = trough.price
+
+        # Guard: peak must be above trough for meaningful ratio
+        if peak_price <= trough_price:
+            return None, 1.0
+
+        # Clamp current price: if above peak, retracement = 0; if below trough, = 1
+        clamped_current = max(trough_price, min(current_price, peak_price))
+
+        # Log-space retracement ratio
+        log_range = math.log10(peak_price / trough_price)
+        log_drawdown = math.log10(peak_price / clamped_current)
+        retracement = log_drawdown / log_range  # 0.0 = at peak, 1.0 = at trough
+
+        # Penalty ramps linearly from 1.0 at threshold to (1-max) at retracement=1.0
+        if retracement <= RETRACEMENT_PENALTY_THRESHOLD:
+            penalty = 1.0
+        else:
+            fraction = (retracement - RETRACEMENT_PENALTY_THRESHOLD) / (
+                1.0 - RETRACEMENT_PENALTY_THRESHOLD
+            )
+            penalty = 1.0 - RETRACEMENT_PENALTY_MAX * fraction
+
+        return retracement, penalty
+
     def _classify_pattern(
         self,
         upper_slope: float | None,
@@ -1401,13 +1481,23 @@ class CyclePatternAnalyzer:
         # The weight profile handles all confidence-specific adjustments:
         # - Low confidence: trendline weight = 0, scale = 0.3
         # - Medium/High confidence: full weights, scale = 1.0
-        result.composite_target_pct = self._calculate_weighted_composite(
+        composite = self._calculate_weighted_composite(
             trendline_pct=result.trendline_target_pct,
             fib_pct=result.fib_target_pct,
             dim_return_pct=result.dim_return_target_pct,
             hist_peak_pct=result.hist_peak_target_pct,
             confidence=result.confidence,
         )
+
+        # Retracement penalty: penalize coins that have given back most of their
+        # last cycle's gains (e.g., COOKIE peaked then crashed back near its low)
+        retracement, penalty = self._calculate_retracement_penalty(
+            result.points, result.current_price
+        )
+        result.retracement_ratio = retracement
+        if composite is not None:
+            composite *= penalty
+        result.composite_target_pct = composite
 
         return result
 
@@ -1602,6 +1692,7 @@ class CyclePatternAnalyzer:
                 "hist_peak_target": result.hist_peak_target,
                 "hist_peak_target_pct": result.hist_peak_target_pct,
                 "hist_peak_is_absolute": result.hist_peak_is_absolute,
+                "retracement_ratio": result.retracement_ratio,
                 "composite_target_pct": result.composite_target_pct,
             }
 
