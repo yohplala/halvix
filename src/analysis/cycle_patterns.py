@@ -50,13 +50,12 @@ from config import (
     DIM_RETURN_MIN_GAIN_RATIO,
     EXPECTED_PEAK_DAYS_AFTER_HALVING,
     HALVING_DATES,
+    MAX_RETRACEMENT_LEVEL,
     MIN_COIN_AGE_DAYS,
     MIN_LOWER_SLOPE,
     MIN_UNIQUE_PRICES,
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
-    RETRACEMENT_PENALTY_MAX,
-    RETRACEMENT_PENALTY_THRESHOLD,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_LOOKBACK_YEARS,
     TRENDLINE_LOG_PRICE_LIMIT,
@@ -1112,78 +1111,75 @@ class CyclePatternAnalyzer:
         return (weighted_sum / total_weight) * profile["scale"]
 
     @staticmethod
-    def _calculate_retracement_penalty(
+    def _calculate_retracement_ratio(
         points: list[CyclePoint],
-        current_price: float,
-    ) -> tuple[float | None, float]:
+    ) -> float | None:
         """
-        Calculate retracement ratio and corresponding composite penalty.
+        Calculate Fibonacci retracement ratio of the last cycle move.
 
-        Measures how much of the last cycle's gain (trough→peak) has been
-        given back, in log-space. A coin that crashed back near its cycle low
-        gets penalized; one holding near its peak does not.
+        Uses three structural points (standard Fibonacci retracement setup):
+          A = previous cycle's min (min1 preferred, min2 fallback)
+          B = previous cycle's max2 (peak)
+          C = next cycle's min1 (new trough / current cycle start)
 
-        The retracement is computed from the **last cycle that has a max2**
-        (i.e., the last completed peak), using the min point from that same cycle
-        (min1 if available, else min2) as the trough reference.
+        The retracement ratio in log-space:
+          log_retracement = log10(B / C) / log10(B / A)
+          0.0 = C at peak (no retracement)
+          1.0 = C at previous trough (full retracement)
+
+        Coins that retrace beyond MAX_RETRACEMENT_LEVEL (78.6%) are considered
+        structurally broken — the "higher low" pattern has failed.
 
         Args:
             points: List of cycle points
-            current_price: Current coin price
 
         Returns:
-            Tuple of (retracement_ratio, penalty_multiplier).
-            retracement_ratio is None if insufficient data.
-            penalty_multiplier is 1.0 (no penalty) when ratio is None or below threshold.
+            Retracement ratio (0.0-1.0+), or None if insufficient data.
+            Values > 1.0 mean C dropped below A (worse than full retracement).
         """
-        if not points or current_price <= 0:
-            return None, 1.0
+        if not points:
+            return None
 
         # Find the last cycle that has a max2 (completed peak)
         max2_points = [p for p in points if p.point_type == "max2" and p.price > 0]
         if not max2_points:
-            return None, 1.0
+            return None
 
         last_max2 = max(max2_points, key=lambda p: p.cycle_num)
         peak_cycle = last_max2.cycle_num
-        peak_price = last_max2.price
+        peak_price = last_max2.price  # B
 
-        # Find trough from the same cycle: prefer min1 (true bottom), fallback to min2
+        # A: Find min from the same cycle as peak (min1 preferred, min2 fallback)
         cycle_mins = [
             p
             for p in points
             if p.cycle_num == peak_cycle and p.point_type in ("min1", "min2") and p.price > 0
         ]
         if not cycle_mins:
-            return None, 1.0
+            return None
 
-        # Pick min1 if available, otherwise min2; if multiple, use lowest price
         min1s = [p for p in cycle_mins if p.point_type == "min1"]
-        trough = min(min1s if min1s else cycle_mins, key=lambda p: p.price)
-        trough_price = trough.price
+        prev_trough = min(min1s if min1s else cycle_mins, key=lambda p: p.price)
+        prev_trough_price = prev_trough.price  # A
 
-        # Guard: peak must be above trough for meaningful ratio
-        if peak_price <= trough_price:
-            return None, 1.0
+        # C: Find next cycle's min1 (the new trough after the peak)
+        next_min1s = [
+            p for p in points if p.cycle_num > peak_cycle and p.point_type == "min1" and p.price > 0
+        ]
+        if not next_min1s:
+            return None
 
-        # Clamp current price: if above peak, retracement = 0; if below trough, = 1
-        clamped_current = max(trough_price, min(current_price, peak_price))
+        new_trough = min(next_min1s, key=lambda p: p.cycle_num)
+        new_trough_price = new_trough.price  # C
 
-        # Log-space retracement ratio
-        log_range = math.log10(peak_price / trough_price)
-        log_drawdown = math.log10(peak_price / clamped_current)
-        retracement = log_drawdown / log_range  # 0.0 = at peak, 1.0 = at trough
+        # Guard: peak must be above previous trough
+        if peak_price <= prev_trough_price:
+            return None
 
-        # Penalty ramps linearly from 1.0 at threshold to (1-max) at retracement=1.0
-        if retracement <= RETRACEMENT_PENALTY_THRESHOLD:
-            penalty = 1.0
-        else:
-            fraction = (retracement - RETRACEMENT_PENALTY_THRESHOLD) / (
-                1.0 - RETRACEMENT_PENALTY_THRESHOLD
-            )
-            penalty = 1.0 - RETRACEMENT_PENALTY_MAX * fraction
-
-        return retracement, penalty
+        # Log-space Fibonacci retracement
+        log_range = math.log10(peak_price / prev_trough_price)  # log10(B/A)
+        log_drawdown = math.log10(peak_price / new_trough_price)  # log10(B/C)
+        return log_drawdown / log_range
 
     def _classify_pattern(
         self,
@@ -1481,7 +1477,7 @@ class CyclePatternAnalyzer:
         # The weight profile handles all confidence-specific adjustments:
         # - Low confidence: trendline weight = 0, scale = 0.3
         # - Medium/High confidence: full weights, scale = 1.0
-        composite = self._calculate_weighted_composite(
+        result.composite_target_pct = self._calculate_weighted_composite(
             trendline_pct=result.trendline_target_pct,
             fib_pct=result.fib_target_pct,
             dim_return_pct=result.dim_return_target_pct,
@@ -1489,15 +1485,8 @@ class CyclePatternAnalyzer:
             confidence=result.confidence,
         )
 
-        # Retracement penalty: penalize coins that have given back most of their
-        # last cycle's gains (e.g., COOKIE peaked then crashed back near its low)
-        retracement, penalty = self._calculate_retracement_penalty(
-            result.points, result.current_price
-        )
-        result.retracement_ratio = retracement
-        if composite is not None:
-            composite *= penalty
-        result.composite_target_pct = composite
+        # Fibonacci retracement ratio (used as filter in get_top_coins)
+        result.retracement_ratio = self._calculate_retracement_ratio(result.points)
 
         return result
 
@@ -1572,6 +1561,7 @@ class CyclePatternAnalyzer:
         Filtering rules:
         - Coins with negative trendline predictions are excluded (underperforming BTC)
         - Coins with declining floor (lower_slope < MIN_LOWER_SLOPE) are excluded
+        - Coins with excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL) are excluded
         - Coins with missing trendline (None) are included if they have a composite score
         - Coins must have a valid composite score
         - Coins must be at least MIN_COIN_AGE_DAYS old (1 year)
@@ -1590,15 +1580,17 @@ class CyclePatternAnalyzer:
         # Filter out coins with:
         # 1. Negative trendline predictions (underperforming BTC)
         # 2. Declining floor (lower_slope below threshold = MIN_LOWER_SLOPE_ANNUAL_PCT% annual)
-        # 3. Too new (first_price_date < 1 year ago)
-        # 4. Too few unique prices (staircase/illiquid patterns like ZBCN, HTX)
-        # Coins with trendline=None are allowed if they have valid composite scores
+        # 3. Excessive Fibonacci retracement (gave back >78.6% of last cycle gain in log-space)
+        # 4. Too new (first_price_date < 1 year ago)
+        # 5. Too few unique prices (staircase/illiquid patterns like ZBCN, HTX)
+        # Coins with trendline=None or retracement=None are allowed
         valid = [
             r
             for r in results.values()
             if r.composite_target_pct is not None
             and (r.trendline_target_pct is None or r.trendline_target_pct > 0)
             and (r.lower_slope is None or r.lower_slope >= MIN_LOWER_SLOPE)
+            and (r.retracement_ratio is None or r.retracement_ratio <= MAX_RETRACEMENT_LEVEL)
             and (r.first_price_date is None or r.first_price_date <= min_first_price_date)
             and r.unique_price_count >= MIN_UNIQUE_PRICES
         ]
