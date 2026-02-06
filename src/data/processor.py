@@ -8,16 +8,7 @@ This module re-exports classes from the processor submodules:
 - processor_total2b.py: Total2bProcessor for new TOTAL2b calculation
 """
 
-from config import (
-    TOTAL2_SERIES_MAX_DECREASE,
-    TOTAL2_SERIES_MAX_INCREASE,
-    TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
-    TOTAL2B_MIN_COINS_FOR_SCALING,
-)
 from data.processor_base import (
-    MIN_VOLUME_FOR_OUTLIER_CHECK,
-    OUTLIER_WINDOW_DAYS,
-    VOLUME_OUTLIER_THRESHOLD,
     BaseTotal2Processor,
     CalculationMetadata,
     IndexData,
@@ -65,14 +56,4 @@ __all__ = [
     "Total2bProcessor",
     # Factory function
     "get_processor",
-    # Constants (volume outliers - shared)
-    "VOLUME_OUTLIER_THRESHOLD",
-    "MIN_VOLUME_FOR_OUTLIER_CHECK",
-    "OUTLIER_WINDOW_DAYS",
-    # Constants (TOTAL2 series smoothing)
-    "TOTAL2_SERIES_MAX_INCREASE",
-    "TOTAL2_SERIES_MAX_DECREASE",
-    # Constants (TOTAL2b specific)
-    "TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS",
-    "TOTAL2B_MIN_COINS_FOR_SCALING",
 ]

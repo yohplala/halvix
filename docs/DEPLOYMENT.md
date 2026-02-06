@@ -347,8 +347,4 @@ The Daily Update workflow runs automatically at 6:00 AM UTC. If data appears sta
 
 ---
 
-*Last updated: 2026-02-04*
-
----
-
 **[← Back to README](../README.md)**

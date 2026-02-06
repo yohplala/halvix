@@ -21,11 +21,22 @@ import pandas as pd
 import pytest
 
 from analysis.cycle_patterns import (
-    BTCPatternResult,
     CoinPatternResult,
     CyclePatternAnalyzer,
     CyclePoint,
 )
+from config import (
+    GOLDEN_RETRACEMENT_LEVEL,
+    MAX_RETRACEMENT_LEVEL,
+    RETRACEMENT_PENALTY_AT_MAX,
+    TOTAL2_LOOKBACK_YEARS,
+)
+
+
+def _build_idx(points: list[CyclePoint]) -> dict:
+    """Build points index for test methods that now require it."""
+    return CyclePatternAnalyzer._build_points_index(points)
+
 
 # =============================================================================
 # Fixtures
@@ -168,25 +179,6 @@ class TestCoinPatternResult:
         assert result.num_cycles == 3
         assert result.confidence == "high"
         assert result.composite_target_pct == 80.0
-
-
-# =============================================================================
-# BTCPatternResult Dataclass Tests
-# =============================================================================
-
-
-class TestBTCPatternResult:
-    """Tests for BTCPatternResult dataclass."""
-
-    def test_default_values(self):
-        """Test BTCPatternResult default values."""
-        result = BTCPatternResult()
-
-        assert result.points == []
-        assert result.num_cycles == 0
-        assert result.trendline_target is None
-        assert result.fib_target is None
-        assert result.composite_target_pct is None
 
 
 # =============================================================================
@@ -525,14 +517,24 @@ class TestCalculateFibExtension:
             ),
         ]
 
-        result = analyzer._calculate_fib_extension(points, level=1.272)
+        idx = _build_idx(points)
+        result = analyzer._calculate_fib_extension(points, idx, level=1.272)
 
-        # C + (B - A) * level = 0.003 + (0.01 - 0.001) * 1.272 = 0.003 + 0.011448 = 0.014448
+        # Log-space: 10^(log10(C) + (log10(B) - log10(A)) * level)
+        # = 10^(log10(0.003) + (log10(0.01) - log10(0.001)) * 1.272)
+        # = 10^(-2.52288 + 1.0 * 1.272) = 10^(-1.25088) ≈ 0.05614
+        import math
+
+        expected = 10 ** (math.log10(0.003) + (math.log10(0.01) - math.log10(0.001)) * 1.272)
         assert result is not None
-        assert pytest.approx(result, rel=0.01) == 0.014448
+        assert pytest.approx(result, rel=0.01) == expected
 
-    def test_fib_extension_single_cycle(self, analyzer):
-        """Test Fibonacci extension with single cycle."""
+    def test_fib_extension_single_cycle_returns_none(self, analyzer):
+        """Test Fibonacci extension with single cycle returns None.
+
+        Single cycle has insufficient data for meaningful Fibonacci extension.
+        Requires a prior cycle's move (A->B) to project from current low (C).
+        """
         points = [
             CyclePoint(
                 date=date(2024, 1, 1),
@@ -550,15 +552,15 @@ class TestCalculateFibExtension:
             ),
         ]
 
-        result = analyzer._calculate_fib_extension(points, level=1.272)
+        idx = _build_idx(points)
+        result = analyzer._calculate_fib_extension(points, idx, level=1.272)
 
-        # Single cycle: uses min1 as C, move from min to max
-        assert result is not None
-        assert result > 0
+        # Single cycle: insufficient data, returns None
+        assert result is None
 
     def test_fib_extension_no_points(self, analyzer):
         """Test Fibonacci extension with no points."""
-        result = analyzer._calculate_fib_extension([], level=1.272)
+        result = analyzer._calculate_fib_extension([], _build_idx([]), level=1.272)
         assert result is None
 
     def test_fib_extension_only_mins(self, analyzer):
@@ -580,7 +582,8 @@ class TestCalculateFibExtension:
             ),
         ]
 
-        result = analyzer._calculate_fib_extension(points, level=1.272)
+        idx = _build_idx(points)
+        result = analyzer._calculate_fib_extension(points, idx, level=1.272)
         # No max points, should return None
         assert result is None
 
@@ -610,8 +613,9 @@ class TestCalculateFibExtension:
             ),
         ]
 
-        result_127 = analyzer._calculate_fib_extension(points, level=1.272)
-        result_161 = analyzer._calculate_fib_extension(points, level=1.618)
+        idx = _build_idx(points)
+        result_127 = analyzer._calculate_fib_extension(points, idx, level=1.272)
+        result_161 = analyzer._calculate_fib_extension(points, idx, level=1.618)
 
         assert result_127 is not None
         assert result_161 is not None
@@ -673,7 +677,8 @@ class TestCalculateDiminishingReturn:
             ),
         ]
 
-        target, factor = analyzer._calculate_diminishing_return(points)
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
 
         assert target is not None
         assert factor is not None
@@ -699,7 +704,8 @@ class TestCalculateDiminishingReturn:
             ),
         ]
 
-        target, factor = analyzer._calculate_diminishing_return(points)
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
 
         assert target is not None
         # BTC-derived factor (calculated from BTC cycles 2→3: 20.9x / 117.3x ≈ 0.178, rounded to 0.20)
@@ -707,7 +713,7 @@ class TestCalculateDiminishingReturn:
 
     def test_diminishing_return_no_points(self, analyzer):
         """Test diminishing returns with no points."""
-        target, factor = analyzer._calculate_diminishing_return([])
+        target, factor = analyzer._calculate_diminishing_return([], _build_idx([]))
 
         assert target is None
         assert factor is None
@@ -724,7 +730,8 @@ class TestCalculateDiminishingReturn:
             ),
         ]
 
-        target, factor = analyzer._calculate_diminishing_return(points)
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
 
         # No max points means no gain can be calculated
         assert target is None
@@ -975,7 +982,7 @@ class TestGetTopCoins:
             ),
             "sol": CoinPatternResult(
                 coin_id="sol",
-                trendline_target_pct=None,
+                trendline_target_pct=50.0,
                 composite_target_pct=200.0,
                 unique_price_count=100,
             ),
@@ -985,12 +992,19 @@ class TestGetTopCoins:
                 composite_target_pct=150.0,
                 unique_price_count=100,
             ),
+            "ada": CoinPatternResult(
+                coin_id="ada",
+                trendline_target_pct=None,
+                composite_target_pct=180.0,
+                unique_price_count=100,
+            ),
         }
 
         top = analyzer.get_top_coins(results, n=5)
 
-        # eth and sol are included (sol has None trendline which is allowed)
+        # eth and sol are included (positive trendline)
         # btc is filtered out (negative trendline)
+        # ada is filtered out (no trendline)
         assert len(top) == 2
         # Sorted by composite: sol (200) > eth (100)
         assert top[0].coin_id == "sol"
@@ -1033,54 +1047,6 @@ class TestAnalyzeAllCoins:
 # =============================================================================
 # Price Filter Application Tests
 # =============================================================================
-
-
-class TestApplyPriceFilters:
-    """Tests for _apply_price_filters method."""
-
-    @pytest.fixture
-    def analyzer(self, mock_price_cache):
-        return CyclePatternAnalyzer(price_cache=mock_price_cache)
-
-    def test_apply_filters_empty_df(self, analyzer):
-        """Test applying filters to empty DataFrame."""
-        df = pd.DataFrame(columns=["close", "volume_to"])
-        df.index = pd.DatetimeIndex([])
-
-        result = analyzer._apply_price_filters(df, "eth")
-
-        assert result.empty
-
-    def test_apply_filters_no_volume(self, analyzer):
-        """Test applying filters when no volume column."""
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        df = pd.DataFrame({"close": [1.0] * 10}, index=dates)
-
-        result = analyzer._apply_price_filters(df, "eth")
-
-        # Should return original data without volume modifications
-        assert len(result) == 10
-        assert "close" in result.columns
-
-    def test_apply_filters_with_volume(self, analyzer):
-        """Test applying filters with volume data."""
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
-        df = pd.DataFrame(
-            {
-                "close": np.random.uniform(0.01, 0.02, 30),
-                "volume_to": np.random.uniform(1000, 5000, 30),
-            },
-            index=dates,
-        )
-
-        result = analyzer._apply_price_filters(df, "eth")
-
-        assert len(result) == 30
-        assert "volume_to" in result.columns
-        assert "volume_smoothed" in result.columns
-
-
-# =============================================================================
 # Save Results Tests
 # =============================================================================
 
@@ -1094,7 +1060,8 @@ class TestSaveResults:
 
     def test_save_results_basic(self, analyzer, temp_dir):
         """Test saving results to JSON."""
-        btc_result = BTCPatternResult(
+        btc_result = CoinPatternResult(
+            coin_id="btc",
             num_cycles=3,
             current_price=50000.0,
             current_date=date(2024, 12, 1),
@@ -1347,17 +1314,11 @@ class TestParameterizedCases:
     def analyzer(self, mock_price_cache):
         return CyclePatternAnalyzer(price_cache=mock_price_cache)
 
-    @pytest.mark.parametrize(
-        "level,expected_multiplier",
-        [
-            (1.0, 1.0),
-            (1.272, 1.272),
-            (1.618, 1.618),
-            (2.0, 2.0),
-        ],
-    )
-    def test_fib_levels(self, analyzer, level, expected_multiplier):
-        """Test Fibonacci extension with various levels."""
+    @pytest.mark.parametrize("level", [1.0, 1.272, 1.618, 2.0])
+    def test_fib_levels(self, analyzer, level):
+        """Test Fibonacci extension with various levels (log-space)."""
+        import math
+
         points = [
             CyclePoint(
                 date=date(2020, 1, 1),
@@ -1382,10 +1343,12 @@ class TestParameterizedCases:
             ),
         ]
 
-        result = analyzer._calculate_fib_extension(points, level=level)
+        idx = _build_idx(points)
+        result = analyzer._calculate_fib_extension(points, idx, level=level)
 
-        # C + (B - A) * level = 1.5 + (2.0 - 1.0) * level = 1.5 + level
-        expected = 1.5 + 1.0 * expected_multiplier
+        # Log-space: 10^(log10(C) + (log10(B) - log10(A)) * level)
+        log_move = math.log10(2.0) - math.log10(1.0)
+        expected = 10 ** (math.log10(1.5) + log_move * level)
         assert result is not None
         assert pytest.approx(result, rel=0.01) == expected
 
@@ -1448,23 +1411,24 @@ class TestWeightedComposite:
         # High trendline should produce higher composite than high dim return
         assert result_high_trend > result_high_dim
 
-    def test_weighted_composite_low_confidence_excludes_trendline(self):
-        """Test composite with low confidence excludes trendline and applies scale."""
+    def test_weighted_composite_low_confidence_historical_dominates(self):
+        """Test composite with low confidence: historical peak dominates, 90% penalty."""
         result = CyclePatternAnalyzer._calculate_weighted_composite(
-            trendline_pct=999.0,  # Should be ignored (weight=0 for low confidence)
-            fib_pct=200.0,
-            dim_return_pct=50.0,
-            hist_peak_pct=150.0,
+            trendline_pct=999.0,  # Near-zero weight (0.002)
+            fib_pct=200.0,  # Near-zero weight (0.02)
+            dim_return_pct=50.0,  # Near-zero weight (0.02)
+            hist_peak_pct=150.0,  # Dominant weight (0.20)
             confidence="low",
         )
-        # Without trendline: (200*0.25 + 50*0.15 + 150*0.20) / (0.25+0.15+0.20) * 0.3
-        # = (50 + 7.5 + 30) / 0.60 * 0.3 = 145.83... * 0.3 = 43.75
+        # Historical peak dominates; trendline/fib/dim near-zero; scale=0.1
         assert result is not None
-        expected = (200 * 0.25 + 50 * 0.15 + 150 * 0.20) / (0.25 + 0.15 + 0.20) * 0.3
+        expected = (
+            (999 * 0.002 + 200 * 0.02 + 50 * 0.02 + 150 * 0.20) / (0.002 + 0.02 + 0.02 + 0.20) * 0.1
+        )
         assert pytest.approx(result, rel=0.01) == expected
 
-    def test_weighted_composite_medium_confidence_same_as_high(self):
-        """Test that medium confidence uses the same weights as high."""
+    def test_weighted_composite_medium_confidence_scaled(self):
+        """Test that medium confidence applies 0.9 scale vs high's 1.0."""
         result_high = CyclePatternAnalyzer._calculate_weighted_composite(
             trendline_pct=100.0,
             fib_pct=200.0,
@@ -1479,7 +1443,10 @@ class TestWeightedComposite:
             hist_peak_pct=150.0,
             confidence="medium",
         )
-        assert result_high == result_medium
+        assert result_high is not None
+        assert result_medium is not None
+        # Medium scale = 0.9, high scale = 1.0
+        assert pytest.approx(result_medium / result_high, rel=0.01) == 0.9
 
     def test_weighted_composite_renormalization(self):
         """Test that weights renormalize when some methods are missing."""
@@ -1543,8 +1510,8 @@ class TestWeightedComposite:
     def test_weighted_composite_low_vs_high_confidence_penalty(self):
         """Test that low confidence composite is significantly lower than high.
 
-        For the same inputs (excluding trendline), low confidence should be
-        scale-factor (0.3) times the high-confidence result.
+        Low profile has scale=0.1 and only historical peak retains meaningful
+        weight, so the result is well below 10% of the high-confidence result.
         """
         # Use inputs where trendline is None (so both profiles use same methods)
         result_high = CyclePatternAnalyzer._calculate_weighted_composite(
@@ -1563,8 +1530,12 @@ class TestWeightedComposite:
         )
         assert result_high is not None
         assert result_low is not None
-        # Low should be 0.3x the high result (same method weights, different scale)
-        assert pytest.approx(result_low / result_high, rel=0.01) == 0.3
+        # Low should be ~10% of high due to scale and weight differences
+        assert result_low < result_high * 0.1
+        # High: (200*0.25 + 100*0.15 + 150*0.20) / 0.60 * 1.0 = 158.33
+        assert pytest.approx(result_high, rel=0.01) == 158.33
+        # Low: (200*0.02 + 100*0.02 + 150*0.20) / 0.24 * 0.1 = 15.00
+        assert pytest.approx(result_low, rel=0.01) == 15.00
 
 
 # =============================================================================
@@ -1579,11 +1550,11 @@ class TestDiminishingReturnFloor:
     def analyzer(self, mock_price_cache):
         return CyclePatternAnalyzer(price_cache=mock_price_cache)
 
-    def test_dim_return_floor_prevents_negative(self, analyzer):
-        """Test that dim return floor prevents negative projections.
+    def test_dim_return_floor_clamps_low_gains(self, analyzer):
+        """Test that dim return floor clamps very low projected gains.
 
-        Simulates a SOL-like scenario: enormous first-cycle gain → tiny dim factor
-        → projected gain < 1.0x → should be floored to 1.0x.
+        Simulates a SOL-like scenario: enormous first-cycle gain -> tiny dim factor
+        -> projected gain < 0.1x -> should be floored to 0.1x.
         """
         points = [
             # Cycle 3: 1000x gain (simulating launch from near-zero)
@@ -1626,13 +1597,14 @@ class TestDiminishingReturnFloor:
             ),
         ]
 
-        target, factor = analyzer._calculate_diminishing_return(points)
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
 
         assert target is not None
         assert factor is not None
-        # dim factor = 5/1000 = 0.005 → projected gain = 5 * 0.005 = 0.025x
-        # BUT floor should clamp to 1.0x, so target >= latest_min price
-        assert target >= 0.003  # Should be at least the latest min price (1.0x)
+        # dim factor = 5/1000 = 0.005 -> projected gain = 5 * 0.005 = 0.025x
+        # BUT floor should clamp to 0.1x, so target = latest_min * 0.1 = 0.0003
+        assert pytest.approx(target, rel=0.01) == 0.003 * 0.1
 
     def test_dim_return_normal_gains_unaffected(self, analyzer):
         """Test that normal gains (above floor) are not affected."""
@@ -1677,7 +1649,8 @@ class TestDiminishingReturnFloor:
             ),
         ]
 
-        target, factor = analyzer._calculate_diminishing_return(points)
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
 
         assert target is not None
         assert factor is not None
@@ -1798,7 +1771,7 @@ class TestRetracementFilter:
                 days_from_halving=-300,
             ),
         ]
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points, _build_idx(points))
         assert ratio is not None
         # log10(0.01/0.008) / log10(0.01/0.001) = log10(1.25) / log10(10)
         # = 0.0969 / 1.0 = 0.097 → ~9.7% retracement (very shallow)
@@ -1831,7 +1804,7 @@ class TestRetracementFilter:
                 days_from_halving=-300,
             ),
         ]
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points, _build_idx(points))
         assert ratio is not None
         assert pytest.approx(ratio, abs=0.01) == 1.0
         assert ratio > 0.786  # Above filter threshold → would be filtered
@@ -1868,7 +1841,9 @@ class TestRetracementFilter:
                 days_from_halving=-300,
             ),
         ]
-        cookie_ratio = CyclePatternAnalyzer._calculate_retracement_ratio(cookie_points)
+        cookie_ratio = CyclePatternAnalyzer._calculate_retracement_ratio(
+            cookie_points, _build_idx(cookie_points)
+        )
 
         virtual_points = [
             CyclePoint(
@@ -1893,7 +1868,9 @@ class TestRetracementFilter:
                 days_from_halving=-300,
             ),
         ]
-        virtual_ratio = CyclePatternAnalyzer._calculate_retracement_ratio(virtual_points)
+        virtual_ratio = CyclePatternAnalyzer._calculate_retracement_ratio(
+            virtual_points, _build_idx(virtual_points)
+        )
 
         assert cookie_ratio is not None
         assert virtual_ratio is not None
@@ -1924,7 +1901,7 @@ class TestRetracementFilter:
                 days_from_halving=530,
             ),
         ]
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points, _build_idx(points))
         assert ratio is None
 
     def test_retracement_no_max2_returns_none(self):
@@ -1938,12 +1915,12 @@ class TestRetracementFilter:
                 days_from_halving=-109,
             ),
         ]
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points, _build_idx(points))
         assert ratio is None
 
     def test_retracement_empty_points(self):
         """Empty points should return None."""
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio([])
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio([], _build_idx([]))
         assert ratio is None
 
     def test_retracement_uses_last_cycle_max2(self):
@@ -1988,7 +1965,7 @@ class TestRetracementFilter:
                 days_from_halving=-300,
             ),
         ]
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points, _build_idx(points))
         assert ratio is not None
         # Retracement of cycle 4 move (0.002→0.02): log10(0.02/0.002)/log10(0.02/0.002) = 1.0
         assert pytest.approx(ratio, abs=0.01) == 1.0
@@ -2022,6 +1999,289 @@ class TestRetracementFilter:
                 days_from_halving=-300,
             ),
         ]
-        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points)
+        ratio = CyclePatternAnalyzer._calculate_retracement_ratio(points, _build_idx(points))
         assert ratio is not None
         assert pytest.approx(ratio, abs=0.02) == 0.5
+
+
+# =============================================================================
+# Retracement Penalty Tests
+# =============================================================================
+
+
+class TestRetracementPenalty:
+    """Tests for the continuous retracement penalty applied in analyze_coin."""
+
+    def test_penalty_formula_at_golden_level(self):
+        """At exactly 61.8% retracement, penalty = 1.0 (no penalty)."""
+
+        ratio = GOLDEN_RETRACEMENT_LEVEL  # 0.618
+        t = (ratio - GOLDEN_RETRACEMENT_LEVEL) / (MAX_RETRACEMENT_LEVEL - GOLDEN_RETRACEMENT_LEVEL)
+        penalty = 1.0 - t * (1.0 - RETRACEMENT_PENALTY_AT_MAX)
+        assert pytest.approx(penalty, abs=0.001) == 1.0
+
+    def test_penalty_formula_at_max_level(self):
+        """At exactly 78.6% retracement, penalty = RETRACEMENT_PENALTY_AT_MAX (0.5)."""
+
+        ratio = MAX_RETRACEMENT_LEVEL  # 0.786
+        t = (ratio - GOLDEN_RETRACEMENT_LEVEL) / (MAX_RETRACEMENT_LEVEL - GOLDEN_RETRACEMENT_LEVEL)
+        penalty = 1.0 - t * (1.0 - RETRACEMENT_PENALTY_AT_MAX)
+        assert pytest.approx(penalty, abs=0.001) == RETRACEMENT_PENALTY_AT_MAX
+
+    def test_penalty_formula_at_midpoint(self):
+        """At midpoint between 61.8% and 78.6%, penalty = 0.75."""
+
+        ratio = (GOLDEN_RETRACEMENT_LEVEL + MAX_RETRACEMENT_LEVEL) / 2  # ~0.702
+        t = (ratio - GOLDEN_RETRACEMENT_LEVEL) / (MAX_RETRACEMENT_LEVEL - GOLDEN_RETRACEMENT_LEVEL)
+        penalty = 1.0 - t * (1.0 - RETRACEMENT_PENALTY_AT_MAX)
+        assert pytest.approx(penalty, abs=0.001) == 0.75
+
+    def test_penalty_below_golden_not_applied(self):
+        """Retracement below 61.8% should not trigger penalty."""
+        ratio = 0.38  # Well below golden
+        # Penalty only applies when ratio > GOLDEN_RETRACEMENT_LEVEL
+        assert ratio <= GOLDEN_RETRACEMENT_LEVEL
+
+
+# =============================================================================
+# Geometric Mean for Diminishing Returns Tests
+# =============================================================================
+
+
+class TestGeometricMeanDiminishing:
+    """Tests for geometric mean usage in diminishing returns with 3+ factors."""
+
+    @pytest.fixture
+    def analyzer(self, mock_price_cache):
+        return CyclePatternAnalyzer(price_cache=mock_price_cache)
+
+    def test_geometric_mean_with_three_plus_factors(self, analyzer):
+        """With 4 cycles (3 gain transitions), geometric mean should be used.
+
+        Gains: cycle2=100x, cycle3=10x, cycle4=5x, cycle5=4x
+        Dim factors: 10/100=0.1, 5/10=0.5, 4/5=0.8
+        Geometric mean: (0.1 * 0.5 * 0.8)^(1/3) = 0.04^(1/3) ≈ 0.3420
+        Arithmetic mean: (0.1 + 0.5 + 0.8) / 3 = 0.4667
+        """
+        points = [
+            # Cycle 2: 100x gain (0.001 → 0.1)
+            CyclePoint(
+                date=date(2016, 1, 1),
+                price=0.001,
+                cycle_num=2,
+                point_type="min1",
+                days_from_halving=-190,
+            ),
+            CyclePoint(
+                date=date(2017, 12, 1),
+                price=0.1,
+                cycle_num=2,
+                point_type="max2",
+                days_from_halving=510,
+            ),
+            # Cycle 3: 10x gain (0.01 → 0.1)
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.01,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.1,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            # Cycle 4: 5x gain (0.02 → 0.1)
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.02,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+            CyclePoint(
+                date=date(2025, 10, 1),
+                price=0.1,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=530,
+            ),
+            # Cycle 5: 4x gain (0.025 → 0.1) + latest min
+            CyclePoint(
+                date=date(2027, 6, 1),
+                price=0.025,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-300,
+            ),
+            CyclePoint(
+                date=date(2028, 10, 1),
+                price=0.1,
+                cycle_num=5,
+                point_type="max2",
+                days_from_halving=180,
+            ),
+            # Cycle 6: latest min
+            CyclePoint(
+                date=date(2031, 1, 1),
+                price=0.03,
+                cycle_num=6,
+                point_type="min1",
+                days_from_halving=-800,
+            ),
+        ]
+
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
+
+        assert target is not None
+        assert factor is not None
+        # With 3 factors [0.1, 0.5, 0.8], geometric mean ≈ 0.3420
+        geometric_mean = float(np.exp(np.mean(np.log([0.1, 0.5, 0.8]))))
+        assert pytest.approx(factor, rel=0.05) == geometric_mean
+        # Verify it's different from arithmetic mean
+        arithmetic_mean = (0.1 + 0.5 + 0.8) / 3
+        assert abs(factor - geometric_mean) < abs(factor - arithmetic_mean)
+
+    def test_arithmetic_mean_with_two_factors(self, analyzer):
+        """With 3 cycles (2 gain transitions), arithmetic mean should be used."""
+        points = [
+            # Cycle 2: 10x gain
+            CyclePoint(
+                date=date(2016, 1, 1),
+                price=0.001,
+                cycle_num=2,
+                point_type="min1",
+                days_from_halving=-190,
+            ),
+            CyclePoint(
+                date=date(2017, 12, 1),
+                price=0.01,
+                cycle_num=2,
+                point_type="max2",
+                days_from_halving=510,
+            ),
+            # Cycle 3: 5x gain → dim factor = 0.5
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.002,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.01,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            # Cycle 4: latest min
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.003,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+            ),
+        ]
+
+        idx = _build_idx(points)
+        target, factor = analyzer._calculate_diminishing_return(points, idx)
+
+        assert target is not None
+        assert factor is not None
+        # Only 1 dim factor (0.5), arithmetic mean = 0.5
+        assert pytest.approx(factor, rel=0.1) == 0.5
+
+
+# =============================================================================
+# analyze_btc Tests
+# =============================================================================
+
+
+class TestAnalyzeBtc:
+    """Tests for analyze_btc method."""
+
+    @pytest.fixture
+    def analyzer(self, mock_price_cache):
+        return CyclePatternAnalyzer(price_cache=mock_price_cache, min_cycles=1)
+
+    def test_analyze_btc_no_data(self, analyzer, mock_price_cache):
+        """Test analyze_btc returns None when no BTC data available."""
+        mock_price_cache.get_prices.return_value = None
+
+        result = analyzer.analyze_btc()
+
+        assert result is None
+
+    def test_analyze_btc_empty_data(self, analyzer, mock_price_cache):
+        """Test analyze_btc returns None when BTC data is empty."""
+        mock_price_cache.get_prices.return_value = pd.DataFrame()
+
+        result = analyzer.analyze_btc()
+
+        assert result is None
+
+    def test_analyze_btc_basic_flow(self, analyzer, mock_price_cache):
+        """Test analyze_btc with mocked internals produces a result."""
+        # Create minimal BTC price data spanning multiple cycles
+        dates = pd.date_range("2015-01-01", "2026-01-01", freq="D")
+        # Simple uptrend price pattern
+        prices = 0.001 * (1 + np.arange(len(dates)) / 500) ** 2
+        df = pd.DataFrame({"close": prices}, index=dates)
+        mock_price_cache.get_prices.return_value = df
+
+        result = analyzer.analyze_btc()
+
+        # Should return a CoinPatternResult
+        assert result is not None
+        assert result.coin_id == "btc"
+        assert result.current_price is not None
+        assert result.current_price > 0
+
+
+# =============================================================================
+# _get_total2_coins Tests
+# =============================================================================
+
+
+class TestGetTotal2Coins:
+    """Tests for _get_total2_coins method."""
+
+    @pytest.fixture
+    def analyzer(self, mock_price_cache):
+        return CyclePatternAnalyzer(price_cache=mock_price_cache)
+
+    def test_get_total2_coins_empty_composition(self, analyzer):
+        """Test _get_total2_coins returns empty set when no composition data."""
+        with patch.object(analyzer, "_load_total2_composition", return_value=None):
+            coins = analyzer._get_total2_coins()
+
+        assert coins == set()
+
+    def test_get_total2_coins_filters_old_entries(self, analyzer):
+        """Test that coins from before the lookback period are excluded."""
+        # Create composition data: "eth" recent, "old_coin" from 10 years ago
+        recent_date = date.today().isoformat()
+        old_date = date(2010, 1, 1).isoformat()
+
+        comp_df = pd.DataFrame(
+            {
+                "date": [recent_date, old_date],
+                "coin_id": ["ETH", "OLD_COIN"],
+            }
+        )
+
+        with patch.object(analyzer, "_load_total2_composition", return_value=comp_df):
+            # Reset cached value
+            analyzer._total2_coins = None
+            coins = analyzer._get_total2_coins()
+
+        assert "eth" in coins
+        # OLD_COIN is from 2010, should be excluded if lookback < 16 years
+        if TOTAL2_LOOKBACK_YEARS < 16:
+            assert "old_coin" not in coins

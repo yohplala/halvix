@@ -17,7 +17,13 @@ The pattern analysis identifies characteristic points within each halving cycle 
 
 A **composite score** (weighted average of available methods) ranks altcoins by expected return. Each confidence level has its own **weight profile** that determines method weights and a scale factor (see [Confidence-Based Weight Profiles](#confidence-based-weight-profiles)).
 
-**IMPORTANT**: Returns are calculated as percentage gain from the **current price** to the projected target.
+**IMPORTANT**: Returns are calculated as percentage gain from the **current price** to the projected target:
+
+```
+return_pct = (target_price / current_price - 1) * 100
+```
+
+Where `current_price` is the last available price in the full price history for that coin.
 
 ## Coin Selection
 
@@ -29,7 +35,7 @@ The pattern analyzer selects coins that have been in TOTAL2 at any point within 
 
 **Important**: Only coins that were in TOTAL2 within the past 3 years are analyzed. Coins that have never been in TOTAL2 or were last in TOTAL2 more than 3 years ago are excluded.
 
-## Data Approach: Full Price History with TOTAL2 Filtering
+## Data Approach: Full Price History
 
 For each selected coin, the pattern analyzer uses **full price history** (not just dates when in TOTAL2). This ensures:
 
@@ -37,18 +43,7 @@ For each selected coin, the pattern analyzer uses **full price history** (not ju
 - Better identification of extreme prices that may occur outside the TOTAL2 index period
 - More complete cycle pattern analysis
 
-**TOTAL2-Style Filtering Tools Applied:**
-
-To ensure data quality consistent with TOTAL2 calculation, the following filters are applied to the full price data:
-
-| Filter | Description | Parameters |
-|--------|-------------|------------|
-| **Volume Outlier Detection** | Detects and corrects impossible volume spikes | 20x rolling median, min 5000 BTC, 7-day window |
-| **Volume SMA Smoothing** | Applies simple moving average to volume data | 120-day window with zero padding |
-
-These are the same filtering tools used by the TOTAL2 calculation, ensuring consistent data quality across all analysis modules. The filters are implemented as common helpers in `src/data/price_filters.py`.
-
-**Note**: Unlike the TOTAL2 calculation which filters prices to only TOTAL2 dates, the pattern analyzer intentionally uses full price history to capture true extremes that may occur when a coin is outside the index.
+**Symbol Replacement Detection**: CryptoCompare sometimes reuses ticker symbols for different tokens (e.g., old "MOVE" token replaced by Movement Labs "MOVE"). The analyzer detects these replacements and uses only post-replacement data. See `detect_symbol_replacement` in `src/data/price_filters.py`.
 
 ## Cycle Points
 
@@ -151,10 +146,10 @@ Target is projected by extending the upper trendline to the expected cycle 5 pea
 
 ### 2. Fibonacci Extension (127.2%)
 
-Uses the standard Fibonacci extension formula:
+Uses Fibonacci extension in **log-space** to respect the multiplicative nature of price movements:
 
 ```
-Target = C + (B - A) * 1.272
+Target = 10^(log10(C) + (log10(B) - log10(A)) * 1.272)
 ```
 
 Where:
@@ -162,7 +157,7 @@ Where:
 - **B** = Previous cycle maximum (max2 only - true cycle peak)
 - **C** = Current cycle minimum (min1 only - true cycle start)
 
-This projects where price might reach if it extends 127.2% of the previous cycle's move from the current cycle's low.
+Using log-space ensures proportional consistency: a 10x move from $1→$10 projects the same proportional extension as $100→$1000. This is more appropriate for crypto assets where price movements are multiplicative rather than additive.
 
 **Fallback Logic**: Only the previous cycle minimum has a fallback (min1 → min2). This allows coins with partial pre-halving data to get Fib projections while maintaining chronological order (min → max → min). No fallback is allowed for B (max) or C (current min) to preserve the correct sequence of extrema.
 
@@ -210,7 +205,7 @@ next_cycle_gain = max(last_cycle_gain * diminishing_factor, DIM_RETURN_MIN_GAIN_
 target = latest_min_price * next_cycle_gain
 ```
 
-**Gain Floor**: The projected gain is clamped to at least `DIM_RETURN_MIN_GAIN_RATIO` (1.0x = break-even). The "diminishing returns" concept implies decreasing but still positive gains. Without this floor, coins with enormous first-cycle gains (e.g., SOL launching from near-zero) produce tiny diminishing factors that project negative returns, which contradicts the model's premise.
+**Gain Floor**: The projected gain is clamped to at least `DIM_RETURN_MIN_GAIN_RATIO` (0.1x = minimum 10% gain, i.e., 1.1x from trough). This allows the model to express pessimism when diminishing factors point to very low cycle gains, while preventing absurdly small projections. Without any floor, coins with enormous first-cycle gains (e.g., SOL launching from near-zero) produce tiny diminishing factors that project negligible returns.
 
 **Example:**
 - Last cycle gain: 8x
@@ -219,11 +214,8 @@ target = latest_min_price * next_cycle_gain
 - Latest min price: 0.0005 BTC
 - **Target: 0.0005 × 5.12 = 0.00256 BTC**
 
-**Single Cycle Fallback:**
-For coins with only 1 cycle of data, a conservative **50% diminishing factor** is assumed:
-```
-next_cycle_gain = single_cycle_gain * 0.5
-```
+**Single Cycle:**
+For coins with only 1 cycle of data, a conservative **20% diminishing factor** (`DEFAULT_DIMINISHING_FACTOR`) is applied via the diminishing returns model. The Fibonacci extension method returns `None` for single-cycle coins (insufficient data: requires a prior cycle's move to project from the current low).
 
 ### 4. Historical Peak
 
@@ -270,16 +262,6 @@ The historical peak method provides an anchor based on actual achieved prices:
 - If not, the weighted average of peaks gives a balanced view of historical highs
 - This complements the projection-based methods (trendline, Fibonacci, diminishing returns)
 
-## Return Calculation
-
-All returns are calculated as:
-
-```
-return_pct = (target_price / current_price - 1) * 100
-```
-
-Where `current_price` is the last available price in the TOTAL2-filtered data for that coin.
-
 ## Confidence Levels
 
 Coins are assigned confidence levels based on the number of cycles where they have **pre-halving data** (min1 point). A cycle only counts if the coin existed before that halving.
@@ -299,58 +281,31 @@ Instead of separate code paths for different confidence levels, a **single weigh
 | Confidence | Trendline | Fibonacci | Historical | Diminishing | Scale | Notes |
 |------------|-----------|-----------|------------|-------------|-------|-------|
 | **HIGH** (3+ cycles) | 40% | 25% | 20% | 15% | 1.0 | Full weights, no penalty |
-| **MEDIUM** (2 cycles) | 40% | 25% | 20% | 15% | 1.0 | Same as high |
-| **LOW** (1 cycle) | **0%** | 25% | 20% | 15% | **0.3** | Trendline excluded, 70% penalty |
+| **MEDIUM** (2 cycles) | 40% | 25% | 20% | 15% | **0.9** | 10% penalty for limited data |
+| **LOW** (1 cycle) | **0.2%** | **2%** | 20% | **2%** | **0.1** | Historical peak dominates, 90% penalty |
+
+**Method weight rationale (high/medium):**
+- **Trendline (40%)**: Captures structural multi-cycle trend direction
+- **Fibonacci (25%)**: Technical projection based on previous cycle move
+- **Historical Peak (20%)**: Reality anchor based on achieved valuations
+- **Diminishing Returns (15%)**: Most volatile; sensitive to outlier launch cycles
 
 **Low confidence rationale:**
-- **Trendline weight = 0**: A 2-point trendline (one min1 + one max point) is statistically unreliable; small variations lead to wildly different extrapolations.
-- **Scale = 0.3**: A 70% penalty reflects the higher uncertainty of projections based on limited historical data.
+- **Trendline weight ~0**: A 2-point trendline (one min1 + one max point) is statistically unreliable; small variations lead to wildly different extrapolations.
+- **Fibonacci weight ~0**: Log-space Fibonacci with a `min2` fallback for point A can produce extreme projections when the previous cycle's range is very large.
+- **Diminishing weight ~0**: With only one cycle of gain data, the diminishing returns factor is unreliable.
+- **Historical Peak (20%)**: The only method that doesn't extrapolate — it uses actually achieved prices, making it the most trustworthy signal for single-cycle coins.
+- **Scale = 0.1**: A 90% penalty reflects the very high uncertainty of projections based on a single cycle.
 
-**Result**: Low-confidence composite = weighted_avg(Fib, Diminishing, HistPeak) × 0.3
+**Result**: Low-confidence composite ≈ historical_peak × 0.1
 
 When a method is unavailable (returns None), its weight is excluded and the remaining weights are renormalized before applying the scale factor.
-
-### Fibonacci Retracement Filter
-
-Coins that have **retraced too deeply** from their last cycle peak are filtered out. This uses the standard Fibonacci retracement framework with three structural points:
-
-```
-A = previous cycle min (min1 preferred, min2 fallback)
-B = previous cycle max2 (peak)
-C = current cycle min1 (new trough)
-
-log_retracement = log10(B / C) / log10(B / A)
-```
-
-Standard Fibonacci retracement levels:
-
-| Level | Meaning | Status |
-|-------|---------|--------|
-| 23.6% | Shallow pullback | Very healthy |
-| 38.2% | Normal correction | Healthy |
-| 50.0% | Moderate correction | Acceptable |
-| 61.8% | Deep (golden ratio) | Caution |
-| **78.6%** | **Very deep (√0.618)** | **Filtered out** |
-| 100% | Full retracement | Filtered out |
-
-Coins with retracement > `MAX_RETRACEMENT_LEVEL` (78.6%) are excluded from the ranking. Beyond this level, the "higher low" structure is broken — the coin has given back so much of its cycle gain that the pattern is structurally unhealthy. This complements the floor slope filter: both catch declining coins, but the retracement filter works even with a single completed cycle.
-
-Coins without a computable retracement (e.g., no previous max2 or no current min1) are not filtered.
 
 ## Ranking and Filtering
 
 ### Ranking Criterion
 
-Coins are **ranked by composite target percentage** (descending). The composite score is computed using the confidence-based weight profile (see [Confidence-Based Weight Profiles](#confidence-based-weight-profiles)). For high/medium confidence coins, the default method weights are:
-
-| Method | Weight | Rationale |
-|--------|--------|-----------|
-| **Trendline** | 40% | Captures structural multi-cycle trend direction |
-| **Fibonacci** | 25% | Technical projection based on previous cycle move |
-| **Historical Peak** | 20% | Reality anchor based on achieved valuations |
-| **Diminishing Returns** | 15% | Most volatile; sensitive to outlier launch cycles |
-
-When a method is unavailable (returns None), weights are renormalized across the remaining methods. The profile's scale factor is applied after renormalization.
+Coins are **ranked by composite target percentage** (descending). The composite score is computed using the confidence-based weight profile (see [Confidence-Based Weight Profiles](#confidence-based-weight-profiles)).
 
 ### Filtering Rules
 
@@ -378,13 +333,40 @@ This filter catches coins like CTXC where the upper trendline may show gains but
 
 **3. Fibonacci Retracement Filter:**
 
-Coins that retraced more than **78.6%** of their last cycle gain (in log-space) are excluded. See [Fibonacci Retracement Filter](#fibonacci-retracement-filter) for details.
+Coins that have **retraced too deeply** from their last cycle peak are filtered out. This uses the standard Fibonacci retracement framework with three structural points:
+
+```
+A = previous cycle min (min1 preferred, min2 fallback)
+B = previous cycle max2 (peak)
+C = current cycle min1 (new trough)
+
+log_retracement = log10(B / C) / log10(B / A)
+```
+
+Coins with retracement > `MAX_RETRACEMENT_LEVEL` (88.6%) are excluded. Beyond this level, the "higher low" structure is broken — the coin has given back so much of its cycle gain that the pattern is structurally unhealthy. This complements the floor slope filter: both catch declining coins, but the retracement filter works even with a single completed cycle.
 
 | Retracement | Included? | Example |
 |-------------|-----------|---------|
-| **≤ 78.6%** | Yes | Healthy correction (e.g., VIRTUAL at ~38%) |
-| **> 78.6%** | No | Structural breakdown (e.g., COOKIE at ~87%) |
+| **≤ 88.6%** | Yes | Healthy correction (e.g., VIRTUAL at ~38%) |
+| **> 88.6%** | No | Structural breakdown (e.g., COOKIE at ~95%) |
 | **None** | Yes | Insufficient data (no previous cycle peak) |
+
+**Continuous Retracement Penalty:**
+
+Coins that pass the 88.6% hard filter but have retraced beyond the golden ratio level (61.8%) receive a **linear penalty** on their composite score. This provides a gradual signal degradation rather than an all-or-nothing cutoff:
+
+```
+If retracement > 0.618 and ≤ 0.886:
+    t = (retracement - 0.618) / (0.886 - 0.618)
+    penalty = 1.0 - t × (1.0 - RETRACEMENT_PENALTY_AT_MAX)
+    composite_target_pct *= penalty
+```
+
+| Retracement | Penalty | Effect |
+|-------------|---------|--------|
+| ≤ 61.8% | 1.0 (none) | Healthy — no adjustment |
+| 75.2% (midpoint) | 0.75 | 25% reduction |
+| 88.6% (max) | 0.5 | 50% reduction (just before exclusion) |
 
 **4. Coin Age Filter:**
 
@@ -514,9 +496,6 @@ Each chart shows:
 - **Projections are not financial advice** - they represent mathematical extrapolations
 - **Market conditions change** - historical patterns may not repeat
 - **Alt/BTC ratios** can diverge significantly from projections during market regime changes
-- **Coins must have been in TOTAL2** within the past 3 years to be analyzed
-- **Coins must be at least 1 year old** (based on first price date) to be included in top rankings
-- **Coins must have sufficient liquidity** (at least 30 distinct price values) - filters out staircase patterns
 - **Full price history** - uses complete price data, not just TOTAL2 dates, which may include volatile periods
 
 ## Algorithm Details
@@ -535,15 +514,18 @@ Key parameters in [`src/config.py`](../src/config.py):
 
 | Constant | Value | Used For |
 |----------|-------|----------|
-| `TRENDLINE_MAJOR_POINT_WEIGHT` | 0.67 | Weight for min1, max2 in regression |
-| `TRENDLINE_MINOR_POINT_WEIGHT` | 0.33 | Weight for max1, min2 in regression |
-| `CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING` | 520 | Approximated min1 date for trendline |
+| `MAJOR_POINT_WEIGHT` | 0.67 | Weight for min1, max2 in regression and historical peak averaging |
+| `MINOR_POINT_WEIGHT` | 0.33 | Weight for max1, min2 in regression and historical peak averaging |
+| `CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING` | 520 | Approximated min1 date for trendline |
 | `MIN_LOWER_SLOPE_ANNUAL_PCT` | 8 | Minimum annual floor appreciation (%) |
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
 | `COMPOSITE_WEIGHT_PROFILES` | dict | Weight profiles per confidence level (see above) |
-| `MAX_RETRACEMENT_LEVEL` | 0.786 | Fibonacci retracement filter (78.6% = √0.618) |
+| `MAX_RETRACEMENT_LEVEL` | 0.886 | Fibonacci retracement filter (88.6% = √0.786) |
+| `GOLDEN_RETRACEMENT_LEVEL` | 0.618 | Retracement penalty starts at this level |
+| `RETRACEMENT_PENALTY_AT_MAX` | 0.5 | Composite multiplier at MAX_RETRACEMENT_LEVEL |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
+| `DIM_RETURN_MIN_GAIN_RATIO` | 0.1 | Minimum projected gain ratio (0.1x = 10% gain from trough) |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 
 ## Halving Cycle Windows
@@ -556,10 +538,6 @@ Key parameters in [`src/config.py`](../src/config.py):
 | 3 | May 11, 2020 | Nov 8, 2018 | Dec 17, 2022 |
 | 4 | April 19, 2024 | Oct 16, 2022 | Nov 25, 2026 |
 | 5 | March 31, 2028 (proj.) | Sept 28, 2026 | Nov 6, 2030 |
-
----
-
-*Last updated: 2026-02-05*
 
 ---
 

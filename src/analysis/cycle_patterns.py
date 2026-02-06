@@ -1,12 +1,13 @@
 """
 Cycle Pattern Analysis Module for Halvix.
 
-Identifies min/max points within halving cycle windows and applies three
+Identifies min/max points within halving cycle windows and applies four
 analysis methods to project price targets for the next cycle:
 
 1. Log-Linear Trendline Regression
 2. Fibonacci Extensions (127.2% level)
 3. Diminishing Returns Model
+4. Historical Peak
 
 COIN SELECTION:
 - Analyzes all coins that have been in TOTAL2 at any point in the past 3 years
@@ -15,8 +16,7 @@ COIN SELECTION:
 
 DATA APPROACH:
 - Uses FULL price history for each coin (not just dates when in TOTAL2)
-- Applies TOTAL2-style filtering tools (volume outlier detection, SMA smoothing)
-  to ensure consistent data quality
+- Detects symbol replacements (e.g., old MOVE token replaced by Movement Labs MOVE)
 - This allows min/max points to be detected even when a coin is temporarily
   outside the TOTAL2 index
 
@@ -35,6 +35,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -42,37 +43,43 @@ import pandas as pd
 from config import (
     BTC_CYCLE_PEAKS,
     COMPOSITE_WEIGHT_PROFILES,
-    CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
+    CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
     DIM_RETURN_MIN_GAIN_RATIO,
     EXPECTED_PEAK_DAYS_AFTER_HALVING,
+    GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
+    MAJOR_POINT_WEIGHT,
     MAX_RETRACEMENT_LEVEL,
     MIN_COIN_AGE_DAYS,
     MIN_LOWER_SLOPE,
     MIN_UNIQUE_PRICES,
+    MINOR_POINT_WEIGHT,
     PROCESSED_DIR,
     PROJECTED_5TH_HALVING,
+    RETRACEMENT_PENALTY_AT_MAX,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_LOOKBACK_YEARS,
     TRENDLINE_LOG_PRICE_LIMIT,
-    TRENDLINE_MAJOR_POINT_WEIGHT,
-    TRENDLINE_MINOR_POINT_WEIGHT,
     TRENDLINE_RECENCY_DECAY,
-    VOLUME_SMA_WINDOW,
+    UNIQUE_PRICES_WINDOW_DAYS,
 )
 from data.cache import PriceDataCache
-from data.price_filters import (
-    apply_volume_sma_smoothing,
-    correct_volume_outliers,
-    detect_symbol_replacement,
-)
+from data.price_filters import detect_symbol_replacement
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+PointType = Literal["min1", "max1", "min2", "max2"]
+Confidence = Literal["low", "medium", "high"]
+
+
+def _to_date(dt: date) -> date:
+    """Convert a pandas Timestamp or datetime to a plain date object."""
+    return dt.date() if hasattr(dt, "date") else dt
 
 
 @dataclass
@@ -82,7 +89,7 @@ class CyclePoint:
     date: date
     price: float
     cycle_num: int
-    point_type: str  # "min1", "max1", "min2", "max2"
+    point_type: PointType
     days_from_halving: int
 
 
@@ -136,7 +143,7 @@ class CoinPatternResult:
     pattern_type: str | None = None  # "falling_wedge", "rising_wedge", "channel"
 
     # Data quality
-    confidence: str = "low"  # "low" (1 cycle), "medium" (2 cycles), "high" (3+ cycles)
+    confidence: Confidence = "low"
 
     # TOTAL2 membership info
     first_in_total2: date | None = None
@@ -151,42 +158,6 @@ class CoinPatternResult:
     rank: int | None = None
 
 
-@dataclass
-class BTCPatternResult:
-    """
-    Analysis result for BTC (vs USD).
-
-    Note on mutability: Uses `field(default_factory=list)` to avoid shared mutable defaults.
-    """
-
-    points: list[CyclePoint] = field(default_factory=list)
-    num_cycles: int = 0
-
-    # Targets
-    trendline_target: float | None = None
-    trendline_target_pct: float | None = None
-    fib_target: float | None = None
-    fib_target_pct: float | None = None
-    dim_return_target: float | None = None
-    dim_return_target_pct: float | None = None
-    dim_return_factor: float | None = None
-    hist_peak_target: float | None = None
-    hist_peak_target_pct: float | None = None
-    hist_peak_is_absolute: bool | None = None
-    composite_target_pct: float | None = None
-
-    # Current price (returns are calculated vs this price)
-    current_price: float | None = None
-    current_date: date | None = None
-
-    # Pattern
-    pattern_type: str | None = None
-    upper_slope: float | None = None
-    lower_slope: float | None = None
-    upper_intercept: float | None = None
-    lower_intercept: float | None = None
-
-
 class CyclePatternAnalyzer:
     """
     Analyzes cycle patterns for BTC and altcoins.
@@ -198,7 +169,7 @@ class CyclePatternAnalyzer:
     - min2: minimum in window [halving; max2 date]
 
     For cycle 5 (current, starting April 19, 2024), adds:
-    - min1: minimum from halving to current date (or last available price if before halving)
+    - min1: minimum from last BTC peak to current date (or last available price if before peak)
 
     COIN SELECTION:
     - Analyzes all coins that have been in TOTAL2 at any point in the past 3 years
@@ -206,10 +177,10 @@ class CyclePatternAnalyzer:
 
     DATA APPROACH:
     - Uses FULL price history for each coin (not just TOTAL2 dates)
-    - Applies TOTAL2-style filtering: volume outlier detection and SMA smoothing
+    - Detects symbol replacements (e.g., old MOVE replaced by Movement Labs MOVE)
     - This allows min/max points to be detected even when outside TOTAL2 index
 
-    Then applies 3 projection methods and ranks by composite target.
+    Then applies 4 projection methods and ranks by composite target.
     """
 
     def __init__(
@@ -231,6 +202,8 @@ class CyclePatternAnalyzer:
         # Cycles 2-4 are completed/mostly completed halvings
         # Cycle 5 is the current cycle (projected 2028 halving)
         self.all_halvings = HALVING_DATES[1:] + [PROJECTED_5TH_HALVING]
+        self.current_cycle_num = len(HALVING_DATES) + 1
+        self.projected_halving = self.all_halvings[-1]
 
         # Load TOTAL2 composition for filtering
         self._total2_composition: pd.DataFrame | None = None
@@ -275,12 +248,7 @@ class CyclePatternAnalyzer:
 
             # Convert date column if needed
             if "date" in comp_df.columns:
-                if hasattr(comp_df["date"].iloc[0], "date"):
-                    comp_df_dates = comp_df["date"].apply(
-                        lambda x: x.date() if hasattr(x, "date") else x
-                    )
-                else:
-                    comp_df_dates = pd.to_datetime(comp_df["date"]).dt.date
+                comp_df_dates = pd.to_datetime(comp_df["date"]).dt.date
 
                 recent_mask = comp_df_dates >= lookback_cutoff
                 recent_coins = comp_df[recent_mask]["coin_id"].str.lower().unique()
@@ -319,14 +287,7 @@ class CyclePatternAnalyzer:
             return set()
 
         # Convert to set of dates
-        dates = set()
-        for ts in coin_data["date"]:
-            if hasattr(ts, "date"):
-                dates.add(ts.date())
-            else:
-                dates.add(ts)
-
-        return dates
+        return {_to_date(ts) for ts in coin_data["date"]}
 
     def _filter_to_total2_dates(
         self, df: pd.DataFrame, coin_id: str
@@ -356,55 +317,6 @@ class CyclePatternAnalyzer:
         # Return full DataFrame (not filtered to TOTAL2 dates)
         # Pattern analysis uses full price history to find true min/max
         return df, first_date, last_date
-
-    def _apply_price_filters(self, df: pd.DataFrame, coin_id: str) -> pd.DataFrame:
-        """
-        Apply TOTAL2-style filtering tools to price data.
-
-        Uses the same data quality filters as TOTAL2 calculation:
-        - Volume outlier detection and correction
-        - Volume SMA smoothing (for volume-based analysis)
-
-        This ensures consistent data quality across pattern analysis
-        even when using full price history (not just TOTAL2 dates).
-
-        Args:
-            df: Price DataFrame with DatetimeIndex and 'close', 'volume_to' columns
-            coin_id: Lowercase coin ID (for logging)
-
-        Returns:
-            Filtered DataFrame with corrected volume data
-        """
-        if df.empty:
-            return df
-
-        result = df.copy()
-
-        # Apply volume outlier correction if volume data exists
-        if "volume_to" in result.columns:
-            volume_series = result["volume_to"].copy()
-
-            # Skip if all NaN
-            if volume_series.notna().any():
-                corrected_volume, corrections = correct_volume_outliers(volume_series)
-
-                if corrections:
-                    logger.debug(
-                        "%s: Corrected %d volume outliers",
-                        coin_id.upper(),
-                        len(corrections),
-                    )
-
-                result["volume_to"] = corrected_volume
-
-                # Also store smoothed volume for reference
-                result["volume_smoothed"] = apply_volume_sma_smoothing(
-                    corrected_volume,
-                    window=VOLUME_SMA_WINDOW,
-                    zero_pad=True,
-                )
-
-        return result
 
     def _find_cycle_points(
         self,
@@ -462,7 +374,7 @@ class CyclePatternAnalyzer:
                 # min1: minimum since last BTC peak
                 min1_idx = post_peak_data["close"].idxmin()
                 min1_price = post_peak_data.loc[min1_idx, "close"]
-                min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
+                min1_date = _to_date(min1_idx)
 
                 points.append(
                     CyclePoint(
@@ -478,7 +390,7 @@ class CyclePatternAnalyzer:
                 if not df.empty:
                     last_idx = df.index[-1]
                     last_price = df.loc[last_idx, "close"]
-                    last_date = last_idx.date() if hasattr(last_idx, "date") else last_idx
+                    last_date = _to_date(last_idx)
 
                     points.append(
                         CyclePoint(
@@ -504,7 +416,7 @@ class CyclePatternAnalyzer:
                 # min1: absolute minimum in pre-halving window (excluding zeros)
                 min1_idx = valid_pre_data["close"].idxmin()
                 min1_price = pre_data.loc[min1_idx, "close"]
-                min1_date = min1_idx.date() if hasattr(min1_idx, "date") else min1_idx
+                min1_date = _to_date(min1_idx)
 
                 points.append(
                     CyclePoint(
@@ -523,7 +435,7 @@ class CyclePatternAnalyzer:
                 if not max1_data.empty:
                     max1_idx = max1_data["close"].idxmax()
                     max1_price = max1_data.loc[max1_idx, "close"]
-                    max1_date = max1_idx.date() if hasattr(max1_idx, "date") else max1_idx
+                    max1_date = _to_date(max1_idx)
 
                     points.append(
                         CyclePoint(
@@ -545,7 +457,7 @@ class CyclePatternAnalyzer:
         # max2: absolute maximum in post-halving window
         max2_idx = post_data["close"].idxmax()
         max2_price = post_data.loc[max2_idx, "close"]
-        max2_date = max2_idx.date() if hasattr(max2_idx, "date") else max2_idx
+        max2_date = _to_date(max2_idx)
 
         # min2: minimum between halving and max2
         min2_mask = (df.index.date >= halving_date) & (df.index <= max2_idx)
@@ -554,7 +466,7 @@ class CyclePatternAnalyzer:
         if not min2_data.empty:
             min2_idx = min2_data["close"].idxmin()
             min2_price = min2_data.loc[min2_idx, "close"]
-            min2_date = min2_idx.date() if hasattr(min2_idx, "date") else min2_idx
+            min2_date = _to_date(min2_idx)
 
             points.append(
                 CyclePoint(
@@ -578,14 +490,36 @@ class CyclePatternAnalyzer:
 
         return points
 
+    @staticmethod
+    def _find_latest_min_point(points: list[CyclePoint]) -> CyclePoint | None:
+        """Find the most recent min point (min1 or min2) by date."""
+        for p in sorted(points, key=lambda x: x.date, reverse=True):
+            if "min" in p.point_type:
+                return p
+        return None
+
+    @staticmethod
+    def _build_points_index(
+        points: list[CyclePoint],
+    ) -> dict[tuple[int, str], list[CyclePoint]]:
+        """Build index of points by (cycle_num, point_type) for O(1) lookup."""
+        index: dict[tuple[int, str], list[CyclePoint]] = {}
+        for p in points:
+            key = (p.cycle_num, p.point_type)
+            if key not in index:
+                index[key] = []
+            index[key].append(p)
+        return index
+
     def _get_regression_date(self, point: CyclePoint) -> date:
         """
         Get the date to use for trendline regression for a given point.
 
-        For cycle 5 min1, uses an approximated date (PROJECTED_5TH_HALVING - 520 days)
+        For current cycle min1, uses an approximated date
+        (projected_halving - CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING days)
         instead of the actual detected date. This provides a stable reference point
-        for regression calculations since cycle 5 is ongoing and the actual bottom
-        may not have occurred yet.
+        for regression calculations since the current cycle is ongoing and the actual
+        bottom may not have occurred yet.
 
         For all other points, returns the actual date.
 
@@ -595,9 +529,11 @@ class CyclePatternAnalyzer:
         Returns:
             Date to use for regression x-coordinate
         """
-        if point.cycle_num == 5 and point.point_type == "min1":
-            # Use approximated date for cycle 5 min1
-            return PROJECTED_5TH_HALVING - timedelta(days=CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING)
+        if point.cycle_num == self.current_cycle_num and point.point_type == "min1":
+            # Use approximated date for current cycle min1
+            return self.projected_halving - timedelta(
+                days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING
+            )
         return point.date
 
     def _fit_log_trendlines(
@@ -680,22 +616,14 @@ class CyclePatternAnalyzer:
 
         peak_weights = np.array(
             [
-                (
-                    TRENDLINE_MAJOR_POINT_WEIGHT
-                    if p.point_type == "max2"
-                    else TRENDLINE_MINOR_POINT_WEIGHT
-                )
+                (MAJOR_POINT_WEIGHT if p.point_type == "max2" else MINOR_POINT_WEIGHT)
                 * _recency_weight(p.cycle_num)
                 for p in peaks
             ]
         )
         trough_weights = np.array(
             [
-                (
-                    TRENDLINE_MAJOR_POINT_WEIGHT
-                    if p.point_type == "min1"
-                    else TRENDLINE_MINOR_POINT_WEIGHT
-                )
+                (MAJOR_POINT_WEIGHT if p.point_type == "min1" else MINOR_POINT_WEIGHT)
                 * _recency_weight(p.cycle_num)
                 for p in troughs
             ]
@@ -833,6 +761,7 @@ class CyclePatternAnalyzer:
     def _calculate_fib_extension(
         self,
         points: list[CyclePoint],
+        idx: dict[tuple[int, PointType], list[CyclePoint]],
         level: float = DEFAULT_FIBONACCI_LEVEL,
     ) -> float | None:
         """
@@ -843,7 +772,11 @@ class CyclePatternAnalyzer:
         B = previous cycle max (max2 only - true cycle peak)
         C = current cycle min (min1 only - true cycle start)
 
-        Extension = C + (B - A) * level
+        Extension (log-space): 10^(log10(C) + (log10(B) - log10(A)) * level)
+
+        Using log-space respects the multiplicative nature of price movements:
+        a 10x move from $1->$10 projects the same proportional extension as
+        $100->$1000.
 
         The fallback for A (min1 -> min2) allows coins with partial pre-halving
         data to still get Fib projections, while maintaining chronological order
@@ -851,6 +784,7 @@ class CyclePatternAnalyzer:
 
         Args:
             points: All cycle points
+            idx: Pre-built points index from _build_points_index()
             level: Fibonacci level (default 127.2%)
 
         Returns:
@@ -860,65 +794,50 @@ class CyclePatternAnalyzer:
         cycles = sorted({p.cycle_num for p in points})
 
         if len(cycles) < 2:
-            # Single cycle: use move from min1 to max2, project from max2
-            cycle_points = [p for p in points if p.cycle_num == cycles[0]]
-            min_points = [p for p in cycle_points if "min" in p.point_type]
-            max_points = [p for p in cycle_points if "max" in p.point_type]
-
-            if not min_points or not max_points:
-                return None
-
-            # Get earliest min and highest max
-            a = min(min_points, key=lambda p: p.date).price
-            b = max(max_points, key=lambda p: p.price).price
-            c = min(min_points, key=lambda p: p.price).price  # Use lowest min as C
-
-            move = b - a
-            return c + move * level
+            # Single cycle: insufficient data for meaningful Fibonacci extension.
+            # Requires a prior cycle's move (A->B) to project from current low (C).
+            return None
 
         # Use last complete cycle
         latest_cycle = max(cycles)
         prev_cycle = max(c for c in cycles if c < latest_cycle)
 
         # Get max2 from previous cycle (no fallback - must be true cycle peak)
-        prev_max2 = None
-        for p in points:
-            if p.cycle_num == prev_cycle and p.point_type == "max2":
-                prev_max2 = p
-                break
+        prev_max2_list = idx.get((prev_cycle, "max2"), [])
+        prev_max2 = prev_max2_list[0] if prev_max2_list else None
 
         # Get min from previous cycle (prefer min1, fallback to min2)
         # This allows coins with partial pre-halving data to still get Fib projections
-        prev_min = None
-        for p in points:
-            if p.cycle_num == prev_cycle and p.point_type == "min1":
-                prev_min = p
-                break
+        prev_min1_list = idx.get((prev_cycle, "min1"), [])
+        prev_min = prev_min1_list[0] if prev_min1_list else None
         if prev_min is None:
-            for p in points:
-                if p.cycle_num == prev_cycle and p.point_type == "min2":
-                    prev_min = p
-                    break
+            prev_min2_list = idx.get((prev_cycle, "min2"), [])
+            prev_min = prev_min2_list[0] if prev_min2_list else None
 
         # Get min1 from latest cycle (no fallback - must be true cycle start)
-        latest_min1 = None
-        for p in points:
-            if p.cycle_num == latest_cycle and p.point_type == "min1":
-                latest_min1 = p
-                break
+        latest_min1_list = idx.get((latest_cycle, "min1"), [])
+        latest_min1 = latest_min1_list[0] if latest_min1_list else None
 
         if prev_min and prev_max2 and latest_min1:
             a = prev_min.price
             b = prev_max2.price
             c = latest_min1.price
-            move = b - a
-            return c + move * level
+
+            # Guard against non-positive prices (log undefined)
+            if a <= 0 or b <= 0 or c <= 0:
+                return None
+
+            # Log-space extension: respects multiplicative nature of price moves
+            log_a, log_b, log_c = math.log10(a), math.log10(b), math.log10(c)
+            log_move = log_b - log_a
+            return 10 ** (log_c + log_move * level)
 
         return None
 
     def _calculate_diminishing_return(
         self,
         points: list[CyclePoint],
+        idx: dict[tuple[int, PointType], list[CyclePoint]],
     ) -> tuple[float | None, float | None]:
         """
         Calculate diminishing returns factor and projected target.
@@ -937,13 +856,19 @@ class CyclePatternAnalyzer:
         # Calculate gain ratios for each cycle
         gains = []
         for cycle in cycles:
-            cycle_points = [p for p in points if p.cycle_num == cycle]
-            min_points = [p for p in cycle_points if "min" in p.point_type]
-            max_points = [p for p in cycle_points if "max" in p.point_type]
+            # Collect all min/max points for this cycle from the index
+            min_prices = []
+            max_prices = []
+            for pt in ("min1", "min2"):
+                for p in idx.get((cycle, pt), []):
+                    min_prices.append(p.price)
+            for pt in ("max1", "max2"):
+                for p in idx.get((cycle, pt), []):
+                    max_prices.append(p.price)
 
-            if min_points and max_points:
-                min_price = min(p.price for p in min_points)
-                max_price = max(p.price for p in max_points)
+            if min_prices and max_prices:
+                min_price = min(min_prices)
+                max_price = max(max_prices)
                 gain_ratio = max_price / min_price if min_price > 0 else 0
                 gains.append((cycle, gain_ratio))
 
@@ -959,12 +884,7 @@ class CyclePatternAnalyzer:
             # (the "diminishing returns" concept implies decreasing but still positive gains)
             next_gain_ratio = max(next_gain_ratio, DIM_RETURN_MIN_GAIN_RATIO)
 
-            # Get latest min point
-            latest_min = None
-            for p in sorted(points, key=lambda x: x.date, reverse=True):
-                if "min" in p.point_type:
-                    latest_min = p
-                    break
+            latest_min = self._find_latest_min_point(points)
 
             if latest_min:
                 target = latest_min.price * next_gain_ratio
@@ -981,19 +901,18 @@ class CyclePatternAnalyzer:
                 dim_factors.append(factor)
 
         if dim_factors:
-            avg_dim_factor = np.mean(dim_factors)
+            if len(dim_factors) >= 3 and all(f > 0 for f in dim_factors):
+                # Geometric mean for multiplicative ratios
+                avg_dim_factor = float(np.exp(np.mean(np.log(dim_factors))))
+            else:
+                avg_dim_factor = float(np.mean(dim_factors))
             last_gain_ratio = gains[-1][1]
             next_gain_ratio = last_gain_ratio * avg_dim_factor
             # Floor: projected gain can't be below DIM_RETURN_MIN_GAIN_RATIO
             # (the "diminishing returns" concept implies decreasing but still positive gains)
             next_gain_ratio = max(next_gain_ratio, DIM_RETURN_MIN_GAIN_RATIO)
 
-            # Get latest min point
-            latest_min = None
-            for p in sorted(points, key=lambda x: x.date, reverse=True):
-                if "min" in p.point_type:
-                    latest_min = p
-                    break
+            latest_min = self._find_latest_min_point(points)
 
             if latest_min:
                 target = latest_min.price * next_gain_ratio
@@ -1004,6 +923,7 @@ class CyclePatternAnalyzer:
     def _calculate_historical_peak(
         self,
         points: list[CyclePoint],
+        idx: dict[tuple[int, PointType], list[CyclePoint]],
     ) -> tuple[float | None, bool | None]:
         """
         Calculate historical peak target.
@@ -1015,9 +935,13 @@ class CyclePatternAnalyzer:
         Returns:
             Tuple of (target_price, is_absolute_max)
         """
-        # Get all max points
-        max2_points = [p for p in points if p.point_type == "max2" and p.price > 0]
-        max1_points = [p for p in points if p.point_type == "max1" and p.price > 0]
+        # Get all max points using index
+        max2_points = [
+            p for key, pts in idx.items() if key[1] == "max2" for p in pts if p.price > 0
+        ]
+        max1_points = [
+            p for key, pts in idx.items() if key[1] == "max1" for p in pts if p.price > 0
+        ]
 
         if not max2_points:
             return None, None
@@ -1043,12 +967,12 @@ class CyclePatternAnalyzer:
         weight_total = 0.0
 
         for p in max2_points:
-            weighted_sum += p.price * TRENDLINE_MAJOR_POINT_WEIGHT
-            weight_total += TRENDLINE_MAJOR_POINT_WEIGHT
+            weighted_sum += p.price * MAJOR_POINT_WEIGHT
+            weight_total += MAJOR_POINT_WEIGHT
 
         for p in max1_points:
-            weighted_sum += p.price * TRENDLINE_MINOR_POINT_WEIGHT
-            weight_total += TRENDLINE_MINOR_POINT_WEIGHT
+            weighted_sum += p.price * MINOR_POINT_WEIGHT
+            weight_total += MINOR_POINT_WEIGHT
 
         if weight_total == 0:
             return None, None
@@ -1062,7 +986,7 @@ class CyclePatternAnalyzer:
         fib_pct: float | None,
         dim_return_pct: float | None,
         hist_peak_pct: float | None,
-        confidence: str = "high",
+        confidence: Confidence = "high",
     ) -> float | None:
         """
         Calculate weighted composite target percentage.
@@ -1071,9 +995,11 @@ class CyclePatternAnalyzer:
         Each confidence level defines method weights and a scale factor,
         providing a single code path for all coins regardless of confidence.
 
-        For high/medium confidence: all 4 methods are weighted, scale = 1.0.
-        For low confidence: trendline weight = 0 (unreliable with 1 cycle),
-        and scale = 0.3 (70% penalty for limited data).
+        For high confidence: all 4 methods are weighted, scale = 1.0.
+        For medium confidence: all 4 methods are weighted, scale = 0.9.
+        For low confidence: only historical peak has meaningful weight;
+        trendline, fibonacci, and diminishing are near-zero. Scale = 0.1
+        (90% penalty for single-cycle uncertainty).
 
         When a method is unavailable (None), its weight is excluded and the
         remaining weights are renormalized.
@@ -1113,6 +1039,7 @@ class CyclePatternAnalyzer:
     @staticmethod
     def _calculate_retracement_ratio(
         points: list[CyclePoint],
+        idx: dict[tuple[int, PointType], list[CyclePoint]],
     ) -> float | None:
         """
         Calculate Fibonacci retracement ratio of the last cycle move.
@@ -1127,7 +1054,7 @@ class CyclePatternAnalyzer:
           0.0 = C at peak (no retracement)
           1.0 = C at previous trough (full retracement)
 
-        Coins that retrace beyond MAX_RETRACEMENT_LEVEL (78.6%) are considered
+        Coins that retrace beyond MAX_RETRACEMENT_LEVEL (88.6%) are considered
         structurally broken — the "higher low" pattern has failed.
 
         Args:
@@ -1141,7 +1068,9 @@ class CyclePatternAnalyzer:
             return None
 
         # Find the last cycle that has a max2 (completed peak)
-        max2_points = [p for p in points if p.point_type == "max2" and p.price > 0]
+        max2_points = [
+            p for key, pts in idx.items() if key[1] == "max2" for p in pts if p.price > 0
+        ]
         if not max2_points:
             return None
 
@@ -1150,21 +1079,22 @@ class CyclePatternAnalyzer:
         peak_price = last_max2.price  # B
 
         # A: Find min from the same cycle as peak (min1 preferred, min2 fallback)
-        cycle_mins = [
-            p
-            for p in points
-            if p.cycle_num == peak_cycle and p.point_type in ("min1", "min2") and p.price > 0
-        ]
+        cycle_min1s = [p for p in idx.get((peak_cycle, "min1"), []) if p.price > 0]
+        cycle_min2s = [p for p in idx.get((peak_cycle, "min2"), []) if p.price > 0]
+        cycle_mins = cycle_min1s + cycle_min2s
         if not cycle_mins:
             return None
 
-        min1s = [p for p in cycle_mins if p.point_type == "min1"]
-        prev_trough = min(min1s if min1s else cycle_mins, key=lambda p: p.price)
+        prev_trough = min(cycle_min1s if cycle_min1s else cycle_mins, key=lambda p: p.price)
         prev_trough_price = prev_trough.price  # A
 
         # C: Find next cycle's min1 (the new trough after the peak)
         next_min1s = [
-            p for p in points if p.cycle_num > peak_cycle and p.point_type == "min1" and p.price > 0
+            p
+            for key, pts in idx.items()
+            if key[1] == "min1" and key[0] > peak_cycle
+            for p in pts
+            if p.price > 0
         ]
         if not next_min1s:
             return None
@@ -1208,36 +1138,106 @@ class CyclePatternAnalyzer:
         else:
             return "rising_wedge"
 
-    def analyze_btc(self) -> BTCPatternResult | None:
+    def _run_projections(self, result: CoinPatternResult) -> None:
+        """Run all projection methods and set results in-place.
+
+        Shared pipeline for both BTC and altcoin analysis: sets confidence
+        from cycle count, fits trendlines, runs all 4 projection methods,
+        computes the composite score, and applies the retracement penalty.
+        """
+        # Set confidence from cycle count (same logic for BTC and altcoins)
+        if result.num_cycles >= 3:
+            result.confidence = "high"
+        elif result.num_cycles >= 2:
+            result.confidence = "medium"
+        else:
+            result.confidence = "low"
+
+        # Build points index once for all projection methods
+        idx = self._build_points_index(result.points)
+
+        # Fit trendlines
+        upper_slope, upper_int, lower_slope, lower_int = self._fit_log_trendlines(result.points)
+
+        if upper_slope is not None:
+            result.upper_slope = upper_slope
+            result.lower_slope = lower_slope
+            result.upper_intercept = upper_int
+            result.lower_intercept = lower_int
+            result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
+
+            target_date = self.projected_halving + timedelta(days=EXPECTED_PEAK_DAYS_AFTER_HALVING)
+            target = self._project_trendline_target(upper_slope, upper_int, target_date)
+            if target is not None:
+                result.trendline_target = target
+                result.trendline_target_pct = (target / result.current_price - 1) * 100
+
+        # Fibonacci extension
+        fib_target = self._calculate_fib_extension(result.points, idx)
+        if fib_target:
+            result.fib_target = fib_target
+            result.fib_target_pct = (fib_target / result.current_price - 1) * 100
+
+        # Diminishing returns
+        dim_target, dim_factor = self._calculate_diminishing_return(result.points, idx)
+        if dim_target:
+            result.dim_return_target = dim_target
+            result.dim_return_target_pct = (dim_target / result.current_price - 1) * 100
+            result.dim_return_factor = dim_factor
+
+        # Historical peak
+        hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(
+            result.points, idx
+        )
+        if hist_peak_target:
+            result.hist_peak_target = hist_peak_target
+            result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
+            result.hist_peak_is_absolute = hist_peak_is_absolute
+
+        # Composite target (weighted average using confidence-based weight profile)
+        result.composite_target_pct = self._calculate_weighted_composite(
+            trendline_pct=result.trendline_target_pct,
+            fib_pct=result.fib_target_pct,
+            dim_return_pct=result.dim_return_target_pct,
+            hist_peak_pct=result.hist_peak_target_pct,
+            confidence=result.confidence,
+        )
+
+        # Retracement ratio + continuous penalty
+        result.retracement_ratio = self._calculate_retracement_ratio(result.points, idx)
+        if (
+            result.retracement_ratio is not None
+            and result.composite_target_pct is not None
+            and result.retracement_ratio > GOLDEN_RETRACEMENT_LEVEL
+            and result.retracement_ratio <= MAX_RETRACEMENT_LEVEL
+        ):
+            t = (result.retracement_ratio - GOLDEN_RETRACEMENT_LEVEL) / (
+                MAX_RETRACEMENT_LEVEL - GOLDEN_RETRACEMENT_LEVEL
+            )
+            penalty = 1.0 - t * (1.0 - RETRACEMENT_PENALTY_AT_MAX)
+            result.composite_target_pct *= penalty
+
+    def analyze_btc(self) -> CoinPatternResult | None:
         """
         Analyze BTC/USD pattern using the same cycle point detection as altcoins.
 
-        This uses _find_cycle_points to detect all 4 point types (min1, max1, min2, max2)
-        for each cycle, ensuring consistent visualization with altcoin charts.
-
         Returns:
-            BTCPatternResult or None if data unavailable
+            CoinPatternResult or None if data unavailable
         """
-        # Load BTC-USD data
         btc_df = self.price_cache.get_prices("btc", "USD")
 
         if btc_df is None or btc_df.empty:
             logger.warning("BTC-USD data not available")
             return None
 
-        result = BTCPatternResult()
+        result = CoinPatternResult(coin_id="btc")
 
-        # Use _find_cycle_points for each halving cycle (same as altcoins)
-        # This detects all 4 point types: min1, max1, min2, max2
         for i, halving_date in enumerate(self.all_halvings):
             if halving_date in HALVING_DATES:
                 cycle_num = HALVING_DATES.index(halving_date) + 1
             else:
-                # Projected halving (cycle 5)
-                cycle_num = 5
-            is_current = halving_date == PROJECTED_5TH_HALVING
-
-            # Get next halving date to prevent window overlap
+                cycle_num = self.current_cycle_num
+            is_current = i == len(self.all_halvings) - 1
             next_halving = self.all_halvings[i + 1] if i + 1 < len(self.all_halvings) else None
 
             cycle_points = self._find_cycle_points(
@@ -1253,60 +1253,11 @@ class CyclePatternAnalyzer:
             logger.warning("No BTC cycle points found")
             return None
 
-        # Count cycles based on min1 points (consistent with altcoin logic)
         result.num_cycles = len({p.cycle_num for p in result.points if p.point_type == "min1"})
-
-        # Get current price (returns are calculated vs this price)
         result.current_price = float(btc_df["close"].iloc[-1])
         result.current_date = btc_df.index[-1].date()
 
-        # Fit trendlines
-        upper_slope, upper_int, lower_slope, lower_int = self._fit_log_trendlines(result.points)
-
-        if upper_slope is not None:
-            result.upper_slope = upper_slope
-            result.lower_slope = lower_slope
-            result.upper_intercept = upper_int
-            result.lower_intercept = lower_int
-            result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
-
-            # Project to expected peak of cycle 5
-            # Approximate: halving + 550 days (typical peak timing)
-            target_date = PROJECTED_5TH_HALVING + timedelta(days=EXPECTED_PEAK_DAYS_AFTER_HALVING)
-            target = self._project_trendline_target(upper_slope, upper_int, target_date)
-            if target is not None:
-                result.trendline_target = target
-                result.trendline_target_pct = (target / result.current_price - 1) * 100
-
-        # Fibonacci extension
-        fib_target = self._calculate_fib_extension(result.points)
-        if fib_target:
-            result.fib_target = fib_target
-            result.fib_target_pct = (fib_target / result.current_price - 1) * 100
-
-        # Diminishing returns
-        dim_target, dim_factor = self._calculate_diminishing_return(result.points)
-        if dim_target:
-            result.dim_return_target = dim_target
-            result.dim_return_target_pct = (dim_target / result.current_price - 1) * 100
-            result.dim_return_factor = dim_factor
-
-        # Historical peak
-        hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(result.points)
-        if hist_peak_target:
-            result.hist_peak_target = hist_peak_target
-            result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
-            result.hist_peak_is_absolute = hist_peak_is_absolute
-
-        # Composite target (weighted average using high-confidence profile)
-        result.composite_target_pct = self._calculate_weighted_composite(
-            trendline_pct=result.trendline_target_pct,
-            fib_pct=result.fib_target_pct,
-            dim_return_pct=result.dim_return_target_pct,
-            hist_peak_pct=result.hist_peak_target_pct,
-            confidence="high",
-        )
-
+        self._run_projections(result)
         return result
 
     def analyze_coin(self, coin_id: str) -> CoinPatternResult | None:
@@ -1316,9 +1267,6 @@ class CyclePatternAnalyzer:
         Uses FULL price history to detect cycle min/max points (not just TOTAL2 dates).
         This ensures accurate detection of true extremes even when a coin temporarily
         drops out of the TOTAL2 index.
-
-        Applies TOTAL2-style filtering tools (volume outlier detection) to ensure
-        consistent data quality.
 
         Args:
             coin_id: Lowercase coin ID (e.g., "eth")
@@ -1369,13 +1317,6 @@ class CyclePatternAnalyzer:
                 )
                 return None
 
-        # Apply TOTAL2-style filtering tools to full price data
-        filtered_df = self._apply_price_filters(df, coin_id)
-
-        if filtered_df.empty:
-            logger.debug("%s: Empty dataframe after applying price filters", coin_id.upper())
-            return None
-
         result = CoinPatternResult(coin_id=coin_id)
         result.first_in_total2 = first_total2
         result.last_in_total2 = last_total2
@@ -1387,15 +1328,15 @@ class CyclePatternAnalyzer:
             if halving_date in HALVING_DATES:
                 cycle_num = HALVING_DATES.index(halving_date) + 1
             else:
-                # Projected halving (cycle 5)
-                cycle_num = 5
-            is_current = halving_date == PROJECTED_5TH_HALVING  # Cycle 5 is current
+                # Projected halving (current cycle)
+                cycle_num = self.current_cycle_num
+            is_current = i == len(self.all_halvings) - 1
 
             # Get next halving date to prevent window overlap
             next_halving = self.all_halvings[i + 1] if i + 1 < len(self.all_halvings) else None
 
             cycle_points = self._find_cycle_points(
-                filtered_df,
+                df,
                 halving_date,
                 cycle_num,
                 is_current_cycle=is_current,
@@ -1421,73 +1362,17 @@ class CyclePatternAnalyzer:
             )
             return None
 
-        # Set confidence level
-        if result.num_cycles >= 3:
-            result.confidence = "high"
-        elif result.num_cycles >= 2:
-            result.confidence = "medium"
-        else:
-            result.confidence = "low"
-
-        # Get current price (returns are calculated vs this price)
-        # Use last available price in full data
-        result.current_price = float(filtered_df["close"].iloc[-1])
-        result.current_date = filtered_df.index[-1].date()
-        result.first_price_date = filtered_df.index[0].date()
-        result.unique_price_count = filtered_df["close"].nunique()
-
-        # Fit trendlines (need at least 2 points each for min/max)
-        upper_slope, upper_int, lower_slope, lower_int = self._fit_log_trendlines(result.points)
-
-        if upper_slope is not None:
-            result.upper_slope = upper_slope
-            result.lower_slope = lower_slope
-            result.upper_intercept = upper_int
-            result.lower_intercept = lower_int
-            result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
-
-            # Project to cycle 5 peak (halving + 550 days)
-            target_date = PROJECTED_5TH_HALVING + timedelta(days=EXPECTED_PEAK_DAYS_AFTER_HALVING)
-            target = self._project_trendline_target(upper_slope, upper_int, target_date)
-            if target is not None:
-                result.trendline_target = target
-                result.trendline_target_pct = (target / result.current_price - 1) * 100
-
-        # Fibonacci extension
-        fib_target = self._calculate_fib_extension(result.points)
-        if fib_target:
-            result.fib_target = fib_target
-            result.fib_target_pct = (fib_target / result.current_price - 1) * 100
-
-        # Diminishing returns
-        dim_target, dim_factor = self._calculate_diminishing_return(result.points)
-        if dim_target:
-            result.dim_return_target = dim_target
-            result.dim_return_target_pct = (dim_target / result.current_price - 1) * 100
-            result.dim_return_factor = dim_factor
-
-        # Historical peak
-        hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(result.points)
-        if hist_peak_target:
-            result.hist_peak_target = hist_peak_target
-            result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
-            result.hist_peak_is_absolute = hist_peak_is_absolute
-
-        # Composite target (weighted average using confidence-based weight profile)
-        # The weight profile handles all confidence-specific adjustments:
-        # - Low confidence: trendline weight = 0, scale = 0.3
-        # - Medium/High confidence: full weights, scale = 1.0
-        result.composite_target_pct = self._calculate_weighted_composite(
-            trendline_pct=result.trendline_target_pct,
-            fib_pct=result.fib_target_pct,
-            dim_return_pct=result.dim_return_target_pct,
-            hist_peak_pct=result.hist_peak_target_pct,
-            confidence=result.confidence,
+        # Get current price and price quality info
+        result.current_price = float(df["close"].iloc[-1])
+        result.current_date = df.index[-1].date()
+        result.first_price_date = df.index[0].date()
+        unique_window_start = result.current_date - timedelta(days=UNIQUE_PRICES_WINDOW_DAYS)
+        recent_prices = df[df.index.date >= unique_window_start]
+        result.unique_price_count = (
+            recent_prices["close"].nunique() if not recent_prices.empty else 0
         )
 
-        # Fibonacci retracement ratio (used as filter in get_top_coins)
-        result.retracement_ratio = self._calculate_retracement_ratio(result.points)
-
+        self._run_projections(result)
         return result
 
     def analyze_all_coins(
@@ -1503,8 +1388,8 @@ class CyclePatternAnalyzer:
         This expanded selection allows analysis of coins even if they temporarily
         dropped out of the TOTAL2 top 30.
 
-        Uses FULL price history for each coin with TOTAL2-style filtering tools
-        applied, allowing accurate min/max detection even outside TOTAL2 dates.
+        Uses FULL price history for each coin, allowing accurate min/max
+        detection even outside TOTAL2 dates.
 
         Args:
             filter_total2: If True, only analyze coins in TOTAL2 within past 3 years
@@ -1530,6 +1415,10 @@ class CyclePatternAnalyzer:
             coins_to_analyze = cached_coins
             logger.info("Analyzing %d coins", len(coins_to_analyze))
 
+        # Store early pipeline counts for the unified filter table in get_top_coins()
+        self._pipeline_cached_coins = len(cached_coins)
+        self._pipeline_total2_coins = len(coins_to_analyze)
+
         results = {}
 
         if show_progress:
@@ -1547,6 +1436,7 @@ class CyclePatternAnalyzer:
             if result and result.composite_target_pct is not None:
                 results[coin_id] = result
 
+        self._pipeline_with_projections = len(results)
         logger.info("Successfully analyzed %d coins with valid projections", len(results))
         return results
 
@@ -1559,10 +1449,9 @@ class CyclePatternAnalyzer:
         Get top N coins by composite target percentage.
 
         Filtering rules:
-        - Coins with negative trendline predictions are excluded (underperforming BTC)
+        - Coins must have a positive trendline prediction (missing or negative = excluded)
         - Coins with declining floor (lower_slope < MIN_LOWER_SLOPE) are excluded
         - Coins with excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL) are excluded
-        - Coins with missing trendline (None) are included if they have a composite score
         - Coins must have a valid composite score
         - Coins must be at least MIN_COIN_AGE_DAYS old (1 year)
         - Coins must have at least MIN_UNIQUE_PRICES distinct price values (filters illiquid/staircase)
@@ -1577,32 +1466,108 @@ class CyclePatternAnalyzer:
         today = date.today()
         min_first_price_date = today - timedelta(days=MIN_COIN_AGE_DAYS)
 
-        # Filter out coins with:
-        # 1. Negative trendline predictions (underperforming BTC)
-        # 2. Declining floor (lower_slope below threshold = MIN_LOWER_SLOPE_ANNUAL_PCT% annual)
-        # 3. Excessive Fibonacci retracement (gave back >78.6% of last cycle gain in log-space)
-        # 4. Too new (first_price_date < 1 year ago)
-        # 5. Too few unique prices (staircase/illiquid patterns like ZBCN, HTX)
-        # Coins with trendline=None or retracement=None are allowed
-        valid = [
+        # Apply filters successively and track counts for logging
+        # Note: results from analyze_all_coins() already have composite_target_pct != None,
+        # so no need to re-filter for that here.
+        candidates = list(results.values())
+        total_start = len(candidates)
+
+        # Filter 1: Must have positive trendline (no trendline = filtered out)
+        candidates = [
             r
-            for r in results.values()
-            if r.composite_target_pct is not None
-            and (r.trendline_target_pct is None or r.trendline_target_pct > 0)
-            and (r.lower_slope is None or r.lower_slope >= MIN_LOWER_SLOPE)
-            and (r.retracement_ratio is None or r.retracement_ratio <= MAX_RETRACEMENT_LEVEL)
-            and (r.first_price_date is None or r.first_price_date <= min_first_price_date)
-            and r.unique_price_count >= MIN_UNIQUE_PRICES
+            for r in candidates
+            if r.trendline_target_pct is not None and r.trendline_target_pct > 0
         ]
+        after_trendline = len(candidates)
+
+        # Filter 3: Declining floor (lower_slope below MIN_LOWER_SLOPE)
+        candidates = [
+            r for r in candidates if r.lower_slope is None or r.lower_slope >= MIN_LOWER_SLOPE
+        ]
+        after_floor = len(candidates)
+
+        # Filter 4: Excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL)
+        candidates = [
+            r
+            for r in candidates
+            if r.retracement_ratio is None or r.retracement_ratio <= MAX_RETRACEMENT_LEVEL
+        ]
+        after_retracement = len(candidates)
+
+        # Filter 5: Too new (first_price_date < MIN_COIN_AGE_DAYS ago)
+        candidates = [
+            r
+            for r in candidates
+            if r.first_price_date is None or r.first_price_date <= min_first_price_date
+        ]
+        after_age = len(candidates)
+
+        # Filter 6: Too few unique prices (staircase/illiquid patterns)
+        candidates = [r for r in candidates if r.unique_price_count >= MIN_UNIQUE_PRICES]
+        after_unique = len(candidates)
+
+        # Build unified filter summary table including early pipeline stages
+        cached = getattr(self, "_pipeline_cached_coins", None)
+        total2 = getattr(self, "_pipeline_total2_coins", None)
+
+        lines = ["Coin selection & filter summary:"]
+        lines.append(f"  {'Step':<44s}  {'Remaining'}")
+
+        def _start(label: str, count: int) -> str:
+            return f"  {label:<44s}  {count}"
+
+        def _step(label: str, count: int, removed: int) -> str:
+            return f"  {label:<44s}  {count}  (-{removed})"
+
+        if cached is not None:
+            lines.append(_start("Cached altcoin prices", cached))
+        if total2 is not None:
+            prev = cached if cached is not None else total2
+            lines.append(
+                _step(f"In TOTAL2 within past {TOTAL2_LOOKBACK_YEARS} years", total2, prev - total2)
+            )
+            lines.append(
+                _step(
+                    "Enough cycle data for projections",
+                    total_start,
+                    total2 - total_start,
+                )
+            )
+        else:
+            lines.append(_start("With cycle projections", total_start))
+
+        lines.append(_step("Positive trendline", after_trendline, total_start - after_trendline))
+        lines.append(
+            _step("Floor not declining (slope >= min)", after_floor, after_trendline - after_floor)
+        )
+        lines.append(
+            _step(
+                f"Retracement <= {MAX_RETRACEMENT_LEVEL * 100:.1f}%",
+                after_retracement,
+                after_floor - after_retracement,
+            )
+        )
+        lines.append(
+            _step(f"Coin age >= {MIN_COIN_AGE_DAYS} days", after_age, after_retracement - after_age)
+        )
+        lines.append(
+            _step(
+                f"Unique prices >= {MIN_UNIQUE_PRICES} (last {UNIQUE_PRICES_WINDOW_DAYS}d)",
+                after_unique,
+                after_age - after_unique,
+            )
+        )
+
+        logger.info("\n".join(lines))
 
         # Sort by composite target (descending) - primary ranking criterion
-        sorted_results = sorted(valid, key=lambda x: x.composite_target_pct or 0, reverse=True)
+        sorted_results = sorted(candidates, key=lambda x: x.composite_target_pct or 0, reverse=True)
 
         return sorted_results[:n]
 
     def save_results(
         self,
-        btc_result: BTCPatternResult | None,
+        btc_result: CoinPatternResult | None,
         coin_results: dict[str, CoinPatternResult],
         output_path: Path | None = None,
     ) -> Path:

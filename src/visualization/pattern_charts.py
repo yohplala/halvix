@@ -16,12 +16,9 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 
-from analysis.cycle_patterns import (
-    BTCPatternResult,
-    CoinPatternResult,
-)
+from analysis.cycle_patterns import CoinPatternResult
 from config import (
-    CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING,
+    CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
@@ -339,7 +336,7 @@ def _get_cycle5_min1_display_date() -> date:
     Returns:
         The approximated date for cycle 5 min1 (520 days before 5th halving)
     """
-    return PROJECTED_5TH_HALVING - timedelta(days=CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING)
+    return PROJECTED_5TH_HALVING - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
 
 
 # =============================================================================
@@ -378,7 +375,7 @@ def _add_halving_lines(fig: go.Figure, row: int = 1, col: int = 1) -> None:
 
 
 def create_btc_pattern_chart(
-    result: BTCPatternResult,
+    result: CoinPatternResult,
     price_cache: PriceDataCache,
     output_path: Path | None = None,
 ) -> go.Figure:
@@ -952,7 +949,7 @@ def _write_pattern_chart(fig: go.Figure, output_path: Path, title: str) -> None:
 
 
 def generate_pattern_analysis_page(
-    btc_result: BTCPatternResult | None,
+    btc_result: CoinPatternResult | None,
     top_coins: list[CoinPatternResult],
     output_path: Path,
     price_cache: PriceDataCache | None = None,
@@ -1044,6 +1041,15 @@ def generate_pattern_analysis_page(
             color: var(--accent-blue);
         }
 
+        .ranking-table .coin-name a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .ranking-table .coin-name a:hover {
+            text-decoration: underline;
+        }
+
         .ranking-table .pair-type {
             color: var(--text-secondary);
             font-size: 0.8rem;
@@ -1107,7 +1113,7 @@ def generate_pattern_analysis_page(
         btc_row = f"""
             <tr class="btc-row">
                 <td>0</td>
-                <td class="coin-name">BTC <span class="pair-type">(/USD)</span></td>
+                <td class="coin-name"><a href="https://www.cryptocompare.com/coins/BTC/overview" target="_blank">BTC</a> <span class="pair-type">(/USD)</span></td>
                 <td><span class="chart-badge badge-high">HIGH</span></td>
                 <td class="number">{btc_result.num_cycles}</td>
                 <td class="number target-value {composite_class}">{_format_pct(btc_composite, 1)}</td>
@@ -1128,7 +1134,7 @@ def generate_pattern_analysis_page(
         row = f"""
             <tr>
                 <td>{rank_display}</td>
-                <td class="coin-name">{coin.coin_id.upper()} <span class="pair-type">(/BTC)</span></td>
+                <td class="coin-name"><a href="https://www.cryptocompare.com/coins/{coin.coin_id.upper()}/overview" target="_blank">{coin.coin_id.upper()}</a> <span class="pair-type">(/BTC)</span></td>
                 <td><span class="chart-badge {confidence_class}">{coin.confidence.upper()}</span></td>
                 <td class="number">{coin.num_cycles}</td>
                 <td class="number target-value {composite_class}">{_format_pct(coin.composite_target_pct, 1)}</td>

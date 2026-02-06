@@ -498,8 +498,4 @@ In this example:
 
 ---
 
-*Last updated: 2026-02-05*
-
----
-
 **[← Back to README](../README.md)**

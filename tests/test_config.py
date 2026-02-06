@@ -14,7 +14,6 @@ from config import (
     HalvingCycle,
     get_cycle,
     get_cycle_for_date,
-    get_cycle_window,
 )
 
 # =============================================================================
@@ -196,17 +195,3 @@ class TestGetCycleForDate:
         # Very old date before any halving windows
         cycle = get_cycle_for_date(date(2000, 1, 1))
         assert cycle is None
-
-
-class TestLegacyCompatibility:
-    """Tests for legacy function compatibility."""
-
-    def test_get_cycle_window(self):
-        """Test legacy get_cycle_window function."""
-        start, end = get_cycle_window(date(2024, 4, 19))
-
-        # Compare with HalvingCycle
-        cycle = get_cycle(4)
-        assert cycle is not None
-        assert start == cycle.window_start
-        assert end == cycle.window_end

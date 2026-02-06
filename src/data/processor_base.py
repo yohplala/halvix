@@ -14,6 +14,7 @@ available as standalone functions in data/price_filters.py for use
 by other modules (e.g., pattern analysis).
 """
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date
@@ -68,13 +69,6 @@ class IndexNotFoundError(ProcessorError):
     """Raised when a pre-computed index file cannot be found."""
 
     pass
-
-
-# Volume outlier detection parameters (shared between TOTAL2 and TOTAL2b)
-# These are re-exported from price_filters for backward compatibility
-VOLUME_OUTLIER_THRESHOLD = DEFAULT_VOLUME_OUTLIER_THRESHOLD  # 20x median
-MIN_VOLUME_FOR_OUTLIER_CHECK = DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK  # BTC
-OUTLIER_WINDOW_DAYS = DEFAULT_OUTLIER_WINDOW_DAYS
 
 
 @dataclass
@@ -381,9 +375,9 @@ class BaseTotal2Processor(ABC):
         """
         return apply_volume_corrections_to_dataframe(
             volume_df,
-            threshold=VOLUME_OUTLIER_THRESHOLD,
-            min_volume=MIN_VOLUME_FOR_OUTLIER_CHECK,
-            window_days=OUTLIER_WINDOW_DAYS,
+            threshold=DEFAULT_VOLUME_OUTLIER_THRESHOLD,
+            min_volume=DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK,
+            window_days=DEFAULT_OUTLIER_WINDOW_DAYS,
             max_iterations=10,
             show_progress=show_progress,
         )
@@ -707,8 +701,6 @@ class BaseTotal2Processor(ABC):
         Returns:
             Tuple of (index_path, composition_path)
         """
-        import json
-
         index_path = index_path or TOTAL2_INDEX_FILE
         composition_path = composition_path or TOTAL2_COMPOSITION_FILE
 

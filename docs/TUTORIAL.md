@@ -145,7 +145,7 @@ poetry run python -m main analyze-patterns --quiet
 ```
 
 **Options:**
-- `--top-n N` / `-n N` - Number of top altcoins to include (default: 9)
+- `--top-n N` / `-n N` - Number of top altcoins to include (default: 14)
 - `--output-dir PATH` - Output directory for pattern charts (default: site/)
 - `--quiet` / `-q` - Suppress progress bars
 
@@ -285,10 +285,6 @@ The project includes VS Code settings for pytest integration:
 2. Install the Python extension
 3. Tests will auto-discover via `.vscode/settings.json`
 4. Use the Testing sidebar to run tests
-
----
-
-*Last updated: 2026-02-04*
 
 ---
 

@@ -230,47 +230,6 @@ def get_cycle_for_date(dt: date) -> HalvingCycle | None:
 
 
 # =============================================================================
-# Legacy Cycle Window Functions (for backward compatibility)
-# =============================================================================
-# These functions are kept for backward compatibility but delegate to HalvingCycle.
-
-
-def get_cycle_window(halving_date: date) -> tuple[date, date]:
-    """
-    Calculate the time window for a halving cycle.
-
-    Deprecated: Use HalvingCycle.from_halving_date() instead.
-
-    Args:
-        halving_date: The date of the Bitcoin halving
-
-    Returns:
-        Tuple of (start_date, end_date) for the cycle window
-    """
-    start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
-    end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
-    return (start, end)
-
-
-def get_all_cycle_windows() -> list[tuple[int, date, date, date]]:
-    """
-    Get all halving cycle windows with their metadata.
-
-    Deprecated: Use HALVING_CYCLES list instead.
-
-    Returns:
-        List of tuples: (cycle_number, start_date, halving_date, end_date)
-    """
-    return [
-        (cycle.cycle_num, cycle.window_start, cycle.halving_date, cycle.window_end)
-        for cycle in HALVING_CYCLES
-    ]
-
-
-# Pre-computed cycle windows for reference (legacy format)
-CYCLE_WINDOWS = get_all_cycle_windows()
-
-# =============================================================================
 # Data Filtering Configuration
 # =============================================================================
 
@@ -630,13 +589,15 @@ DEFAULT_FIBONACCI_LEVEL = FIBONACCI_LEVELS["127.2%"]
 # - The fact that altcoins often show steeper diminishing returns vs BTC
 DEFAULT_DIMINISHING_FACTOR = 0.20
 
-# Trendline regression point weights
+# Cycle point weights for regression and historical peak averaging
 # Major points (min1, max2) are the true cycle extremes - higher weight
 # Minor points (max1, min2) are intermediate points - lower weight
+# Used in: (1) trendline log-linear regression (weighted least squares),
+#          (2) historical peak weighted average calculation
 # With only 2 points per category, weights have no effect (line is unique)
 # With 3+ points, weights affect which points the regression line fits more closely
-TRENDLINE_MAJOR_POINT_WEIGHT = 0.67  # Weight for min1 (true bottom) and max2 (true peak)
-TRENDLINE_MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate points)
+MAJOR_POINT_WEIGHT = 0.67  # Weight for min1 (true bottom) and max2 (true peak)
+MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate points)
 
 # Trendline recency decay factor
 # Controls how much older cycles are downweighted relative to recent ones.
@@ -665,7 +626,8 @@ MIN_COIN_AGE_DAYS = 365  # 1 year minimum
 # Coins with very few distinct price values indicate low trading activity or liquidity issues.
 # Examples: ZBCN, HTX show "staircase" patterns where price stays constant for extended periods.
 # Such coins should be filtered out as their price data is not representative of market dynamics.
-# Threshold: require at least 30 unique price values over the coin's history.
+# Measured over a recent window (UNIQUE_PRICES_WINDOW_DAYS) to catch coins that became illiquid.
+UNIQUE_PRICES_WINDOW_DAYS = 90  # ~3 months lookback for unique price check
 MIN_UNIQUE_PRICES = 30
 
 # Composite score weight profiles by confidence level
@@ -700,14 +662,14 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
         "fibonacci": 0.25,
         "historical": 0.20,
         "diminishing": 0.15,
-        "scale": 1.0,
+        "scale": 0.9,
     },
     "low": {
-        "trendline": 0.0,
-        "fibonacci": 0.25,
+        "trendline": 0.002,
+        "fibonacci": 0.02,
         "historical": 0.20,
-        "diminishing": 0.15,
-        "scale": 0.3,
+        "diminishing": 0.02,
+        "scale": 0.1,
     },
 }
 
@@ -716,9 +678,9 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
 # A projected gain < 1.0x (i.e., a loss from the cycle minimum) is nonsensical
 # for this model - it contradicts the "diminishing positive returns" concept.
 # When the projected gain falls below this floor, it is clamped to this value.
-# 1.0 = break-even (0% return from latest min), meaning the model contributes
-# a neutral prediction rather than a misleading negative one.
-DIM_RETURN_MIN_GAIN_RATIO = 1.0
+# 0.1 = minimum 10% gain (1.1x from trough), letting the model express
+# pessimism when diminishing factors point to very low cycle gains.
+DIM_RETURN_MIN_GAIN_RATIO = 0.1
 
 # Fibonacci retracement filter: filters out coins that retraced too much of their
 # last cycle's gain (trough → peak).
@@ -740,10 +702,11 @@ DIM_RETURN_MIN_GAIN_RATIO = 1.0
 #   50.0% - moderate
 #   61.8% - deep (golden ratio boundary)
 #   78.6% - very deep (structural weakness, sqrt of 0.618)
+#   88.6% - last Fibonacci support before full retracement (sqrt of 0.786)
 #
-# We use 78.6% as the cutoff: beyond this, the coin has retraced so deeply that
+# We use 88.6% as the cutoff: beyond this, the coin has retraced so deeply that
 # the "higher low" structure is broken — similar to a declining floor slope.
-MAX_RETRACEMENT_LEVEL = 0.786
+MAX_RETRACEMENT_LEVEL = 0.886
 
 # Cycle 5 min1 approximate date for trendline regression
 # Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
@@ -752,7 +715,13 @@ MAX_RETRACEMENT_LEVEL = 0.786
 # This places min1 within the typical window [halving-550, halving] and provides a stable
 # reference point for regression calculations regardless of when the actual minimum occurs.
 # Note: The actual detected min1 date/price is still used for display and other methods.
-CYCLE5_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
+CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
+
+# Continuous retracement penalty parameters
+# Applied to coins between GOLDEN_RETRACEMENT_LEVEL and MAX_RETRACEMENT_LEVEL
+# to gradually penalize composite score as retracement deepens.
+GOLDEN_RETRACEMENT_LEVEL = 0.618  # 61.8% Fibonacci level (golden ratio)
+RETRACEMENT_PENALTY_AT_MAX = 0.5  # Composite multiplied by this at MAX_RETRACEMENT_LEVEL
 
 # =============================================================================
 # Pattern Analysis Coin Selection
@@ -874,16 +843,10 @@ def validate_config() -> None:
     # Validate trendline parameters
     if TRENDLINE_LOG_PRICE_LIMIT <= 0:
         errors.append(f"TRENDLINE_LOG_PRICE_LIMIT must be positive: {TRENDLINE_LOG_PRICE_LIMIT}")
-    if not (0.0 < TRENDLINE_MAJOR_POINT_WEIGHT <= 1.0):
-        errors.append(
-            f"TRENDLINE_MAJOR_POINT_WEIGHT must be between 0 and 1: "
-            f"{TRENDLINE_MAJOR_POINT_WEIGHT}"
-        )
-    if not (0.0 < TRENDLINE_MINOR_POINT_WEIGHT <= 1.0):
-        errors.append(
-            f"TRENDLINE_MINOR_POINT_WEIGHT must be between 0 and 1: "
-            f"{TRENDLINE_MINOR_POINT_WEIGHT}"
-        )
+    if not (0.0 < MAJOR_POINT_WEIGHT <= 1.0):
+        errors.append(f"MAJOR_POINT_WEIGHT must be between 0 and 1: " f"{MAJOR_POINT_WEIGHT}")
+    if not (0.0 < MINOR_POINT_WEIGHT <= 1.0):
+        errors.append(f"MINOR_POINT_WEIGHT must be between 0 and 1: " f"{MINOR_POINT_WEIGHT}")
 
     # Validate Fibonacci level
     if DEFAULT_FIBONACCI_LEVEL <= 1.0:

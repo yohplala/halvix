@@ -149,6 +149,4 @@ DEFAULT_QUOTE_CURRENCY = "BTC"
 
 ---
 
-*Last updated: 2026-02-05*
-
 **[← Back to README](README.md)**
