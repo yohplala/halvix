@@ -19,7 +19,7 @@ format YYYY.MM.patch.
 - **Added:** Cycle pattern analysis module (`analysis/cycle_patterns.py`)
   - Identifies min/max points within halving cycle windows
   - Three projection methods: Log-Linear Trendline, Fibonacci 127.2% Extension, Diminishing Returns
-  - Composite scoring with equal-weight average of available methods
+  - Composite scoring with confidence-weighted average of available methods
   - TOTAL2 composition filtering for altcoin analysis
   - Symbol replacement detection for tokens with zero price history
 - **Added:** Pattern analysis charts (`visualization/pattern_charts.py`)
