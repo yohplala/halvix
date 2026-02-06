@@ -1202,7 +1202,7 @@ def generate_pattern_analysis_page(
             regression, Fibonacci 127.2% extension, diminishing returns model, and historical peak.
             <strong>Ranking is by composite score (descending).</strong> Coins with negative
             trendline predictions are filtered out (underperforming BTC).
-            The composite score is an equal-weight average of all available methods.
+            The composite score is a weighted average of available methods, with weights depending on confidence level.
         </p>
 
         <div class="table-container" style="overflow-x: auto;">

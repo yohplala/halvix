@@ -120,7 +120,7 @@ class CoinPatternResult:
     hist_peak_target_pct: float | None = None
     hist_peak_is_absolute: bool | None = None  # True if prev cycle max2 was absolute max
 
-    # Composite score (equal weight average of 4 methods)
+    # Composite score (weighted average of available methods)
     composite_target_pct: float | None = None
 
     # Current price for reference (returns are calculated vs this price)
