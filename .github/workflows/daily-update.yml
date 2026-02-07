@@ -1,11 +1,11 @@
 # Daily automated pipeline: Fetch data → Calculate TOTAL2 → Deploy to GitHub Pages
-# Runs every day at 6:00 AM UTC
+# Runs every day at 4:00 AM UTC
 name: Daily Update
 
 on:
-  # Scheduled trigger - daily at 6:00 AM UTC
+  # Scheduled trigger - daily at 4:00 AM UTC
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 4 * * *'
 
   # Manual trigger for testing
   workflow_dispatch:
