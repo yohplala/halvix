@@ -920,6 +920,5 @@ def validate_config() -> None:
         errors.append(
             f"MAX2_PRE_HALVING_BUFFER_DAYS must be non-negative: {MAX2_PRE_HALVING_BUFFER_DAYS}"
         )
-
     if errors:
         raise ConfigurationError("Configuration validation failed:\n" + "\n".join(errors))
