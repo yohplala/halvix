@@ -11,7 +11,6 @@ from typing import Any
 from config import (
     EXPECTED_PEAK_DAYS_AFTER_HALVING,
     HALVING_DATES,
-    PROJECTED_5TH_HALVING,
 )
 
 
@@ -65,9 +64,6 @@ def get_expected_cycle_peak_date(cycle_num: int) -> date | None:
     # Get halving date for this cycle
     if cycle_num <= len(HALVING_DATES):
         halving_date = HALVING_DATES[cycle_num - 1]
-    elif cycle_num == len(HALVING_DATES) + 1:
-        # Projected 5th halving
-        halving_date = PROJECTED_5TH_HALVING
     else:
         return None
 
@@ -89,7 +85,5 @@ def get_halving_date(cycle_num: int) -> date | None:
 
     if cycle_num <= len(HALVING_DATES):
         return HALVING_DATES[cycle_num - 1]
-    elif cycle_num == len(HALVING_DATES) + 1:
-        return PROJECTED_5TH_HALVING
     else:
         return None

@@ -30,22 +30,24 @@ from data.cache import PriceDataCache
 # Color Palettes - High contrast on dark background (#0d1117)
 # =============================================================================
 
-# BTC: Yellow to bright orange progression (4 cycles)
+# BTC: Yellow to bright orange progression (5 cycles)
 # Designed for maximum contrast and visual distinction
 BTC_COLORS = [
     "rgba(255, 245, 157, 0.9)",  # Cycle 1 (2012) - pale yellow
     "rgba(255, 200, 87, 0.92)",  # Cycle 2 (2016) - light orange
     "rgba(255, 145, 50, 0.95)",  # Cycle 3 (2020) - bright orange
     "rgba(255, 140, 90, 1.0)",  # Cycle 4 (2024) - lighter coral orange (better contrast)
+    "rgba(255, 100, 70, 1.0)",  # Cycle 5 (2028) - deep coral (projected)
 ]
 
-# TOTAL2: Cyan to blue progression (3 cycles - skip cycle 1)
+# TOTAL2: Cyan to blue progression (skip cycle 1)
 # Designed for clear distinction from BTC and high visibility
 TOTAL2_COLORS = [
     "rgba(200, 230, 255, 0.85)",  # Cycle 1 (unused) - placeholder
     "rgba(144, 224, 239, 0.9)",  # Cycle 2 (2016) - pale cyan
     "rgba(56, 189, 248, 0.95)",  # Cycle 3 (2020) - bright cyan-blue
     "rgba(100, 160, 255, 1.0)",  # Cycle 4 (2024) - lighter sky blue (better contrast)
+    "rgba(80, 130, 255, 1.0)",  # Cycle 5 (2028) - deeper blue (projected)
 ]
 
 # Line styles per cycle (solid or dotted)
@@ -55,6 +57,7 @@ LINE_DASH_STYLES = [
     "dot",  # Cycle 2 (2016) - dotted
     "solid",  # Cycle 3 (2020)
     "solid",  # Cycle 4 (2024)
+    "solid",  # Cycle 5 (2028)
 ]
 
 
