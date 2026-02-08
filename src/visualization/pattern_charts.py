@@ -238,7 +238,7 @@ def _add_trendlines(
             y=[upper_y_start, upper_y_end],
             mode="lines",
             name="Upper Trendline",
-            line={"color": TARGET_COLORS["trendline"], "width": 1, "dash": "dot"},
+            line={"color": TARGET_COLORS["trendline"], "width": 1, "dash": "dash"},
             showlegend=False,
             hoverinfo="skip",
         )
@@ -261,26 +261,35 @@ def _add_trendlines(
 def _add_historical_peak_line(
     fig: go.Figure,
     hist_peak_target: float,
+    start_date: date,
+    target_date: date,
 ) -> None:
     """
-    Add horizontal dotted line at the historical peak level.
-
-    Uses same color as price curve with dotted style (distinct from dashed trendlines).
+    Add horizontal dashed line at the historical peak level, from start_date to target_date.
 
     Args:
         fig: Plotly figure to add the line to
         hist_peak_target: Price level for the horizontal line
+        start_date: Left edge of the line
+        target_date: Right edge of the line (where the star is)
     """
-    fig.add_hline(
-        y=hist_peak_target,
-        line={"dash": "dot", "color": TARGET_COLORS["historical"], "width": 1},
-        annotation_text="",
+    fig.add_trace(
+        go.Scatter(
+            x=[start_date, target_date],
+            y=[hist_peak_target, hist_peak_target],
+            mode="lines",
+            name="Hist. Peak Level",
+            line={"color": TARGET_COLORS["historical"], "width": 1, "dash": "dash"},
+            showlegend=False,
+            hoverinfo="skip",
+        )
     )
 
 
 def _add_fib_hint_lines(
     fig: go.Figure,
     result: CoinPatternResult,
+    target_date: date,
     cycle5_display_date: date,
     current_cycle_num: int | None,
 ) -> None:
@@ -334,10 +343,10 @@ def _add_fib_hint_lines(
 
     fig.add_trace(
         go.Scatter(
-            x=[a_point.date, b_point.date, c_date],
-            y=[a_point.price, b_point.price, c_point.price],
+            x=[a_point.date, b_point.date, c_date, target_date],
+            y=[a_point.price, b_point.price, c_point.price, result.fib_target],
             mode="lines",
-            name="Fib A→B→C",
+            name="Fib A→B→C→★",
             line={"color": TARGET_COLORS["fibonacci"], "width": 1.5},
             showlegend=False,
             hoverinfo="skip",
@@ -397,7 +406,7 @@ def _add_dim_return_hint_lines(
                     y=[min_p.price, max_p.price],
                     mode="lines",
                     name="Dim. Return pair",
-                    line={"color": dim_color, "width": 1, "dash": "dot"},
+                    line={"color": dim_color, "width": 1, "dash": "dash"},
                     showlegend=False,
                     hoverinfo="skip",
                 )
@@ -425,7 +434,7 @@ def _add_dim_return_hint_lines(
                 y=[latest_min.price, result.dim_return_target],
                 mode="lines",
                 name="Dim. Return proj.",
-                line={"color": dim_color, "width": 1, "dash": "dot"},
+                line={"color": dim_color, "width": 1, "dash": "dash"},
                 showlegend=False,
                 hoverinfo="skip",
             )
@@ -532,285 +541,8 @@ def create_btc_pattern_chart(
     price_cache: PriceDataCache,
     output_path: Path | None = None,
 ) -> go.Figure:
-    """
-    Create BTC/USD pattern analysis chart.
-
-    Args:
-        result: BTC pattern analysis result
-        price_cache: Price data cache
-        output_path: Optional path to save HTML
-
-    Returns:
-        Plotly Figure
-    """
-    # Load BTC-USD data
-    btc_df = price_cache.get_prices("btc", "USD")
-    if btc_df is None or btc_df.empty:
-        raise ValueError("BTC-USD data not available")
-
-    # Filter to time range
-    start_date, end_date = _get_time_range()
-    mask = (btc_df.index.date >= start_date) & (btc_df.index.date <= end_date)
-    plot_df = btc_df[mask]
-
-    fig = go.Figure()
-
-    # 1. Full price curve in light grey
-    fig.add_trace(
-        go.Scatter(
-            x=plot_df.index,
-            y=plot_df["close"],
-            mode="lines",
-            name="BTC/USD",
-            line={"color": CURVE_COLOR, "width": 1},
-            hovertemplate="<b>BTC/USD</b><br>Price: $%{y:,.2f}<extra></extra>",
-        )
-    )
-
-    # 1b. Add dashed trendlines
-    _add_trendlines(
-        fig,
-        result.upper_slope,
-        result.upper_intercept,
-        result.lower_slope,
-        result.lower_intercept,
-        start_date,
-        end_date,
-    )
-
-    # 2. Add min/max points with connecting lines
-    # Filter out points with price 0 and group by cycle
-    valid_points = [p for p in result.points if p.price > 0]
-    cycles = sorted({p.cycle_num for p in valid_points})
-
-    # Get cycle 5 approximated date for display
-    cycle5_display_date = _get_cycle5_min1_display_date()
-
-    # Build index of max2 and min1 points by cycle for inter-cycle connections
-    max2_by_cycle = {}
-    min1_by_cycle = {}
-    for p in valid_points:
-        if p.point_type == "max2":
-            max2_by_cycle[p.cycle_num] = p
-        elif p.point_type == "min1":
-            min1_by_cycle[p.cycle_num] = p
-
-    for cycle_num in cycles:
-        cycle_points = sorted(
-            [p for p in valid_points if p.cycle_num == cycle_num],
-            key=lambda x: x.date,
-        )
-
-        if not cycle_points:
-            continue
-
-        # For cycle 5, use approximated date for min1
-        if cycle_num == 5:
-            x_vals = [
-                cycle5_display_date if p.point_type == "min1" else p.date for p in cycle_points
-            ]
-        else:
-            x_vals = [p.date for p in cycle_points]
-        y_vals = [p.price for p in cycle_points]
-
-        fig.add_trace(
-            go.Scatter(
-                x=x_vals,
-                y=y_vals,
-                mode="lines",
-                name=f"Cycle {cycle_num}",
-                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 1.5, "dash": "dash"},
-                showlegend=True,
-                hoverinfo="skip",
-            )
-        )
-
-        # Add individual points with markers
-        for i, p in enumerate(cycle_points):
-            display_date = x_vals[i]
-            fig.add_trace(
-                go.Scatter(
-                    x=[display_date],
-                    y=[p.price],
-                    mode="markers",
-                    marker={
-                        "size": 12,
-                        "color": POINT_COLORS.get(p.point_type, "#888"),
-                        "line": {"width": 2, "color": "#fff"},
-                    },
-                    name=f"{p.point_type.upper()} C{p.cycle_num}",
-                    showlegend=False,
-                    hovertemplate=(
-                        f"<b>{p.point_type.upper()} (Cycle {p.cycle_num})</b><br>"
-                        f"Price: ${p.price:,.2f}<br>"
-                        f"Days from halving: {p.days_from_halving:+d}"
-                        "<extra></extra>"
-                    ),
-                )
-            )
-
-    # 3. Connect cycles: max2 → min1, with fallback to last→first point
-    for i, cycle_num in enumerate(cycles[:-1]):
-        next_cycle = cycles[i + 1]
-        prev_max2 = max2_by_cycle.get(cycle_num)
-        next_min1 = min1_by_cycle.get(next_cycle)
-
-        if prev_max2 and next_min1:
-            # Standard bridge: max2 → min1
-            next_min1_date = cycle5_display_date if next_cycle == 5 else next_min1.date
-
-            fig.add_trace(
-                go.Scatter(
-                    x=[prev_max2.date, next_min1_date],
-                    y=[prev_max2.price, next_min1.price],
-                    mode="lines",
-                    name=f"Cycle {next_cycle}",
-                    line={
-                        "color": CYCLE_COLORS.get(next_cycle, "#888"),
-                        "width": 1.5,
-                        "dash": "dash",
-                    },
-                    showlegend=False,
-                    hoverinfo="skip",
-                )
-            )
-        else:
-            # Fallback bridge: last point of current cycle → first of next
-            curr_pts = sorted(
-                [p for p in valid_points if p.cycle_num == cycle_num],
-                key=lambda x: x.date,
-            )
-            next_pts = sorted(
-                [p for p in valid_points if p.cycle_num == next_cycle],
-                key=lambda x: x.date,
-            )
-            if curr_pts and next_pts:
-                last_p = curr_pts[-1]
-                first_p = next_pts[0]
-                first_date = (
-                    cycle5_display_date
-                    if next_cycle == 5 and first_p.point_type == "min1"
-                    else first_p.date
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=[last_p.date, first_date],
-                        y=[last_p.price, first_p.price],
-                        mode="lines",
-                        name=f"Cycle {next_cycle}",
-                        line={
-                            "color": CYCLE_COLORS.get(next_cycle, "#888"),
-                            "width": 1.5,
-                            "dash": "dash",
-                        },
-                        showlegend=False,
-                        hoverinfo="skip",
-                    )
-                )
-
-    # 3b. Add method hint lines (visual guides for projection methods)
-    target_date = HALVING_DATES[-1] + timedelta(days=550)
-    _add_fib_hint_lines(fig, result, cycle5_display_date, 5)
-    _add_dim_return_hint_lines(fig, result, target_date, cycle5_display_date, 5)
-
-    # 4. Add target predictions (stars + text label)
-    targets = []
-    if result.trendline_target:
-        targets.append(
-            (
-                "Trendline",
-                result.trendline_target,
-                result.trendline_target_pct,
-                TARGET_COLORS["trendline"],
-            )
-        )
-    if result.fib_target:
-        targets.append(
-            ("Fib 100%", result.fib_target, result.fib_target_pct, TARGET_COLORS["fibonacci"])
-        )
-    if result.dim_return_target:
-        targets.append(
-            (
-                "Dim. Return",
-                result.dim_return_target,
-                result.dim_return_target_pct,
-                TARGET_COLORS["diminishing"],
-            )
-        )
-    if result.hist_peak_target:
-        targets.append(
-            (
-                "Hist. Peak",
-                result.hist_peak_target,
-                result.hist_peak_target_pct,
-                TARGET_COLORS["historical"],
-            )
-        )
-        # Add horizontal line at historical peak level
-        _add_historical_peak_line(fig, result.hist_peak_target)
-
-    _add_target_predictions(
-        fig,
-        targets,
-        target_date,
-        is_btc=True,
-        composite_pct=result.composite_target_pct,
-    )
-
-    # Add halving lines
-    _add_halving_lines(fig)
-
-    # Filter points to visible date range for y-axis calculation
-    # This prevents points from earlier cycles (outside chart range) from stretching the axis
-    visible_points = [p for p in valid_points if start_date <= p.date <= end_date]
-
-    # Calculate y-axis range from actual visible data (excludes trendlines)
-    y_range = _calculate_y_axis_range(
-        price_series=list(plot_df["close"].dropna()),
-        point_prices=[p.price for p in visible_points],
-        target_prices=[t[1] for t in targets] if targets else [],
-        hist_peak=result.hist_peak_target,
-    )
-
-    # Layout
-    fig.update_layout(
-        title={
-            "text": "#0 - Bitcoin (BTC/USD) - Cycle Pattern Analysis",
-            "font": {"size": 20, "family": "Arial Black"},
-        },
-        xaxis={
-            "title": "Date",
-            "gridcolor": "rgba(128, 128, 128, 0.2)",
-            "range": [start_date, end_date],
-            "hoverformat": "%Y-%m-%d",
-        },
-        yaxis={
-            "title": "Price (USD)",
-            "type": "log",
-            "tickprefix": "$",
-            "gridcolor": "rgba(128, 128, 128, 0.2)",
-            "range": y_range,
-        },
-        legend={
-            "yanchor": "top",
-            "y": 0.99,
-            "xanchor": "left",
-            "x": 0.01,
-            "bgcolor": "rgba(0,0,0,0.5)",
-            "font": {"size": 14},
-        },
-        template="plotly_dark",
-        paper_bgcolor="#0d1117",
-        plot_bgcolor="#0d1117",
-        hovermode="x unified",
-        height=600,
-        margin={"t": 80, "b": 60, "r": 20},
-    )
-
-    if output_path:
-        _write_pattern_chart(fig, output_path, "BTC/USD Pattern Analysis")
-
-    return fig
+    """Create BTC/USD pattern analysis chart."""
+    return _create_pattern_chart(result, price_cache, is_btc=True, output_path=output_path)
 
 
 def create_altcoin_pattern_chart(
@@ -818,37 +550,66 @@ def create_altcoin_pattern_chart(
     price_cache: PriceDataCache,
     output_path: Path | None = None,
 ) -> go.Figure:
+    """Create altcoin/BTC pattern analysis chart."""
+    return _create_pattern_chart(result, price_cache, is_btc=False, output_path=output_path)
+
+
+def _create_pattern_chart(
+    result: CoinPatternResult,
+    price_cache: PriceDataCache,
+    is_btc: bool,
+    output_path: Path | None = None,
+) -> go.Figure:
     """
-    Create altcoin/BTC pattern analysis chart.
+    Create pattern analysis chart for BTC or an altcoin.
 
     Args:
         result: Coin pattern analysis result
         price_cache: Price data cache
+        is_btc: True for BTC/USD chart, False for altcoin/BTC chart
         output_path: Optional path to save HTML
 
     Returns:
         Plotly Figure
     """
-    # Load coin price data (vs BTC)
-    coin_df = price_cache.get_prices(result.coin_id, "BTC")
-    if coin_df is None or coin_df.empty:
-        raise ValueError(f"{result.coin_id.upper()}/BTC data not available")
+    # Set format parameters based on asset type
+    if is_btc:
+        pair_label = "BTC/USD"
+        hover_price_fmt = "<b>BTC/USD</b><br>Price: $%{y:,.2f}<extra></extra>"
+        marker_price_tmpl = "Price: ${price:,.2f}"
+        yaxis_title = "Price (USD)"
+    else:
+        pair_label = f"{result.coin_id.upper()}/BTC"
+        hover_price_fmt = (
+            f"<b>{result.coin_id.upper()}/BTC</b><br>Price: %{{y:.8f}} BTC<extra></extra>"
+        )
+        marker_price_tmpl = "Price: {price:.8f} BTC"
+        yaxis_title = "Price (BTC)"
 
-    # Apply symbol replacement detection (same filtering as analysis)
-    if "close" in coin_df.columns:
-        replacement_date = detect_symbol_replacement(coin_df["close"])
-        if replacement_date is not None:
-            logger.info(
-                "Symbol replacement detected for %s at %s, filtering chart data",
-                result.coin_id,
-                replacement_date,
-            )
-            coin_df = coin_df[coin_df.index >= replacement_date]
+    # Load price data
+    if is_btc:
+        price_df = price_cache.get_prices("btc", "USD")
+        if price_df is None or price_df.empty:
+            raise ValueError("BTC-USD data not available")
+    else:
+        price_df = price_cache.get_prices(result.coin_id, "BTC")
+        if price_df is None or price_df.empty:
+            raise ValueError(f"{pair_label} data not available")
+        # Apply symbol replacement detection (same filtering as analysis)
+        if "close" in price_df.columns:
+            replacement_date = detect_symbol_replacement(price_df["close"])
+            if replacement_date is not None:
+                logger.info(
+                    "Symbol replacement detected for %s at %s, filtering chart data",
+                    result.coin_id,
+                    replacement_date,
+                )
+                price_df = price_df[price_df.index >= replacement_date]
 
     # Filter to time range
     start_date, end_date = _get_time_range()
-    mask = (coin_df.index.date >= start_date) & (coin_df.index.date <= end_date)
-    plot_df = coin_df[mask]
+    mask = (price_df.index.date >= start_date) & (price_df.index.date <= end_date)
+    plot_df = price_df[mask]
 
     fig = go.Figure()
 
@@ -858,13 +619,14 @@ def create_altcoin_pattern_chart(
             x=plot_df.index,
             y=plot_df["close"],
             mode="lines",
-            name=f"{result.coin_id.upper()}/BTC",
+            name=pair_label,
             line={"color": CURVE_COLOR, "width": 1},
-            hovertemplate=f"<b>{result.coin_id.upper()}/BTC</b><br>Price: %{{y:.8f}} BTC<extra></extra>",
+            hovertemplate=hover_price_fmt,
         )
     )
 
-    # 1b. Add dashed trendlines
+    # 1b. Add dashed trendlines (stop at target_date, not chart edge)
+    target_date = HALVING_DATES[-1] + timedelta(days=550)
     _add_trendlines(
         fig,
         result.upper_slope,
@@ -872,7 +634,7 @@ def create_altcoin_pattern_chart(
         result.lower_slope,
         result.lower_intercept,
         start_date,
-        end_date,
+        target_date,
     )
 
     # 2. Add min/max points with connecting lines
@@ -886,7 +648,6 @@ def create_altcoin_pattern_chart(
     # Build index of max2 and min1 points by cycle for inter-cycle connections
     max2_by_cycle = {}
     min1_by_cycle = {}
-    # Track which cycles have only min1 (current cycle)
     current_cycle_num = None
     for p in valid_points:
         if p.point_type == "max2":
@@ -924,7 +685,7 @@ def create_altcoin_pattern_chart(
                 y=y_vals,
                 mode="lines",
                 name=f"Cycle {cycle_num}",
-                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 1.5, "dash": "dash"},
+                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 1, "dash": "dot"},
                 showlegend=True,
                 hoverinfo="skip",
             )
@@ -947,7 +708,7 @@ def create_altcoin_pattern_chart(
                     showlegend=False,
                     hovertemplate=(
                         f"<b>{p.point_type.upper()} (Cycle {p.cycle_num})</b><br>"
-                        f"Price: {p.price:.8f} BTC<br>"
+                        f"{marker_price_tmpl.format(price=p.price)}<br>"
                         f"Days from halving: {p.days_from_halving:+d}"
                         "<extra></extra>"
                     ),
@@ -974,8 +735,8 @@ def create_altcoin_pattern_chart(
                     name=f"Cycle {next_cycle}",
                     line={
                         "color": CYCLE_COLORS.get(next_cycle, "#888"),
-                        "width": 1.5,
-                        "dash": "dash",
+                        "width": 1,
+                        "dash": "dot",
                     },
                     showlegend=False,
                     hoverinfo="skip",
@@ -1007,8 +768,8 @@ def create_altcoin_pattern_chart(
                         name=f"Cycle {next_cycle}",
                         line={
                             "color": CYCLE_COLORS.get(next_cycle, "#888"),
-                            "width": 1.5,
-                            "dash": "dash",
+                            "width": 1,
+                            "dash": "dot",
                         },
                         showlegend=False,
                         hoverinfo="skip",
@@ -1016,8 +777,7 @@ def create_altcoin_pattern_chart(
                 )
 
     # 3b. Add method hint lines (visual guides for projection methods)
-    target_date = HALVING_DATES[-1] + timedelta(days=550)
-    _add_fib_hint_lines(fig, result, cycle5_display_date, current_cycle_num)
+    _add_fib_hint_lines(fig, result, target_date, cycle5_display_date, current_cycle_num)
     _add_dim_return_hint_lines(fig, result, target_date, cycle5_display_date, current_cycle_num)
 
     # 4. Add target predictions (stars + text label)
@@ -1054,13 +814,13 @@ def create_altcoin_pattern_chart(
             )
         )
         # Add horizontal line at historical peak level
-        _add_historical_peak_line(fig, result.hist_peak_target)
+        _add_historical_peak_line(fig, result.hist_peak_target, start_date, target_date)
 
     _add_target_predictions(
         fig,
         targets,
         target_date,
-        is_btc=False,
+        is_btc=is_btc,
         composite_pct=result.composite_target_pct,
     )
 
@@ -1080,11 +840,29 @@ def create_altcoin_pattern_chart(
     )
 
     # Layout
-    confidence_badge = f"[{result.confidence.upper()}]" if result.confidence else ""
-    rank_prefix = f"#{result.rank} - " if result.rank is not None else ""
+    if is_btc:
+        title_text = "#0 - Bitcoin (BTC/USD) - Cycle Pattern Analysis"
+        yaxis_config = {
+            "title": yaxis_title,
+            "type": "log",
+            "tickprefix": "$",
+            "gridcolor": "rgba(128, 128, 128, 0.2)",
+            "range": y_range,
+        }
+    else:
+        confidence_badge = f"[{result.confidence.upper()}]" if result.confidence else ""
+        rank_prefix = f"#{result.rank} - " if result.rank is not None else ""
+        title_text = f"{rank_prefix}{pair_label} - Cycle Pattern Analysis {confidence_badge}"
+        yaxis_config = {
+            "title": yaxis_title,
+            "type": "log",
+            "gridcolor": "rgba(128, 128, 128, 0.2)",
+            "range": y_range,
+        }
+
     fig.update_layout(
         title={
-            "text": f"{rank_prefix}{result.coin_id.upper()}/BTC - Cycle Pattern Analysis {confidence_badge}",
+            "text": title_text,
             "font": {"size": 20, "family": "Arial Black"},
         },
         xaxis={
@@ -1093,12 +871,7 @@ def create_altcoin_pattern_chart(
             "range": [start_date, end_date],
             "hoverformat": "%Y-%m-%d",
         },
-        yaxis={
-            "title": "Price (BTC)",
-            "type": "log",
-            "gridcolor": "rgba(128, 128, 128, 0.2)",
-            "range": y_range,
-        },
+        yaxis=yaxis_config,
         legend={
             "yanchor": "top",
             "y": 0.99,
@@ -1116,7 +889,7 @@ def create_altcoin_pattern_chart(
     )
 
     if output_path:
-        _write_pattern_chart(fig, output_path, f"{result.coin_id.upper()}/BTC Pattern Analysis")
+        _write_pattern_chart(fig, output_path, f"{pair_label} Pattern Analysis")
 
     return fig
 
