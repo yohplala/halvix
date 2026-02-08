@@ -444,6 +444,7 @@ class CyclePatternAnalyzer:
         # --- Pass 3: Sequential validation and min1/max1 detection ---
         points: list[CyclePoint] = []
         prev_min1_price: float | None = None
+        prev_min1_point: CyclePoint | None = None
         prev_had_max1 = True  # assume alternation OK for first segment
         prev_max1_date: date | None = None
 
@@ -557,6 +558,41 @@ class CyclePatternAnalyzer:
                                 days_from_halving=(seg["max2_date"] - seg_start_halving).days,
                             )
                         )
+
+            # -- Replace prev min1 if price went lower before max2 --
+            # When no min2 separates min1 from max2, the bear may have
+            # continued past min1.  The true cycle bottom is the lowest
+            # point in (prev_min1, max2].
+            if not min2_valid and prev_min1_point is not None:
+                low_mask = (
+                    (df.index.date > prev_min1_point.date)
+                    & (df.index.date <= seg["max2_date"])
+                    & (df["close"] > 0)
+                )
+                low_data = df[low_mask]
+                if not low_data.empty:
+                    low_idx = low_data["close"].idxmin()
+                    low_price = float(low_data.loc[low_idx, "close"])
+                    if low_price < prev_min1_point.price:
+                        low_date = _to_date(low_idx)
+                        # Remove old min1 and add replacement
+                        points = [
+                            p
+                            for p in points
+                            if not (
+                                p.cycle_num == prev_min1_point.cycle_num and p.point_type == "min1"
+                            )
+                        ]
+                        new_min1 = CyclePoint(
+                            date=low_date,
+                            price=low_price,
+                            cycle_num=prev_min1_point.cycle_num,
+                            point_type="min1",
+                            days_from_halving=(low_date - seg_start_halving).days,
+                        )
+                        points.append(new_min1)
+                        prev_min1_price = low_price
+                        prev_min1_point = new_min1
 
             # -- Find min1: min in (max2_date, effective_end] --
             min1_mask = (seg["valid_data"].index.date > seg["max2_date"]) & (
@@ -679,7 +715,9 @@ class CyclePatternAnalyzer:
                 points.append(max1_point)
 
             # Update state for next iteration
-            prev_min1_price = min1_point.price if min1_point else prev_min1_price
+            if min1_point is not None:
+                prev_min1_price = min1_point.price
+                prev_min1_point = min1_point
             prev_had_max1 = max1_point is not None
             prev_max1_date = max1_point.date if max1_point is not None else None
 
