@@ -5,8 +5,7 @@ Halvix - Cryptocurrency price analysis relative to Bitcoin halving cycles.
 """
 
 import math
-from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 # =============================================================================
@@ -65,166 +64,11 @@ BTC_CYCLE_BOTTOMS: list[date] = [
 # How far before/after halving to include in cycle analysis
 DAYS_BEFORE_HALVING = 550
 DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
-TOTAL_WINDOW_DAYS = DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING  # 1500 days
 
 # Expected peak timing: ~550 days after halving (~18 months)
 # This is when the bull market typically peaks before the next bear market.
 # Note: This equals DAYS_BEFORE_HALVING by design (peak is when next cycle's pre-window starts)
 EXPECTED_PEAK_DAYS_AFTER_HALVING = 550
-
-
-# =============================================================================
-# HalvingCycle Value Object
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class HalvingCycle:
-    """
-    Immutable value object representing a Bitcoin halving cycle.
-
-    Encapsulates all data related to a specific halving cycle including dates,
-    windows, and associated market extremes. Uses frozen=True to ensure
-    immutability as a value object.
-
-    Attributes:
-        cycle_num: Cycle number (1-5). Cycle 1 is the 2012 halving.
-        halving_date: The date the halving occurred/will occur.
-        window_start: Start of analysis window (halving_date - DAYS_BEFORE_HALVING).
-        window_end: End of analysis window (halving_date + DAYS_AFTER_HALVING).
-        peak_date: Date of the cycle's bull market peak (None if unknown/not yet).
-        bottom_date: Date of the pre-halving bear market bottom (None if unknown).
-        is_current: Whether this is the current/incomplete cycle.
-    """
-
-    cycle_num: int
-    halving_date: date
-    window_start: date
-    window_end: date
-    peak_date: date | None = None
-    bottom_date: date | None = None
-    is_current: bool = False
-
-    @classmethod
-    def from_halving_date(
-        cls,
-        cycle_num: int,
-        halving_date: date,
-        peak_date: date | None = None,
-        bottom_date: date | None = None,
-        is_current: bool = False,
-    ) -> "HalvingCycle":
-        """
-        Create a HalvingCycle from a halving date, computing window dates.
-
-        Args:
-            cycle_num: Cycle number (1, 2, 3, 4, 5)
-            halving_date: The halving date
-            peak_date: Optional peak date for this cycle
-            bottom_date: Optional bottom date for this cycle
-            is_current: Whether this is the current incomplete cycle
-
-        Returns:
-            HalvingCycle instance with computed window dates
-        """
-        window_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
-        window_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
-        return cls(
-            cycle_num=cycle_num,
-            halving_date=halving_date,
-            window_start=window_start,
-            window_end=window_end,
-            peak_date=peak_date,
-            bottom_date=bottom_date,
-            is_current=is_current,
-        )
-
-    @property
-    def total_days(self) -> int:
-        """Total number of days in the cycle window."""
-        return (self.window_end - self.window_start).days
-
-    def contains_date(self, dt: date) -> bool:
-        """Check if a date falls within this cycle's window."""
-        return self.window_start <= dt <= self.window_end
-
-    def days_from_halving(self, dt: date) -> int:
-        """Calculate days from halving (negative = before, positive = after)."""
-        return (dt - self.halving_date).days
-
-
-def _build_halving_cycles() -> list[HalvingCycle]:
-    """
-    Build the list of HalvingCycle objects from configuration data.
-
-    Internal function to create HALVING_CYCLES list at module load time.
-    Maps halving dates to their associated peaks and bottoms.
-    """
-    # Map cycle numbers to their peak/bottom dates
-    # Indices align: bottoms[0] is before HALVING_DATES[1] (cycle 2), etc.
-    peak_by_cycle: dict[int, date | None] = {}
-    bottom_by_cycle: dict[int, date | None] = {}
-
-    # BTC_CYCLE_PEAKS indices: 0 = cycle 2, 1 = cycle 3, 2 = cycle 4
-    for i, peak in enumerate(BTC_CYCLE_PEAKS):
-        peak_by_cycle[i + 2] = peak
-
-    # BTC_CYCLE_BOTTOMS indices: 0 = before cycle 2, 1 = before cycle 3, 2 = before cycle 4
-    for i, bottom in enumerate(BTC_CYCLE_BOTTOMS):
-        bottom_by_cycle[i + 2] = bottom
-
-    cycles = []
-    for i, halving in enumerate(HALVING_DATES):
-        cycle_num = i + 1
-        is_current = cycle_num == len(HALVING_DATES)  # Last halving is current
-
-        cycles.append(
-            HalvingCycle.from_halving_date(
-                cycle_num=cycle_num,
-                halving_date=halving,
-                peak_date=peak_by_cycle.get(cycle_num),
-                bottom_date=bottom_by_cycle.get(cycle_num),
-                is_current=is_current,
-            )
-        )
-
-    return cycles
-
-
-# Pre-built list of all halving cycles
-HALVING_CYCLES: list[HalvingCycle] = _build_halving_cycles()
-
-
-def get_cycle(cycle_num: int) -> HalvingCycle | None:
-    """
-    Get a specific halving cycle by number.
-
-    Args:
-        cycle_num: Cycle number (1-5)
-
-    Returns:
-        HalvingCycle if found, None otherwise
-    """
-    for cycle in HALVING_CYCLES:
-        if cycle.cycle_num == cycle_num:
-            return cycle
-    return None
-
-
-def get_cycle_for_date(dt: date) -> HalvingCycle | None:
-    """
-    Find which halving cycle a date falls within.
-
-    Args:
-        dt: The date to check
-
-    Returns:
-        HalvingCycle containing the date, or None if outside all windows
-    """
-    for cycle in HALVING_CYCLES:
-        if cycle.contains_date(dt):
-            return cycle
-    return None
 
 
 # =============================================================================
@@ -513,14 +357,6 @@ CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 # We use a very conservative fallback of 1 call every 5 seconds.
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
 
-# Maximum days per request (API limit)
-CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
-
-# Retry configuration
-API_MAX_RETRIES = 5
-API_RETRY_MIN_WAIT = 1  # seconds
-API_RETRY_MAX_WAIT = 60  # seconds
-
 # Cache expiry (24 hours for coin list data)
 CACHE_EXPIRY_SECONDS = 86400
 
@@ -562,13 +398,6 @@ USE_YESTERDAY_AS_END_DATE = True
 # Values > 308 would overflow; we use 300 as a safety margin
 # This happens with very steep slopes from short data spans or outliers
 TRENDLINE_LOG_PRICE_LIMIT = 300
-
-# Fibonacci extension levels for price projection (most common trading levels)
-FIBONACCI_LEVELS = {
-    "127.2%": 1.272,  # Primary target (default)
-    "161.8%": 1.618,  # Golden ratio extension
-    "261.8%": 2.618,  # Extended target
-}
 
 # Default Fibonacci level for pattern analysis
 DEFAULT_FIBONACCI_LEVEL = 1.0
@@ -642,11 +471,11 @@ MIN_UNIQUE_PRICES = 30
 #
 # Scale factor:
 # - Applied after computing the weighted average to adjust for confidence uncertainty.
-# - 1.0 for high/medium confidence (no adjustment)
-# - 0.3 for low confidence (70% penalty reflecting higher uncertainty)
+# - 1.0 for high confidence (no adjustment), 0.9 for medium
+# - 0.1 for low confidence (90% penalty reflecting very high uncertainty)
 #
-# Low confidence (1 cycle): trendline weight = 0 because a 2-point trendline is
-# statistically unreliable, and scale = 0.3 to penalize for limited data.
+# Low confidence (1 cycle): trendline weight ≈ 0 because a 2-point trendline is
+# statistically unreliable, and scale = 0.1 to penalize for limited data.
 COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
     "high": {
         "trendline": 0.40,
@@ -728,6 +557,11 @@ MIN_RETRACEMENT_LEVEL = 0.236
 # provides comfortable margin without risking exclusion of a genuine cycle top.
 MAX2_PRE_HALVING_BUFFER_DAYS = 60
 
+# Buffer (days) to suppress min2 at first data point.
+# If a detected min2 falls within this many days of the coin's first available
+# price, it is suppressed — launch price is not a structural dip.
+LAUNCH_DATE_BUFFER_DAYS = 7
+
 # Continuous retracement penalty parameters
 # Applied to coins between GOLDEN_RETRACEMENT_LEVEL and MAX_RETRACEMENT_LEVEL
 # to gradually penalize composite score as retracement deepens.
@@ -746,177 +580,3 @@ PATTERN_ANALYSIS_TOP_N = 14
 # This expanded selection allows analysis of coins even if they temporarily
 # dropped out of the TOTAL2 top 30.
 TOTAL2_LOOKBACK_YEARS = 3
-
-
-# =============================================================================
-# Configuration Validation
-# =============================================================================
-
-
-class ConfigurationError(Exception):
-    """Raised when configuration values are invalid or inconsistent."""
-
-
-def validate_config() -> None:
-    """
-    Validate configuration values for consistency and correctness.
-
-    Raises:
-        ConfigurationError: If any configuration values are invalid
-
-    Checks performed:
-    - Halving dates are in chronological order
-    - Time window constants are positive and consistent
-    - Numeric thresholds are within reasonable ranges
-    - Required lists/sets are not empty
-    """
-    errors: list[str] = []
-
-    # Validate halving dates are chronological
-    for i in range(len(HALVING_DATES) - 1):
-        if HALVING_DATES[i] >= HALVING_DATES[i + 1]:
-            errors.append(
-                f"HALVING_DATES must be chronological: "
-                f"{HALVING_DATES[i]} >= {HALVING_DATES[i + 1]}"
-            )
-
-    # Validate time window constants
-    if DAYS_BEFORE_HALVING <= 0:
-        errors.append(f"DAYS_BEFORE_HALVING must be positive: {DAYS_BEFORE_HALVING}")
-    if DAYS_AFTER_HALVING <= 0:
-        errors.append(f"DAYS_AFTER_HALVING must be positive: {DAYS_AFTER_HALVING}")
-    if TOTAL_WINDOW_DAYS != DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING:
-        errors.append(
-            f"TOTAL_WINDOW_DAYS ({TOTAL_WINDOW_DAYS}) must equal "
-            f"DAYS_BEFORE_HALVING + DAYS_AFTER_HALVING "
-            f"({DAYS_BEFORE_HALVING} + {DAYS_AFTER_HALVING})"
-        )
-
-    # Validate TOTAL2 settings
-    if TOP_N_BY_MARKETCAP_TO_FETCH <= 0:
-        errors.append(
-            f"TOP_N_BY_MARKETCAP_TO_FETCH must be positive: {TOP_N_BY_MARKETCAP_TO_FETCH}"
-        )
-    if TOP_N_BY_VOLUME_FOR_TOTAL2 <= 0:
-        errors.append(f"TOP_N_BY_VOLUME_FOR_TOTAL2 must be positive: {TOP_N_BY_VOLUME_FOR_TOTAL2}")
-    if VOLUME_SMA_WINDOW <= 0:
-        errors.append(f"VOLUME_SMA_WINDOW must be positive: {VOLUME_SMA_WINDOW}")
-    if TOTAL2_MIN_COINS_FOR_INDEX <= 0:
-        errors.append(f"TOTAL2_MIN_COINS_FOR_INDEX must be positive: {TOTAL2_MIN_COINS_FOR_INDEX}")
-    if TOTAL2_MIN_COINS_FOR_INDEX > TOP_N_BY_VOLUME_FOR_TOTAL2:
-        errors.append(
-            f"TOTAL2_MIN_COINS_FOR_INDEX ({TOTAL2_MIN_COINS_FOR_INDEX}) should not exceed "
-            f"TOP_N_BY_VOLUME_FOR_TOTAL2 ({TOP_N_BY_VOLUME_FOR_TOTAL2})"
-        )
-
-    # Validate entry warmup parameters
-    if TOTAL2_ENTRY_MAX_INCREASE <= 1.0:
-        errors.append(f"TOTAL2_ENTRY_MAX_INCREASE must be > 1.0: {TOTAL2_ENTRY_MAX_INCREASE}")
-    if not (0.0 < TOTAL2_ENTRY_MAX_DECREASE < 1.0):
-        errors.append(
-            f"TOTAL2_ENTRY_MAX_DECREASE must be between 0 and 1: {TOTAL2_ENTRY_MAX_DECREASE}"
-        )
-    if TOTAL2_ENTRY_WARMUP_PERIOD_DAYS <= 0:
-        errors.append(
-            f"TOTAL2_ENTRY_WARMUP_PERIOD_DAYS must be positive: {TOTAL2_ENTRY_WARMUP_PERIOD_DAYS}"
-        )
-
-    # Validate TOTAL2b parameters
-    if TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS <= 0:
-        errors.append(
-            f"TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS must be positive: {TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS}"
-        )
-    if TOTAL2B_MIN_COINS_FOR_SCALING <= 0:
-        errors.append(
-            f"TOTAL2B_MIN_COINS_FOR_SCALING must be positive: {TOTAL2B_MIN_COINS_FOR_SCALING}"
-        )
-    if TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD <= 1.0:
-        errors.append(
-            f"TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD must be > 1.0: "
-            f"{TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD}"
-        )
-
-    # Validate required sets are not empty
-    if not EXCLUDED_STABLECOINS:
-        errors.append("EXCLUDED_STABLECOINS must not be empty")
-    if not EXCLUDED_WRAPPED_STAKED_IDS:
-        errors.append("EXCLUDED_WRAPPED_STAKED_IDS must not be empty")
-    if not EXCLUDED_PATTERNS:
-        errors.append("EXCLUDED_PATTERNS must not be empty")
-
-    # Validate trendline parameters
-    if TRENDLINE_LOG_PRICE_LIMIT <= 0:
-        errors.append(f"TRENDLINE_LOG_PRICE_LIMIT must be positive: {TRENDLINE_LOG_PRICE_LIMIT}")
-    if not (0.0 < MAJOR_POINT_WEIGHT <= 1.0):
-        errors.append(f"MAJOR_POINT_WEIGHT must be between 0 and 1: " f"{MAJOR_POINT_WEIGHT}")
-    if not (0.0 < MINOR_POINT_WEIGHT <= 1.0):
-        errors.append(f"MINOR_POINT_WEIGHT must be between 0 and 1: " f"{MINOR_POINT_WEIGHT}")
-
-    # Validate Fibonacci level
-    if DEFAULT_FIBONACCI_LEVEL < 1.0:
-        errors.append(f"DEFAULT_FIBONACCI_LEVEL must be >= 1.0: {DEFAULT_FIBONACCI_LEVEL}")
-
-    # Validate diminishing factor
-    if not (0.0 < DEFAULT_DIMINISHING_FACTOR < 1.0):
-        errors.append(
-            f"DEFAULT_DIMINISHING_FACTOR must be between 0 and 1: " f"{DEFAULT_DIMINISHING_FACTOR}"
-        )
-
-    # Validate trendline recency decay
-    if not (0.0 < TRENDLINE_RECENCY_DECAY <= 1.0):
-        errors.append(f"TRENDLINE_RECENCY_DECAY must be between 0 and 1: {TRENDLINE_RECENCY_DECAY}")
-
-    # Validate composite weight profiles
-    required_keys = {"trendline", "fibonacci", "historical", "diminishing", "scale"}
-    for level in ("high", "medium", "low"):
-        if level not in COMPOSITE_WEIGHT_PROFILES:
-            errors.append(f"COMPOSITE_WEIGHT_PROFILES missing '{level}' profile")
-            continue
-        profile = COMPOSITE_WEIGHT_PROFILES[level]
-        missing = required_keys - set(profile.keys())
-        if missing:
-            errors.append(f"COMPOSITE_WEIGHT_PROFILES['{level}'] missing keys: {missing}")
-            continue
-        # Method weights must be non-negative
-        for key in ("trendline", "fibonacci", "historical", "diminishing"):
-            if profile[key] < 0:
-                errors.append(
-                    f"COMPOSITE_WEIGHT_PROFILES['{level}']['{key}'] "
-                    f"must be non-negative: {profile[key]}"
-                )
-        # At least one method weight must be > 0
-        method_sum = sum(
-            profile[k] for k in ("trendline", "fibonacci", "historical", "diminishing")
-        )
-        if method_sum <= 0:
-            errors.append(
-                f"COMPOSITE_WEIGHT_PROFILES['{level}'] must have at least one "
-                f"positive method weight, got sum={method_sum}"
-            )
-        # Scale factor must be positive
-        if profile["scale"] <= 0:
-            errors.append(
-                f"COMPOSITE_WEIGHT_PROFILES['{level}']['scale'] "
-                f"must be positive: {profile['scale']}"
-            )
-
-    # Validate diminishing returns gain floor
-    if DIM_RETURN_MIN_GAIN_RATIO < 1.0:
-        errors.append(f"DIM_RETURN_MIN_GAIN_RATIO must be >= 1.0: {DIM_RETURN_MIN_GAIN_RATIO}")
-
-    # Validate retracement filter thresholds
-    if not (0.0 < MIN_RETRACEMENT_LEVEL < 1.0):
-        errors.append(f"MIN_RETRACEMENT_LEVEL must be in (0, 1): {MIN_RETRACEMENT_LEVEL}")
-    if not (0.0 < MAX_RETRACEMENT_LEVEL <= 1.0):
-        errors.append(f"MAX_RETRACEMENT_LEVEL must be in (0, 1]: {MAX_RETRACEMENT_LEVEL}")
-    if MIN_RETRACEMENT_LEVEL >= GOLDEN_RETRACEMENT_LEVEL:
-        errors.append(
-            f"MIN_RETRACEMENT_LEVEL ({MIN_RETRACEMENT_LEVEL}) must be less than "
-            f"GOLDEN_RETRACEMENT_LEVEL ({GOLDEN_RETRACEMENT_LEVEL})"
-        )
-    if MAX2_PRE_HALVING_BUFFER_DAYS < 0:
-        errors.append(
-            f"MAX2_PRE_HALVING_BUFFER_DAYS must be non-negative: {MAX2_PRE_HALVING_BUFFER_DAYS}"
-        )
-    if errors:
-        raise ConfigurationError("Configuration validation failed:\n" + "\n".join(errors))

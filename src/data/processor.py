@@ -10,8 +10,6 @@ This module re-exports classes from the processor submodules:
 
 from data.processor_base import (
     BaseTotal2Processor,
-    CalculationMetadata,
-    IndexData,
     ProcessorError,
     Total2Result,
 )
@@ -49,8 +47,6 @@ __all__ = [
     "BaseTotal2Processor",
     "ProcessorError",
     "Total2Result",
-    "IndexData",
-    "CalculationMetadata",
     # Processor implementations
     "Total2Processor",
     "Total2bProcessor",

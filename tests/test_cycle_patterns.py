@@ -799,16 +799,22 @@ class TestFibRetracementRatio:
         assert ratio > 1.0
 
     def test_invalid_b_le_a(self):
-        """Peak <= reference low => None."""
-        assert fib_retracement_ratio(100.0, 100.0, 50.0) is None
-        assert fib_retracement_ratio(100.0, 50.0, 30.0) is None
+        """Peak <= reference low => ValueError."""
+        with pytest.raises(ValueError, match="Peak must exceed low"):
+            fib_retracement_ratio(100.0, 100.0, 50.0)
+        with pytest.raises(ValueError, match="Peak must exceed low"):
+            fib_retracement_ratio(100.0, 50.0, 30.0)
 
     def test_invalid_non_positive(self):
-        """Any non-positive input => None."""
-        assert fib_retracement_ratio(0, 100.0, 50.0) is None
-        assert fib_retracement_ratio(100.0, 0, 50.0) is None
-        assert fib_retracement_ratio(100.0, 200.0, 0) is None
-        assert fib_retracement_ratio(-10.0, 100.0, 50.0) is None
+        """Any non-positive input => ValueError."""
+        with pytest.raises(ValueError, match="must be positive"):
+            fib_retracement_ratio(0, 100.0, 50.0)
+        with pytest.raises(ValueError, match="must be positive"):
+            fib_retracement_ratio(100.0, 0, 50.0)
+        with pytest.raises(ValueError, match="must be positive"):
+            fib_retracement_ratio(100.0, 200.0, 0)
+        with pytest.raises(ValueError, match="must be positive"):
+            fib_retracement_ratio(-10.0, 100.0, 50.0)
 
     def test_known_fibonacci_levels(self):
         """Verify specific Fibonacci retracement levels in log-space."""
@@ -824,8 +830,8 @@ class TestFibRetracementRatio:
         assert ratio == pytest.approx(0.618, abs=1e-3)
 
 
-class TestFindAllCyclePoints:
-    """Tests for _find_all_cycle_points method (segment-based detection)."""
+class TestIdentifyCyclePoints:
+    """Tests for _identify_cycle_points method (identification kernel)."""
 
     @pytest.fixture
     def analyzer(self, mock_price_cache):
@@ -848,7 +854,7 @@ class TestFindAllCyclePoints:
         """Empty DataFrame returns no points."""
         df = pd.DataFrame(columns=["close"])
         df.index = pd.DatetimeIndex([])
-        assert analyzer._find_all_cycle_points(df) == []
+        assert analyzer._identify_cycle_points(df) == []
 
     def test_single_complete_segment(self, analyzer):
         """One segment [H2, H3] with clear peak and trough produces max2 + min1."""
@@ -862,7 +868,7 @@ class TestFindAllCyclePoints:
                 ("2020-05-10", 8700.0),  # recovery before H3
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         types = {p.point_type for p in points}
         assert "max2" in types
@@ -890,7 +896,7 @@ class TestFindAllCyclePoints:
                 ("2020-05-10", 8700.0),  # end
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         types = {p.point_type for p in points}
         assert "max2" in types
@@ -908,7 +914,7 @@ class TestFindAllCyclePoints:
                 ("2020-05-10", 120.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
         max2_points = [p for p in points if p.point_type == "max2"]
         assert len(max2_points) >= 1
 
@@ -927,7 +933,7 @@ class TestFindAllCyclePoints:
                 ("2024-04-18", 64000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         cycles_found = {p.cycle_num for p in points}
         assert 2 in cycles_found  # max2 from segment 1
@@ -955,7 +961,7 @@ class TestFindAllCyclePoints:
                 ("2025-02-01", 105000.0),  # only ~3% drop — not enough
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # The last segment (H4-H5) should have max2 but NOT min1
         # (105000 is only ~3% below 108000, far less than 23.6%)
@@ -982,7 +988,7 @@ class TestFindAllCyclePoints:
                 ("2025-06-01", 30000.0),  # ~72% drop — well beyond 23.6%
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min1 in last segment (H4-H5) has cycle_num = len(HALVING_DATES)
         last_seg_min1 = [
@@ -1001,7 +1007,7 @@ class TestFindAllCyclePoints:
                 ("2020-05-10", 9000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         for p in points:
             if p.point_type in ("min2", "max2"):
@@ -1024,7 +1030,7 @@ class TestFindAllCyclePoints:
                 ("2024-04-18", 64000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # Should still produce points from the segment that has data
         assert len(points) >= 1
@@ -1049,7 +1055,7 @@ class TestFindAllCyclePoints:
                 ("2024-04-18", 65000.0),  # just before H4
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # max2 of cycle 3 should be the actual cycle top ($69k), not the pump
         max2_c3 = [p for p in points if p.point_type == "max2" and p.cycle_num == 3]
@@ -1097,7 +1103,7 @@ class TestFindAllCyclePoints:
                 ("2025-02-01", 105000.0),  # only ~3% drop — no min1 yet
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min2 of cycle 4 (in H4-H5 segment) must exist because prev had max1
         min2_c4 = [p for p in points if p.point_type == "min2" and p.cycle_num == 4]
@@ -1133,7 +1139,7 @@ class TestFindAllCyclePoints:
                 ("2024-04-18", 64000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min2(c3) should be the COVID crash, not the post-halving price
         min2_c3 = [p for p in points if p.point_type == "min2" and p.cycle_num == 3]
@@ -1156,7 +1162,7 @@ class TestFindAllCyclePoints:
                 ("2026-02-01", 0.000002),  # bottom
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # No min2 — the launch price is not a structural dip
         min2_points = [p for p in points if p.point_type == "min2"]
@@ -1174,7 +1180,7 @@ class TestFindAllCyclePoints:
                 ("2026-02-01", 0.000002),  # bottom
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min1(c4) should NOT exist — in the H3-H4 segment, the price
         # goes UP after max2 (buffer cutoff), not down.
@@ -1209,7 +1215,7 @@ class TestFindAllCyclePoints:
                 ("2025-04-01", 40000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # max1(c4) should NOT exist (merged into max2)
         max1_c4 = [p for p in points if p.point_type == "max1" and p.cycle_num == 4]
@@ -1243,7 +1249,7 @@ class TestFindAllCyclePoints:
                 ("2025-04-01", 40000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # max1(c4) should NOT exist (merged, max2 was higher)
         max1_c4 = [p for p in points if p.point_type == "max1" and p.cycle_num == 4]
@@ -1279,7 +1285,7 @@ class TestFindAllCyclePoints:
                 ("2026-01-01", 40000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min1(c4) should be replaced by the lower point at 8000
         min1_c4 = [p for p in points if p.point_type == "min1" and p.cycle_num == 4]
@@ -1316,7 +1322,7 @@ class TestFindAllCyclePoints:
                 ("2026-01-01", 10000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min1(c3) should have been corrected from 1000 (at H3) to 800
         min1_c3 = [p for p in points if p.point_type == "min1" and p.cycle_num == 3]
@@ -1350,12 +1356,133 @@ class TestFindAllCyclePoints:
                 ("2026-01-01", 40000.0),
             ]
         )
-        points = analyzer._find_all_cycle_points(df)
+        points = analyzer._identify_cycle_points(df)
 
         # min1(c4) should KEEP its original value (min2 exists between them)
         min1_c4 = [p for p in points if p.point_type == "min1" and p.cycle_num == 4]
         assert len(min1_c4) == 1
         assert min1_c4[0].price == pytest.approx(15500.0, rel=0.01)
+
+    def test_mins_merged_when_no_max1_in_consecutive_segments(self, analyzer):
+        """When two consecutive segments have no max1, min1/min2 merge (keep lower)."""
+        df = self._make_df(
+            [
+                # Segment H2-H3 — no max1: peak then crash, no bounce before H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 c2
+                ("2018-12-15", 3200.0),  # min1 c3
+                # No bounce → no max1(c3)
+                ("2020-05-10", 3500.0),  # low recovery before H3
+                # Segment H3-H4 — alternation suppresses min2
+                ("2020-05-12", 9000.0),
+                ("2021-11-10", 69000.0),  # max2 c3
+                ("2022-11-21", 15500.0),  # min1 c4
+                # No max1(c4) again
+                ("2024-04-18", 16000.0),  # low recovery before H4
+                # Segment H4-H5 — alternation again, min2 suppressed
+                ("2024-04-20", 17000.0),
+                ("2025-01-01", 12000.0),  # min2 candidate (but suppressed)
+                ("2025-08-01", 73000.0),  # max2 c4
+                ("2026-01-01", 40000.0),
+            ]
+        )
+        points = analyzer._identify_cycle_points(df)
+
+        # No min2 should exist for cycle 4 (alternation rule)
+        min2_c4 = [p for p in points if p.point_type == "min2" and p.cycle_num == 4]
+        assert len(min2_c4) == 0
+
+    def test_adjacent_maxes_merged_keeps_higher_max1(self, analyzer):
+        """When max1 > max2 (same cycle) and no valid min2, max1 replaces max2.
+
+        Altcoin scenario: pre-halving bounce exceeds the post-halving peak.
+        The merge keeps the higher value (max1) as the canonical max2.
+        Prices stay above 900 in [max1, max2] so the min2 retracement is
+        too shallow to validate (< 23.6%), triggering the merge.
+        """
+        df = self._make_df(
+            [
+                # Segment H2-H3 — max1(c3) exceeds its corresponding max2(c3)
+                ("2016-07-10", 600.0),
+                ("2017-06-01", 3000.0),  # max2 c2
+                ("2018-12-15", 300.0),  # min1 c3
+                ("2019-06-26", 1500.0),  # max1 c3 — higher than post-halving max2
+                ("2020-05-10", 1000.0),  # stays above 864 threshold
+                # Segment H3-H4 — weak recovery, max2(c3) < max1(c3)
+                ("2020-05-12", 950.0),  # shallow dip (min2 Fib ~0.17 < 0.236)
+                ("2021-11-10", 1200.0),  # max2 c3 candidate — LOWER than max1(c3)
+                ("2022-11-21", 500.0),  # min1 c4
+                ("2024-04-18", 600.0),
+            ]
+        )
+        points = analyzer._identify_cycle_points(df)
+
+        # After merge, max2(c3) should be 1500 (the higher max1 value)
+        max2_c3 = [p for p in points if p.point_type == "max2" and p.cycle_num == 3]
+        assert len(max2_c3) == 1
+        assert max2_c3[0].price == pytest.approx(1500.0, rel=0.01)
+
+        # max1(c3) should be removed (merged into max2)
+        max1_c3 = [p for p in points if p.point_type == "max1" and p.cycle_num == 3]
+        assert len(max1_c3) == 0
+
+    def test_post_halving_detects_current_cycle_points(self, analyzer):
+        """Post-halving detection finds max2 and min1 in current cycle data."""
+        # Provide data through the last halving and beyond
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2019-06-26", 13000.0),
+                ("2020-05-10", 8700.0),
+                # Segment H3-H4
+                ("2020-05-12", 9000.0),
+                ("2021-11-10", 69000.0),
+                ("2022-11-21", 15500.0),
+                ("2023-10-01", 30000.0),
+                ("2024-02-18", 50000.0),
+                ("2024-04-18", 63000.0),
+                # Segment H4-H5 (last inter-halving segment)
+                ("2024-04-20", 63000.0),
+                ("2025-01-01", 100000.0),
+                ("2025-12-01", 40000.0),
+                ("2026-08-01", 60000.0),
+                ("2027-12-01", 80000.0),
+                # Post-H5 data (current cycle)
+                ("2028-04-01", 75000.0),  # right after H5
+                ("2028-08-01", 150000.0),  # max2 candidate for cycle 5
+                ("2028-12-01", 90000.0),  # min1 candidate for cycle 5
+            ]
+        )
+        points = analyzer._identify_cycle_points(df)
+
+        # Current cycle (5) should have max2 detected
+        max2_c5 = [p for p in points if p.point_type == "max2" and p.cycle_num == 5]
+        assert len(max2_c5) == 1
+        assert max2_c5[0].price == pytest.approx(150000.0, rel=0.01)
+
+    def test_max2_pre_halving_buffer_excludes_rally(self, analyzer):
+        """Max2 search excludes the pre-halving rally zone (60 day buffer)."""
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                # Peak right at the end (within buffer zone — 30 days before H3)
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 15000.0),  # true cycle max2
+                ("2018-12-15", 3200.0),
+                ("2020-03-11", 5000.0),  # low before pre-halving pump
+                ("2020-04-15", 18000.0),  # pre-halving pump — 26 days before H3
+                ("2020-05-10", 17000.0),  # still high at H3
+            ]
+        )
+        points = analyzer._identify_cycle_points(df)
+
+        # max2 should be 15000 (the true peak), NOT 18000 (pre-halving pump in buffer)
+        max2_c2 = [p for p in points if p.point_type == "max2" and p.cycle_num == 2]
+        assert len(max2_c2) == 1
+        assert max2_c2[0].price == pytest.approx(15000.0, rel=0.01)
 
 
 # =============================================================================

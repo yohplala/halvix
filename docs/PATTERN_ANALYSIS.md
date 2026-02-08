@@ -47,16 +47,16 @@ For each selected coin, the pattern analyzer uses **full price history** (not ju
 
 ## Cycle Points
 
-For each completed halving cycle, the analyzer identifies **4 characteristic points**:
+For each completed halving cycle, the analyzer identifies up to **4 characteristic points**:
 
-| Point | Window | Description |
-|-------|--------|-------------|
-| **min1** | [halving - 550 days, halving] | Lowest price in pre-halving window |
-| **max1** | [min1 date, halving] | Highest price between min1 and halving |
-| **min2** | [halving, max2 date] | Lowest price between halving and max2 |
-| **max2** | [halving, min(halving + 950, next_pre_start)] | Highest price in post-halving window* |
+| Point | Type | Description |
+|-------|------|-------------|
+| **min1** | Structural | Pre-halving cycle trough (always present in completed cycles) |
+| **max1** | Optional | Pre-halving local high between min1 and the halving |
+| **min2** | Optional | Post-halving dip before the main rally |
+| **max2** | Structural | Post-halving cycle peak (always present in completed cycles) |
 
-*The max2 window is capped at the start of the next cycle's pre-halving window to prevent overlap between cycles.
+Points are detected using **segment-based analysis**: the price history is divided into segments between consecutive halvings, and each segment is analyzed with a 3-pass algorithm. Optional points (max1, min2) are validated against a 23.6% Fibonacci retracement threshold. See [Identification Kernel](IDENTIFICATION_KERNEL.md) for the full detection algorithm.
 
 ### Cycle 5 (Current Cycle)
 
@@ -66,7 +66,7 @@ For cycle 5, the analyzer detects min1 differently since the cycle is ongoing:
 |-----------|-------|-------|
 | **Price** | Lowest since cycle 4 BTC peak | Actual minimum from `BTC_CYCLE_PEAKS[-1]` to current date |
 | **Date (display)** | Actual date of minimum | Used in charts and output |
-| **Date (regression)** | 5th halving − 520 days | ~Sept 27, 2026; used only for trendline x-coordinate |
+| **Date (regression)** | 5th halving − 520 days | ~Oct 28, 2026; used only for trendline x-coordinate |
 
 The approximated regression date:
 - Places min1 within the typical window `[halving-550, halving]`
@@ -149,8 +149,10 @@ Target is projected by extending the upper trendline to the expected cycle 5 pea
 Uses Fibonacci extension in **log-space** to respect the multiplicative nature of price movements:
 
 ```
-Target = 10^(log10(C) + (log10(B) - log10(A)) * 1.272)
+Target = 10^(log10(C) + (log10(B) - log10(A)) * level)
 ```
+
+Where `level` = `DEFAULT_FIBONACCI_LEVEL` (default: **1.0**, i.e., 100% extension).
 
 Where:
 - **A** = Previous cycle minimum (prefer min1, fallback to min2)
@@ -189,7 +191,7 @@ The diminishing factor measures how much gains decrease between cycles:
 diminishing_factor = cycle_n_gain / cycle_(n-1)_gain
 ```
 
-If multiple cycles are available, the average of all diminishing factors is used.
+If multiple cycles are available, the geometric mean is used when 3+ factors are available (appropriate for multiplicative ratios); otherwise the arithmetic mean is used.
 
 **Example:**
 - Cycle 2 gain: 20x
@@ -205,7 +207,7 @@ next_cycle_gain = max(last_cycle_gain * diminishing_factor, DIM_RETURN_MIN_GAIN_
 target = latest_min_price * next_cycle_gain
 ```
 
-**Gain Floor**: The projected gain is clamped to at least `DIM_RETURN_MIN_GAIN_RATIO` (0.1x = minimum 10% gain, i.e., 1.1x from trough). This allows the model to express pessimism when diminishing factors point to very low cycle gains, while preventing absurdly small projections. Without any floor, coins with enormous first-cycle gains (e.g., SOL launching from near-zero) produce tiny diminishing factors that project negligible returns.
+**Gain Floor**: The projected gain ratio is clamped to at least `DIM_RETURN_MIN_GAIN_RATIO` (1.0 = peak must be at least equal to trough). A gain ratio below 1.0 is structurally impossible (it would mean the cycle peak is below the cycle trough), so the floor prevents nonsensical projections. Without any floor, coins with enormous first-cycle gains (e.g., SOL launching from near-zero) produce tiny diminishing factors that could project sub-trough targets.
 
 **Example:**
 - Last cycle gain: 8x
@@ -316,7 +318,7 @@ Coins are filtered to exclude assets expected to underperform BTC or with insuff
 | Trendline Value | Included? | Reason |
 |-----------------|-----------|--------|
 | **Positive** | Yes | Expected to outperform BTC |
-| **None/Missing** | Yes | Insufficient data for trendline, but other methods may apply |
+| **None/Missing** | No | Insufficient data for trendline — excluded |
 | **Negative** | No | Expected to underperform BTC |
 
 **2. Floor Appreciation Filter:**
@@ -502,7 +504,7 @@ Each chart shows:
 
 ### Min/Max Detection
 
-The analyzer uses absolute min/max within windows rather than local extrema detection, as cycle extremes typically represent global min/max values rather than intermediate swings.
+The analyzer uses **segment-based detection** (the "identification kernel") to find cycle points. Price history is divided into segments between consecutive halvings, and each segment is analyzed with a 3-pass algorithm. Structural points (min1, max2) are always detected; optional points (max1, min2) require a 23.6% Fibonacci retracement for validation. See [Identification Kernel](IDENTIFICATION_KERNEL.md) for full details.
 
 ### Reference Date
 
@@ -525,7 +527,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `GOLDEN_RETRACEMENT_LEVEL` | 0.618 | Retracement penalty starts at this level |
 | `RETRACEMENT_PENALTY_AT_MAX` | 0.5 | Composite multiplier at MAX_RETRACEMENT_LEVEL |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.0 | Fibonacci extension level |
-| `DIM_RETURN_MIN_GAIN_RATIO` | 0.1 | Minimum projected gain ratio (0.1x = 10% gain from trough) |
+| `DIM_RETURN_MIN_GAIN_RATIO` | 1.0 | Minimum projected gain ratio (peak ≥ trough) |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 
 ## Halving Cycle Windows

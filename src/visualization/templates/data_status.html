@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block title %}Halvix - Cryptocurrency Data Status{% endblock %}
+
+{% block extra_styles %}
+:root {
+    --bg-tertiary: #21262d;
+    --accent-red: #f85149;
+}
+
+.page-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+}
+
+.update-time {
+    color: var(--text-secondary);
+    opacity: 0.7;
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--accent-blue);
+}
+
+.stat-value.green { color: var(--accent-green); }
+.stat-value.red { color: var(--accent-red); }
+.stat-value.orange { color: var(--accent-orange); }
+
+.stat-label {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+.stat-sublabel {
+    color: var(--text-secondary);
+    opacity: 0.7;
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+section {
+    margin-bottom: 3rem;
+}
+
+h2 {
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent-orange);
+    display: inline-block;
+}
+
+.section-description {
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+th, td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+th {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+}
+
+tr:hover {
+    background: var(--bg-tertiary);
+}
+
+.coin-symbol {
+    font-weight: 600;
+    color: var(--accent-orange);
+}
+
+.coin-name {
+    color: var(--text-primary);
+}
+
+.coin-name a {
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.coin-name a:hover {
+    text-decoration: underline;
+}
+
+.market-cap {
+    color: var(--accent-green);
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.reason-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.reason-wrapped { background: #3f2d1e; color: #f0883e; }
+.reason-btc { background: #2d1e3f; color: #a371f7; }
+.reason-stablecoin { background: #1e2d3f; color: #58a6ff; }
+.reason-history { background: #2d3f1e; color: #7ee68f; }
+.reason-nopair { background: #3f1e1e; color: #f85149; }
+
+.date-range {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.days-count {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+a {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.table-container {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+/* Consistent column widths for coin tables */
+table th:first-child,
+table td:first-child {
+    width: 60px;
+    text-align: center;
+}
+
+table th:nth-child(2),
+table td:nth-child(2) {
+    width: 100px;
+}
+
+table th:nth-child(3),
+table td:nth-child(3) {
+    min-width: 200px;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+    }
+
+    th, td {
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }
+}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2 class="page-title">Data Status</h2>
+    <p class="update-time">Last updated: {{ update_time }}</p>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">{{ coins_requested }}</div>
+            <div class="stat-label">Coins Requested</div>
+            <div class="stat-sublabel">{{ coins_with_usd }} USD + {{ coins_no_usd }} no-USD</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ total_accepted }}</div>
+            <div class="stat-label">Coins Accepted</div>
+            <div class="stat-sublabel">{{ coins_no_usd_accepted }} from no-USD (BTC only)</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value green">{{ coins_with_data }}</div>
+            <div class="stat-label">Coins Downloaded</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value red">{{ total_skipped }}</div>
+            <div class="stat-label">Skipped / Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value orange">{{ total_pairs }}</div>
+            <div class="stat-label">Total Pairs</div>
+        </div>
+    </div>
+
+    <section id="downloaded">
+        <h2>Downloaded Price Data ({{ coins_with_data }} coins)</h2>
+        <p class="section-description">
+            Coins with price data downloaded from CryptoCompare.
+            <strong>Source</strong>: "USD" coins have market cap data; "BTC-only" coins were discovered without USD data but have BTC trading pairs.
+            Click coin name to view on CryptoCompare.
+        </p>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Source</th>
+                        <th>Quote(s)</th>
+                        <th>Market Cap</th>
+                        <th>Start Date</th>
+                        <th>End Date</th>
+                        <th>Days</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for coin in coins_sorted %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="coin-symbol">{{ coin.symbol }}</td>
+                        <td class="coin-name"><a href="{{ coin.url }}" target="_blank">{{ coin.name }}</a></td>
+                        <td>{{ coin.source_str }}</td>
+                        <td>{{ coin.quotes_str }}</td>
+                        <td class="market-cap">{{ coin.market_cap_str }}</td>
+                        <td class="date-range">{{ coin.start_date }}</td>
+                        <td class="date-range">{{ coin.end_date }}</td>
+                        <td class="days-count">{{ "{:,}".format(coin.days) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section id="skipped">
+        <h2>Skipped / Failed ({{ total_skipped }})</h2>
+        <p class="section-description">
+            Coins excluded from analysis: stablecoins, wrapped/staked/bridged tokens, and coins without available trading pairs on CryptoCompare.
+            Click the coin name to view on CryptoCompare.
+        </p>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for coin in all_skipped %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="coin-symbol">{{ coin.symbol }}</td>
+                        <td class="coin-name"><a href="{{ coin.url }}" target="_blank">{{ coin.name }}</a></td>
+                        <td><span class="reason-badge {{ coin.reason_class }}">{{ coin.reason }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

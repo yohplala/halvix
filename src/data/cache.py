@@ -142,7 +142,7 @@ class FileCache:
 
         try:
             return pd.read_parquet(filepath)
-        except Exception:
+        except (OSError, ValueError):
             return None
 
     def set_parquet(self, key: str, df: pd.DataFrame) -> Path:
@@ -285,7 +285,7 @@ class PriceDataCache:
             df.index = df.index.normalize()
 
             return df
-        except Exception:
+        except (OSError, ValueError):
             return None
 
     def set_prices(self, coin_id: str, df: pd.DataFrame, quote_currency: str = "BTC") -> Path:
@@ -313,8 +313,9 @@ class PriceDataCache:
         # Trim leading rows where close is 0 (dates before coin existed)
         # CryptoCompare returns zeros for dates before a coin was listed
         if "close" in df.columns:
-            first_valid_idx = (df["close"] > 0).idxmax()
-            if first_valid_idx is not None:
+            has_positive = df["close"] > 0
+            if has_positive.any():
+                first_valid_idx = has_positive.idxmax()
                 df = df.loc[first_valid_idx:]
 
         df.to_parquet(filepath, index=True)
