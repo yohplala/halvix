@@ -1287,6 +1287,45 @@ class TestFindAllCyclePoints:
         assert min1_c4[0].price == pytest.approx(8000.0, rel=0.01)
         assert min1_c4[0].date == date(2025, 1, 1)
 
+    def test_min1_corrected_past_halving_boundary(self, analyzer):
+        """min1 is corrected when the true bottom is just past the halving.
+
+        BNB-like case: price declines continuously into the halving, and
+        the actual low is a few days past it.  The correction step rescans
+        [min1, max1) in the full df and picks up the lower point.
+        """
+        df = self._make_df(
+            [
+                # Segment H2-H3 — continuous decline into H3
+                ("2016-07-10", 600.0),
+                ("2018-06-15", 5000.0),  # max2 c2
+                ("2019-06-01", 3000.0),
+                ("2020-05-07", 1200.0),
+                ("2020-05-11", 1000.0),  # H3 exactly — initial min1(c3)
+                # --- H3 boundary ---
+                # Segment H3-H4 — price continues lower then bounces
+                ("2020-05-14", 800.0),  # true bottom — 3 days past H3
+                ("2020-09-13", 2500.0),  # max1(c3) via extension
+                ("2021-06-01", 700.0),  # min2(c3) — deep dip
+                ("2022-11-10", 10000.0),  # max2 c3
+                ("2023-12-01", 4000.0),  # min1 c4
+                ("2024-03-01", 8000.0),
+                ("2024-04-20", 7000.0),
+                ("2025-01-01", 5000.0),
+                ("2025-08-01", 15000.0),
+                ("2026-01-01", 10000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min1(c3) should have been corrected from 1000 (at H3) to 800
+        min1_c3 = [p for p in points if p.point_type == "min1" and p.cycle_num == 3]
+        assert len(min1_c3) == 1
+        assert min1_c3[0].price == pytest.approx(800.0, rel=0.01)
+        assert min1_c3[0].date == date(2020, 5, 14)
+        # days_from_halving should be positive (3 days after H3)
+        assert min1_c3[0].days_from_halving == 3
+
     def test_min1_not_replaced_when_min2_exists(self, analyzer):
         """min1 is NOT replaced when a validated min2 separates them."""
         df = self._make_df(

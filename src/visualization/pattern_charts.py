@@ -69,10 +69,10 @@ TARGET_COLORS = {
 
 # Cycle colors (matching charts.py)
 CYCLE_COLORS = {
-    2: "rgba(144, 224, 239, 0.9)",  # Cycle 2 (2016) - pale cyan
-    3: "rgba(56, 189, 248, 0.95)",  # Cycle 3 (2020) - bright cyan-blue
-    4: "rgba(100, 160, 255, 1.0)",  # Cycle 4 (2024) - lighter sky blue
-    5: "rgba(100, 160, 255, 1.0)",  # Cycle 5 (2028) - same as cycle 4
+    2: "rgba(130, 225, 215, 0.9)",  # Cycle 2 (2016) - pale teal
+    3: "rgba(90, 175, 255, 0.95)",  # Cycle 3 (2020) - sky blue
+    4: "rgba(170, 150, 255, 1.0)",  # Cycle 4 (2024) - lavender
+    5: "rgba(70, 200, 240, 1.0)",  # Cycle 5 (2028) - bright cyan
 }
 
 
@@ -238,7 +238,7 @@ def _add_trendlines(
             y=[upper_y_start, upper_y_end],
             mode="lines",
             name="Upper Trendline",
-            line={"color": TRENDLINE_COLOR, "width": 1, "dash": "dash"},
+            line={"color": TARGET_COLORS["trendline"], "width": 1, "dash": "dot"},
             showlegend=False,
             hoverinfo="skip",
         )
@@ -251,7 +251,7 @@ def _add_trendlines(
             y=[lower_y_start, lower_y_end],
             mode="lines",
             name="Lower Trendline",
-            line={"color": TRENDLINE_COLOR, "width": 1, "dash": "dash"},
+            line={"color": TRENDLINE_COLOR, "width": 1, "dash": "dot"},
             showlegend=False,
             hoverinfo="skip",
         )
@@ -273,9 +273,163 @@ def _add_historical_peak_line(
     """
     fig.add_hline(
         y=hist_peak_target,
-        line={"dash": "dot", "color": TRENDLINE_COLOR, "width": 1},
+        line={"dash": "dot", "color": TARGET_COLORS["historical"], "width": 1},
         annotation_text="",
     )
+
+
+def _add_fib_hint_lines(
+    fig: go.Figure,
+    result: CoinPatternResult,
+    cycle5_display_date: date,
+    current_cycle_num: int | None,
+) -> None:
+    """
+    Draw solid thin orange line connecting Fib A->B->C extrema.
+
+    Reconstructs the same A, B, C points used by _calculate_fib_extension:
+    A = previous cycle min (prefer min1, fallback min2)
+    B = previous cycle max2
+    C = current cycle min1
+    """
+    if result.fib_target is None:
+        return
+
+    valid_points = [p for p in result.points if p.price > 0]
+    cycles = sorted({p.cycle_num for p in valid_points})
+    if len(cycles) < 2:
+        return
+
+    latest_cycle = max(cycles)
+    prev_cycle = max(c for c in cycles if c < latest_cycle)
+
+    # Build local index for lookup
+    idx: dict[tuple[int, str], list] = {}
+    for p in valid_points:
+        idx.setdefault((p.cycle_num, p.point_type), []).append(p)
+
+    # A = prev cycle min1, fallback min2
+    a_point = None
+    for pt in ("min1", "min2"):
+        pts = idx.get((prev_cycle, pt), [])
+        if pts:
+            a_point = pts[0]
+            break
+
+    # B = prev cycle max2
+    b_pts = idx.get((prev_cycle, "max2"), [])
+    b_point = b_pts[0] if b_pts else None
+
+    # C = latest cycle min1
+    c_pts = idx.get((latest_cycle, "min1"), [])
+    c_point = c_pts[0] if c_pts else None
+
+    if not (a_point and b_point and c_point):
+        return
+
+    # Handle cycle 5 display date for C
+    c_date = c_point.date
+    if current_cycle_num and latest_cycle == current_cycle_num:
+        c_date = cycle5_display_date
+
+    fig.add_trace(
+        go.Scatter(
+            x=[a_point.date, b_point.date, c_date],
+            y=[a_point.price, b_point.price, c_point.price],
+            mode="lines",
+            name="Fib A→B→C",
+            line={"color": TARGET_COLORS["fibonacci"], "width": 1.5},
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+
+
+def _add_dim_return_hint_lines(
+    fig: go.Figure,
+    result: CoinPatternResult,
+    target_date: date,
+    cycle5_display_date: date,
+    current_cycle_num: int | None,
+) -> None:
+    """
+    Draw dotted purple lines connecting min-max pairs for diminishing returns.
+
+    For each cycle with both min and max points, draws a vertical-ish line
+    from the lowest min to the highest max. Also draws a projection line
+    from the latest min point to the star (projected target).
+    """
+    if result.dim_return_target is None:
+        return
+
+    valid_points = [p for p in result.points if p.price > 0]
+    cycles = sorted({p.cycle_num for p in valid_points})
+
+    # Build local index
+    idx: dict[tuple[int, str], list] = {}
+    for p in valid_points:
+        idx.setdefault((p.cycle_num, p.point_type), []).append(p)
+
+    dim_color = TARGET_COLORS["diminishing"]
+
+    # Draw min-max pair lines for each cycle that has both
+    for cycle in cycles:
+        min_points = []
+        max_points = []
+        for pt in ("min1", "min2"):
+            min_points.extend(idx.get((cycle, pt), []))
+        for pt in ("max1", "max2"):
+            max_points.extend(idx.get((cycle, pt), []))
+
+        if min_points and max_points:
+            min_p = min(min_points, key=lambda p: p.price)
+            max_p = max(max_points, key=lambda p: p.price)
+
+            min_date = min_p.date
+            max_date = max_p.date
+            if current_cycle_num and cycle == current_cycle_num:
+                if min_p.point_type == "min1":
+                    min_date = cycle5_display_date
+
+            fig.add_trace(
+                go.Scatter(
+                    x=[min_date, max_date],
+                    y=[min_p.price, max_p.price],
+                    mode="lines",
+                    name="Dim. Return pair",
+                    line={"color": dim_color, "width": 1, "dash": "dot"},
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+
+    # Connect latest min to the projected star
+    latest_min = None
+    for p in sorted(valid_points, key=lambda x: x.date, reverse=True):
+        if "min" in p.point_type:
+            latest_min = p
+            break
+
+    if latest_min:
+        min_date = latest_min.date
+        if (
+            current_cycle_num
+            and latest_min.cycle_num == current_cycle_num
+            and latest_min.point_type == "min1"
+        ):
+            min_date = cycle5_display_date
+
+        fig.add_trace(
+            go.Scatter(
+                x=[min_date, target_date],
+                y=[latest_min.price, result.dim_return_target],
+                mode="lines",
+                name="Dim. Return proj.",
+                line={"color": dim_color, "width": 1, "dash": "dot"},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
 
 
 def _calculate_y_axis_range(
@@ -465,7 +619,7 @@ def create_btc_pattern_chart(
                 y=y_vals,
                 mode="lines",
                 name=f"Cycle {cycle_num}",
-                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 2.5},
+                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 1.5, "dash": "dash"},
                 showlegend=True,
                 hoverinfo="skip",
             )
@@ -511,7 +665,11 @@ def create_btc_pattern_chart(
                     y=[prev_max2.price, next_min1.price],
                     mode="lines",
                     name=f"Cycle {next_cycle}",
-                    line={"color": CYCLE_COLORS.get(next_cycle, "#888"), "width": 2.5},
+                    line={
+                        "color": CYCLE_COLORS.get(next_cycle, "#888"),
+                        "width": 1.5,
+                        "dash": "dash",
+                    },
                     showlegend=False,
                     hoverinfo="skip",
                 )
@@ -542,16 +700,20 @@ def create_btc_pattern_chart(
                         name=f"Cycle {next_cycle}",
                         line={
                             "color": CYCLE_COLORS.get(next_cycle, "#888"),
-                            "width": 2.5,
+                            "width": 1.5,
+                            "dash": "dash",
                         },
                         showlegend=False,
                         hoverinfo="skip",
                     )
                 )
 
-    # 4. Add target predictions (stars + text label)
+    # 3b. Add method hint lines (visual guides for projection methods)
     target_date = HALVING_DATES[-1] + timedelta(days=550)
+    _add_fib_hint_lines(fig, result, cycle5_display_date, 5)
+    _add_dim_return_hint_lines(fig, result, target_date, cycle5_display_date, 5)
 
+    # 4. Add target predictions (stars + text label)
     targets = []
     if result.trendline_target:
         targets.append(
@@ -762,7 +924,7 @@ def create_altcoin_pattern_chart(
                 y=y_vals,
                 mode="lines",
                 name=f"Cycle {cycle_num}",
-                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 2.5},
+                line={"color": CYCLE_COLORS.get(cycle_num, "#888"), "width": 1.5, "dash": "dash"},
                 showlegend=True,
                 hoverinfo="skip",
             )
@@ -810,7 +972,11 @@ def create_altcoin_pattern_chart(
                     y=[prev_max2.price, next_min1.price],
                     mode="lines",
                     name=f"Cycle {next_cycle}",
-                    line={"color": CYCLE_COLORS.get(next_cycle, "#888"), "width": 2.5},
+                    line={
+                        "color": CYCLE_COLORS.get(next_cycle, "#888"),
+                        "width": 1.5,
+                        "dash": "dash",
+                    },
                     showlegend=False,
                     hoverinfo="skip",
                 )
@@ -841,16 +1007,20 @@ def create_altcoin_pattern_chart(
                         name=f"Cycle {next_cycle}",
                         line={
                             "color": CYCLE_COLORS.get(next_cycle, "#888"),
-                            "width": 2.5,
+                            "width": 1.5,
+                            "dash": "dash",
                         },
                         showlegend=False,
                         hoverinfo="skip",
                     )
                 )
 
-    # 4. Add target predictions (stars + text label)
+    # 3b. Add method hint lines (visual guides for projection methods)
     target_date = HALVING_DATES[-1] + timedelta(days=550)
+    _add_fib_hint_lines(fig, result, cycle5_display_date, current_cycle_num)
+    _add_dim_return_hint_lines(fig, result, target_date, cycle5_display_date, current_cycle_num)
 
+    # 4. Add target predictions (stars + text label)
     targets = []
     if result.trendline_target:
         targets.append(
@@ -1316,6 +1486,7 @@ def generate_pattern_analysis_page(
 def generate_all_pattern_charts(
     output_dir: Path,
     top_n: int = PATTERN_ANALYSIS_TOP_N,
+    include: list[str] | None = None,
     show_progress: bool = True,
 ) -> dict[str, Path]:
     """
@@ -1324,6 +1495,7 @@ def generate_all_pattern_charts(
     Args:
         output_dir: Directory to save charts (e.g., site/)
         top_n: Number of top altcoins to include
+        include: Coin IDs to always include regardless of filters
         show_progress: Show progress bar
 
     Returns:
@@ -1346,10 +1518,13 @@ def generate_all_pattern_charts(
         paths["btc"] = btc_chart_path
 
     # Analyze all altcoins
-    coin_results = analyzer.analyze_all_coins(filter_total2=True, show_progress=show_progress)
+    include_set = set(include) if include else None
+    coin_results = analyzer.analyze_all_coins(
+        filter_total2=True, include=include_set, show_progress=show_progress
+    )
 
     # Get top N (filtered to positive trendline predictions, sorted by composite target)
-    top_coins = analyzer.get_top_coins(coin_results, n=top_n)
+    top_coins = analyzer.get_top_coins(coin_results, n=top_n, include=include_set)
 
     # Set rank for each coin (1-indexed, based on composite score)
     for i, coin in enumerate(top_coins, 1):

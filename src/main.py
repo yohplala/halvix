@@ -605,15 +605,19 @@ def cmd_analyze_patterns(args: argparse.Namespace) -> int:
 
     output_dir = args.output_dir if args.output_dir else DOCS_SITE_DIR
     top_n = args.top_n
+    include = [c.strip().lower() for c in args.include.split(",")] if args.include else None
 
     logger.info("Output directory: %s", output_dir)
     logger.info("Top N altcoins: %d", top_n)
+    if include:
+        logger.info("Force-included coins: %s", ", ".join(include))
 
     try:
         logger.info("Analyzing cycle patterns...")
         paths = generate_all_pattern_charts(
             output_dir=output_dir,
             top_n=top_n,
+            include=include,
             show_progress=not args.quiet,
         )
 
@@ -873,6 +877,12 @@ def main() -> int:
         type=int,
         default=PATTERN_ANALYSIS_TOP_N,
         help=f"Number of top altcoins to include (default: {PATTERN_ANALYSIS_TOP_N})",
+    )
+    patterns_parser.add_argument(
+        "--include",
+        type=str,
+        default=None,
+        help="Comma-separated list of coin IDs to always include (e.g., eth,trx,virtual,hype)",
     )
 
     # status command

@@ -682,6 +682,30 @@ class CyclePatternAnalyzer:
                             days_from_halving=(max1_date - seg_end_halving).days,
                         )
 
+            # -- Correct min1 using max1 as boundary --
+            # The initial min1 search is bounded by the segment end (halving
+            # date).  The true bottom may occur a few days past the halving
+            # (e.g. BNB's low on 2020-05-14, 3 days after H3).  When max1
+            # exists, rescan [min1, max1) in the full df for a lower point.
+            if min1_point is not None and max1_point is not None:
+                corr_mask = (
+                    (df.index.date >= min1_point.date)
+                    & (df.index.date < max1_point.date)
+                    & (df["close"] > 0)
+                )
+                corr_data = df[corr_mask]
+                if not corr_data.empty:
+                    corr_idx = corr_data["close"].idxmin()
+                    corr_price = float(corr_data.loc[corr_idx, "close"])
+                    if corr_price < min1_point.price:
+                        min1_point = CyclePoint(
+                            date=_to_date(corr_idx),
+                            price=corr_price,
+                            cycle_num=curr_cycle,
+                            point_type="min1",
+                            days_from_halving=(_to_date(corr_idx) - seg_end_halving).days,
+                        )
+
             # -- Merge logic: if no max1 AND prev had no max1, merge min1/min2 --
             # When prev segment had max1, min2 is structurally distinct
             # (dip between max1 and max2) and must not be merged away.
@@ -1576,7 +1600,7 @@ class CyclePatternAnalyzer:
         self._run_projections(result)
         return result
 
-    def analyze_coin(self, coin_id: str) -> CoinPatternResult | None:
+    def analyze_coin(self, coin_id: str, force: bool = False) -> CoinPatternResult | None:
         """
         Analyze pattern for a single altcoin vs BTC.
 
@@ -1586,6 +1610,7 @@ class CyclePatternAnalyzer:
 
         Args:
             coin_id: Lowercase coin ID (e.g., "eth")
+            force: If True, skip TOTAL2 membership and minimum cycle checks
 
         Returns:
             CoinPatternResult or None if insufficient data
@@ -1616,22 +1641,23 @@ class CyclePatternAnalyzer:
         # Get TOTAL2 membership info (for reference, not filtering)
         _, first_total2, last_total2 = self._filter_to_total2_dates(df, coin_id)
 
-        if first_total2 is None:
-            logger.debug("No TOTAL2 data for %s", coin_id)
-            return None
-
-        # Check that coin was in TOTAL2 within the lookback period
-        # This is now handled by _get_total2_coins, but double-check here
-        if last_total2 is not None:
-            lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
-            if last_total2 < lookback_cutoff:
-                logger.debug(
-                    "%s: Last in TOTAL2 on %s, before lookback cutoff %s, skipping",
-                    coin_id,
-                    last_total2.isoformat(),
-                    lookback_cutoff.isoformat(),
-                )
+        if not force:
+            if first_total2 is None:
+                logger.debug("No TOTAL2 data for %s", coin_id)
                 return None
+
+            # Check that coin was in TOTAL2 within the lookback period
+            # This is now handled by _get_total2_coins, but double-check here
+            if last_total2 is not None:
+                lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
+                if last_total2 < lookback_cutoff:
+                    logger.debug(
+                        "%s: Last in TOTAL2 on %s, before lookback cutoff %s, skipping",
+                        coin_id,
+                        last_total2.isoformat(),
+                        lookback_cutoff.isoformat(),
+                    )
+                    return None
 
         result = CoinPatternResult(coin_id=coin_id)
         result.first_in_total2 = first_total2
@@ -1650,7 +1676,7 @@ class CyclePatternAnalyzer:
         result.num_cycles = len({p.cycle_num for p in result.points if p.point_type == "min1"})
 
         # Check minimum cycles requirement
-        if result.num_cycles < self.min_cycles:
+        if not force and result.num_cycles < self.min_cycles:
             logger.debug(
                 "%s: Insufficient cycles (%d < %d required)",
                 coin_id.upper(),
@@ -1675,6 +1701,7 @@ class CyclePatternAnalyzer:
     def analyze_all_coins(
         self,
         filter_total2: bool = True,
+        include: set[str] | None = None,
         show_progress: bool = True,
     ) -> dict[str, CoinPatternResult]:
         """
@@ -1690,6 +1717,7 @@ class CyclePatternAnalyzer:
 
         Args:
             filter_total2: If True, only analyze coins in TOTAL2 within past 3 years
+            include: Coin IDs to always include regardless of TOTAL2 filter
             show_progress: If True, show progress bar
 
         Returns:
@@ -1697,11 +1725,18 @@ class CyclePatternAnalyzer:
         """
         # Get list of coins to analyze
         cached_coins = self.price_cache.list_cached_coins("BTC")
+        cached_set = set(cached_coins)
 
         if filter_total2:
             # Get coins in TOTAL2 within past TOTAL2_LOOKBACK_YEARS
             total2_coins = self._get_total2_coins()
             coins_to_analyze = [c for c in cached_coins if c in total2_coins]
+            # Add force-included coins that exist in cache
+            if include:
+                forced = [c for c in include if c in cached_set and c not in total2_coins]
+                if forced:
+                    coins_to_analyze.extend(forced)
+                    logger.info("Force-included %d coins: %s", len(forced), ", ".join(forced))
             logger.info(
                 "Analyzing %d coins (in TOTAL2 within past %d years, from %d cached)",
                 len(coins_to_analyze),
@@ -1728,8 +1763,9 @@ class CyclePatternAnalyzer:
         else:
             coins_iter = coins_to_analyze
 
+        include_set = include or set()
         for coin_id in coins_iter:
-            result = self.analyze_coin(coin_id)
+            result = self.analyze_coin(coin_id, force=coin_id in include_set)
             if result and result.composite_target_pct is not None:
                 results[coin_id] = result
 
@@ -1741,6 +1777,7 @@ class CyclePatternAnalyzer:
         self,
         results: dict[str, CoinPatternResult],
         n: int = 9,
+        include: set[str] | None = None,
     ) -> list[CoinPatternResult]:
         """
         Get top N coins by composite target percentage.
@@ -1753,15 +1790,22 @@ class CyclePatternAnalyzer:
         - Coins must be at least MIN_COIN_AGE_DAYS old (1 year)
         - Coins must have at least MIN_UNIQUE_PRICES distinct price values (filters illiquid/staircase)
 
+        Force-included coins (via ``include``) bypass all quality filters.
+
         Args:
             results: Dictionary of coin results
             n: Number of top coins to return
+            include: Coin IDs that bypass filters and are always included
 
         Returns:
             List of top N CoinPatternResult sorted by composite_target_pct (descending)
         """
         today = date.today()
         min_first_price_date = today - timedelta(days=MIN_COIN_AGE_DAYS)
+
+        # Separate force-included coins — they bypass all quality filters
+        include_set = include or set()
+        forced_results = {cid: r for cid, r in results.items() if cid in include_set}
 
         # Apply filters successively and track counts for logging
         # Note: results from analyze_all_coins() already have composite_target_pct != None,
@@ -1855,12 +1899,25 @@ class CyclePatternAnalyzer:
             )
         )
 
+        if forced_results:
+            lines.append(f"  {'Force-included coins':<44s}  {len(forced_results)}")
+
         logger.info("\n".join(lines))
 
         # Sort by composite target (descending) - primary ranking criterion
         sorted_results = sorted(candidates, key=lambda x: x.composite_target_pct or 0, reverse=True)
 
-        return sorted_results[:n]
+        top = sorted_results[:n]
+
+        # Append force-included coins that aren't already in top-N,
+        # sorted among themselves by composite target (descending)
+        if forced_results:
+            top_ids = {r.coin_id for r in top}
+            extras = [r for r in forced_results.values() if r.coin_id not in top_ids]
+            extras.sort(key=lambda x: x.composite_target_pct or 0, reverse=True)
+            top.extend(extras)
+
+        return top
 
     def save_results(
         self,
