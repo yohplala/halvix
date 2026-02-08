@@ -23,7 +23,6 @@ from config import (
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
     PATTERN_ANALYSIS_TOP_N,
-    PROJECTED_5TH_HALVING,
 )
 from data.cache import PriceDataCache
 from data.price_filters import detect_symbol_replacement
@@ -165,7 +164,7 @@ def _add_target_predictions(
         text_lines.append((f"{label}: {price_str}", color))
 
     # Add text annotations at the bottom, left of the 5th halving vertical line
-    text_x_date = PROJECTED_5TH_HALVING - timedelta(days=30)
+    text_x_date = HALVING_DATES[-1] - timedelta(days=30)
     num_lines = len(text_lines)
     line_spacing = 0.035  # Vertical spacing in paper coordinates
 
@@ -336,7 +335,7 @@ def _get_cycle5_min1_display_date() -> date:
     Returns:
         The approximated date for cycle 5 min1 (520 days before 5th halving)
     """
-    return PROJECTED_5TH_HALVING - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
+    return HALVING_DATES[-1] - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
 
 
 # =============================================================================
@@ -355,14 +354,14 @@ def _get_time_range() -> tuple[date, date]:
     start = HALVING_DATES[2] - timedelta(days=DAYS_BEFORE_HALVING)
 
     # End: 950 days after projected 5th halving (cycle 5 end)
-    end = PROJECTED_5TH_HALVING + timedelta(days=DAYS_AFTER_HALVING)
+    end = HALVING_DATES[-1] + timedelta(days=DAYS_AFTER_HALVING)
 
     return start, end
 
 
 def _add_halving_lines(fig: go.Figure, row: int = 1, col: int = 1) -> None:
     """Add vertical lines at halving dates."""
-    halvings = [HALVING_DATES[2], HALVING_DATES[3], PROJECTED_5TH_HALVING]
+    halvings = [HALVING_DATES[2], HALVING_DATES[3], HALVING_DATES[-1]]
     labels = ["3rd Halving\n2020", "4th Halving\n2024", "5th Halving\n2028 (proj.)"]
 
     for halving_date, _label in zip(halvings, labels, strict=False):
@@ -496,14 +495,14 @@ def create_btc_pattern_chart(
                 )
             )
 
-    # 3. Connect max2 of each cycle to min1 of the next cycle
+    # 3. Connect cycles: max2 → min1, with fallback to last→first point
     for i, cycle_num in enumerate(cycles[:-1]):
         next_cycle = cycles[i + 1]
         prev_max2 = max2_by_cycle.get(cycle_num)
         next_min1 = min1_by_cycle.get(next_cycle)
 
         if prev_max2 and next_min1:
-            # Use approximated date for cycle 5 min1
+            # Standard bridge: max2 → min1
             next_min1_date = cycle5_display_date if next_cycle == 5 else next_min1.date
 
             fig.add_trace(
@@ -517,9 +516,41 @@ def create_btc_pattern_chart(
                     hoverinfo="skip",
                 )
             )
+        else:
+            # Fallback bridge: last point of current cycle → first of next
+            curr_pts = sorted(
+                [p for p in valid_points if p.cycle_num == cycle_num],
+                key=lambda x: x.date,
+            )
+            next_pts = sorted(
+                [p for p in valid_points if p.cycle_num == next_cycle],
+                key=lambda x: x.date,
+            )
+            if curr_pts and next_pts:
+                last_p = curr_pts[-1]
+                first_p = next_pts[0]
+                first_date = (
+                    cycle5_display_date
+                    if next_cycle == 5 and first_p.point_type == "min1"
+                    else first_p.date
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[last_p.date, first_date],
+                        y=[last_p.price, first_p.price],
+                        mode="lines",
+                        name=f"Cycle {next_cycle}",
+                        line={
+                            "color": CYCLE_COLORS.get(next_cycle, "#888"),
+                            "width": 2.5,
+                        },
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
 
     # 4. Add target predictions (stars + text label)
-    target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
+    target_date = HALVING_DATES[-1] + timedelta(days=550)
 
     targets = []
     if result.trendline_target:
@@ -533,7 +564,7 @@ def create_btc_pattern_chart(
         )
     if result.fib_target:
         targets.append(
-            ("Fib 127.2%", result.fib_target, result.fib_target_pct, TARGET_COLORS["fibonacci"])
+            ("Fib 100%", result.fib_target, result.fib_target_pct, TARGET_COLORS["fibonacci"])
         )
     if result.dim_return_target:
         targets.append(
@@ -761,14 +792,14 @@ def create_altcoin_pattern_chart(
                 )
             )
 
-    # 3. Connect max2 of each cycle to min1 of the next cycle
+    # 3. Connect cycles: max2 → min1, with fallback to last→first point
     for i, cycle_num in enumerate(cycles[:-1]):
         next_cycle = cycles[i + 1]
         prev_max2 = max2_by_cycle.get(cycle_num)
         next_min1 = min1_by_cycle.get(next_cycle)
 
         if prev_max2 and next_min1:
-            # Use approximated date for current cycle min1
+            # Standard bridge: max2 → min1
             next_min1_date = (
                 cycle5_display_date if next_cycle == current_cycle_num else next_min1.date
             )
@@ -784,9 +815,41 @@ def create_altcoin_pattern_chart(
                     hoverinfo="skip",
                 )
             )
+        else:
+            # Fallback bridge: last point of current cycle → first of next
+            curr_pts = sorted(
+                [p for p in valid_points if p.cycle_num == cycle_num],
+                key=lambda x: x.date,
+            )
+            next_pts = sorted(
+                [p for p in valid_points if p.cycle_num == next_cycle],
+                key=lambda x: x.date,
+            )
+            if curr_pts and next_pts:
+                last_p = curr_pts[-1]
+                first_p = next_pts[0]
+                first_date = (
+                    cycle5_display_date
+                    if next_cycle == current_cycle_num and first_p.point_type == "min1"
+                    else first_p.date
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[last_p.date, first_date],
+                        y=[last_p.price, first_p.price],
+                        mode="lines",
+                        name=f"Cycle {next_cycle}",
+                        line={
+                            "color": CYCLE_COLORS.get(next_cycle, "#888"),
+                            "width": 2.5,
+                        },
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
 
     # 4. Add target predictions (stars + text label)
-    target_date = PROJECTED_5TH_HALVING + timedelta(days=550)
+    target_date = HALVING_DATES[-1] + timedelta(days=550)
 
     targets = []
     if result.trendline_target:
@@ -800,7 +863,7 @@ def create_altcoin_pattern_chart(
         )
     if result.fib_target:
         targets.append(
-            ("Fib 127.2%", result.fib_target, result.fib_target_pct, TARGET_COLORS["fibonacci"])
+            ("Fib 100%", result.fib_target, result.fib_target_pct, TARGET_COLORS["fibonacci"])
         )
     if result.dim_return_target:
         targets.append(
@@ -1205,7 +1268,7 @@ def generate_pattern_analysis_page(
         <p class="description">
             Analysis of price patterns across Bitcoin halving cycles (2020, 2024) with projections
             for cycle 5 (2028). Four methods are used to estimate targets: log-linear trendline
-            regression, Fibonacci 127.2% extension, diminishing returns model, and historical peak.
+            regression, Fibonacci 100% extension, diminishing returns model, and historical peak.
             <strong>Ranking is by composite score (descending).</strong> Coins with negative
             trendline predictions are filtered out (underperforming BTC).
             The composite score is a weighted average of available methods, with weights depending on confidence level.

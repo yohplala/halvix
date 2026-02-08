@@ -24,9 +24,11 @@ from analysis.cycle_patterns import (
     CoinPatternResult,
     CyclePatternAnalyzer,
     CyclePoint,
+    fib_retracement_ratio,
 )
 from config import (
     GOLDEN_RETRACEMENT_LEVEL,
+    HALVING_DATES,
     MAX_RETRACEMENT_LEVEL,
     RETRACEMENT_PENALTY_AT_MAX,
     TOTAL2_LOOKBACK_YEARS,
@@ -378,13 +380,9 @@ class TestFitLogTrendlines:
         # After filtering zeros, insufficient points remain
         assert result == (None, None, None, None)
 
-    def test_fit_trendlines_short_span_with_fallback(self, analyzer):
-        """Test trendline fitting with short span uses fallback logic.
-
-        With 2+ total troughs (min1 + min2), the fallback logic computes
-        a trendline even when major extrema (min1, max2) are insufficient.
-        """
-        # Points within same year - short span but 2 troughs available
+    def test_fit_trendlines_short_span_allowed(self, analyzer):
+        """Short-span data produces trendlines (age gating is done upstream)."""
+        # Points within same year — still produces valid slopes
         points = [
             CyclePoint(
                 date=date(2024, 1, 1),
@@ -418,14 +416,9 @@ class TestFitLogTrendlines:
 
         result = analyzer._fit_log_trendlines(points)
         upper_slope, upper_int, lower_slope, lower_int = result
-
-        # With 2 troughs (min1 + min2), fallback computes trendline with parallel slopes
+        # 2 peaks and 2 troughs — both sides should produce slopes
         assert upper_slope is not None
-        assert upper_int is not None
         assert lower_slope is not None
-        assert lower_int is not None
-        # Slopes should be equal (parallel channel)
-        assert abs(upper_slope - lower_slope) < 0.01
 
 
 # =============================================================================
@@ -779,82 +772,487 @@ class TestClassifyPattern:
 # =============================================================================
 
 
-class TestFindCyclePoints:
-    """Tests for _find_cycle_points method."""
+class TestFibRetracementRatio:
+    """Tests for the standalone fib_retracement_ratio function."""
+
+    def test_no_retracement(self):
+        """C at peak => ratio = 0."""
+        ratio = fib_retracement_ratio(100.0, 1000.0, 1000.0)
+        assert ratio == pytest.approx(0.0, abs=1e-9)
+
+    def test_full_retracement(self):
+        """C at reference low => ratio = 1."""
+        ratio = fib_retracement_ratio(100.0, 1000.0, 100.0)
+        assert ratio == pytest.approx(1.0, abs=1e-9)
+
+    def test_partial_retracement(self):
+        """C between A and B => ratio between 0 and 1."""
+        # In log-space: A=100, B=10000, C=1000
+        # log10(10000/1000) / log10(10000/100) = 1/2
+        ratio = fib_retracement_ratio(100.0, 10000.0, 1000.0)
+        assert ratio == pytest.approx(0.5, abs=1e-9)
+
+    def test_below_reference(self):
+        """C below reference low => ratio > 1."""
+        ratio = fib_retracement_ratio(100.0, 1000.0, 50.0)
+        assert ratio is not None
+        assert ratio > 1.0
+
+    def test_invalid_b_le_a(self):
+        """Peak <= reference low => None."""
+        assert fib_retracement_ratio(100.0, 100.0, 50.0) is None
+        assert fib_retracement_ratio(100.0, 50.0, 30.0) is None
+
+    def test_invalid_non_positive(self):
+        """Any non-positive input => None."""
+        assert fib_retracement_ratio(0, 100.0, 50.0) is None
+        assert fib_retracement_ratio(100.0, 0, 50.0) is None
+        assert fib_retracement_ratio(100.0, 200.0, 0) is None
+        assert fib_retracement_ratio(-10.0, 100.0, 50.0) is None
+
+    def test_known_fibonacci_levels(self):
+        """Verify specific Fibonacci retracement levels in log-space."""
+        # A=10, B=1000 => log-range = 2
+        # For ratio = 0.236: C = 10^(3 - 0.236*2) = 10^2.528 ≈ 337.4
+        a, b = 10.0, 1000.0
+        c_236 = 10 ** (3 - 0.236 * 2)
+        ratio = fib_retracement_ratio(a, b, c_236)
+        assert ratio == pytest.approx(0.236, abs=1e-3)
+
+        c_618 = 10 ** (3 - 0.618 * 2)
+        ratio = fib_retracement_ratio(a, b, c_618)
+        assert ratio == pytest.approx(0.618, abs=1e-3)
+
+
+class TestFindAllCyclePoints:
+    """Tests for _find_all_cycle_points method (segment-based detection)."""
 
     @pytest.fixture
     def analyzer(self, mock_price_cache):
         return CyclePatternAnalyzer(price_cache=mock_price_cache)
 
-    def test_find_cycle_points_complete_cycle(self, analyzer):
-        """Test finding points for a complete cycle."""
-        # Create price data around a halving (2020-05-11)
-        start_date = date(2019, 1, 1)
-        end_date = date(2022, 12, 31)
-        dates = pd.date_range(start_date, end_date, freq="D")
+    def _make_df(self, date_price_pairs: list[tuple[str, float]]) -> pd.DataFrame:
+        """Build a DataFrame from (date_str, price) pairs, interpolated daily."""
+        if not date_price_pairs:
+            return pd.DataFrame(columns=["close"])
+        # Create key points
+        key_dates = [pd.Timestamp(d) for d, _ in date_price_pairs]
+        key_prices = [p for _, p in date_price_pairs]
+        # Interpolate daily
+        full_range = pd.date_range(key_dates[0], key_dates[-1], freq="D")
+        key_series = pd.Series(key_prices, index=key_dates)
+        daily = key_series.reindex(full_range).interpolate(method="index")
+        return pd.DataFrame({"close": daily}, index=full_range)
 
-        # Create price pattern: pre-halving dip, rally, post-halving rally then dip
-        days = (dates - pd.Timestamp("2020-05-11")).days.values
-        prices = 0.01 * (1 + 0.3 * np.sin(days / 200) + 0.001 * days / 365)
-        prices = np.maximum(prices, 0.001)
-
-        df = pd.DataFrame({"close": prices}, index=dates)
-
-        halving_date = date(2020, 5, 11)
-        points = analyzer._find_cycle_points(df, halving_date, cycle_num=3, is_current_cycle=False)
-
-        # Should find at least min1
-        assert len(points) >= 1
-        assert all(isinstance(p, CyclePoint) for p in points)
-        assert all(p.cycle_num == 3 for p in points)
-
-    def test_find_cycle_points_empty_df(self, analyzer):
-        """Test with empty DataFrame."""
+    def test_empty_df(self, analyzer):
+        """Empty DataFrame returns no points."""
         df = pd.DataFrame(columns=["close"])
         df.index = pd.DatetimeIndex([])
+        assert analyzer._find_all_cycle_points(df) == []
 
-        points = analyzer._find_cycle_points(df, date(2020, 5, 11), cycle_num=3)
-
-        assert points == []
-
-    def test_find_cycle_points_no_pre_halving_data(self, analyzer):
-        """Test when no data exists in pre-halving window (partial cycle)."""
-        # Data only after halving - should still find post-halving points
-        dates = pd.date_range("2020-06-01", "2022-12-31", freq="D")
-        prices = np.random.uniform(0.01, 0.02, len(dates))
-        df = pd.DataFrame({"close": prices}, index=dates)
-
-        points = analyzer._find_cycle_points(
-            df, date(2020, 5, 11), cycle_num=3, is_current_cycle=False
+    def test_single_complete_segment(self, analyzer):
+        """One segment [H2, H3] with clear peak and trough produces max2 + min1."""
+        # Segment: H2=2016-07-09, H3=2020-05-11
+        # Price: starts low, peaks mid-segment, drops to low
+        df = self._make_df(
+            [
+                ("2016-07-10", 600.0),  # start (after H2)
+                ("2017-12-17", 19000.0),  # BTC-like peak (max2 of cycle 2)
+                ("2018-12-15", 3200.0),  # bear bottom (min1 of cycle 3)
+                ("2020-05-10", 8700.0),  # recovery before H3
+            ]
         )
+        points = analyzer._find_all_cycle_points(df)
 
-        # Should return post-halving points (min2, max2) even without pre-halving data
+        types = {p.point_type for p in points}
+        assert "max2" in types
+        assert "min1" in types
+
+        max2 = [p for p in points if p.point_type == "max2"][0]
+        min1 = [p for p in points if p.point_type == "min1"][0]
+
+        assert max2.price == pytest.approx(19000.0, rel=0.01)
+        assert min1.price == pytest.approx(3200.0, rel=0.01)
+        assert max2.cycle_num == 2  # belongs to cycle of seg_start halving
+        assert min1.cycle_num == 3  # belongs to cycle of seg_end halving
+
+    def test_four_point_segment(self, analyzer):
+        """Segment with min2, max2, min1, max1 when all are significant."""
+        # Segment: H2=2016-07-09, H3=2020-05-11
+        # min2(c2): dip before rally, max2(c2): peak, min1(c3): bear bottom, max1(c3): bounce
+        df = self._make_df(
+            [
+                ("2016-07-10", 600.0),  # start
+                ("2016-10-01", 400.0),  # min2 candidate (dip from 600 to 400)
+                ("2017-12-17", 19000.0),  # max2 peak
+                ("2018-12-15", 3200.0),  # min1 bear bottom
+                ("2019-06-26", 13000.0),  # max1 bounce
+                ("2020-05-10", 8700.0),  # end
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        types = {p.point_type for p in points}
+        assert "max2" in types
+        assert "min1" in types
+        # min2 and max1 depend on 23.6% validation against context
+        # With these extreme price moves, both should pass
+
+    def test_max2_always_found(self, analyzer):
+        """max2 is always found as long as the segment has data."""
+        # Minimal segment with flat-ish data
+        df = self._make_df(
+            [
+                ("2016-07-10", 100.0),
+                ("2018-01-01", 150.0),
+                ("2020-05-10", 120.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+        max2_points = [p for p in points if p.point_type == "max2"]
+        assert len(max2_points) >= 1
+
+    def test_two_segments_produces_points_for_multiple_cycles(self, analyzer):
+        """Two consecutive segments produce points for cycles 2, 3, and 4."""
+        # Segment 1: H2(2016-07-09) to H3(2020-05-11)
+        # Segment 2: H3(2020-05-11) to H4(2024-04-19)
+        df = self._make_df(
+            [
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 cycle 2
+                ("2018-12-15", 3200.0),  # min1 cycle 3
+                ("2020-05-10", 9000.0),
+                ("2021-11-10", 69000.0),  # max2 cycle 3
+                ("2022-11-21", 15500.0),  # min1 cycle 4
+                ("2024-04-18", 64000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        cycles_found = {p.cycle_num for p in points}
+        assert 2 in cycles_found  # max2 from segment 1
+        assert 3 in cycles_found  # min1 from seg 1 or max2 from seg 2
+        assert 4 in cycles_found  # min1 from segment 2
+
+    def test_min1_validation_current_cycle(self, analyzer):
+        """For current/last segment, min1 requires 23.6% retracement."""
+        # Data after last halving (H4=2024-04-19, H5=2028-03-31)
+        # Two segments: H3-H4 provides context, H4-H5 is current
+        # Build enough context for prev_min1_price
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2020-05-10", 9000.0),
+                # Segment H3-H4
+                ("2021-11-10", 69000.0),
+                ("2022-11-21", 15500.0),
+                ("2024-04-18", 64000.0),
+                # Post-H4 (last segment beyond last halving)
+                ("2024-12-17", 108000.0),  # max2 for cycle 5
+                ("2025-02-01", 105000.0),  # only ~3% drop — not enough
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # The last segment (H4-H5) should have max2 but NOT min1
+        # (105000 is only ~3% below 108000, far less than 23.6%)
+        last_seg_min1 = [
+            p for p in points if p.point_type == "min1" and p.cycle_num == len(HALVING_DATES)
+        ]
+        assert len(last_seg_min1) == 0
+
+    def test_min1_accepted_when_deep_retracement(self, analyzer):
+        """min1 accepted in last segment when retracement >= 23.6%."""
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2020-05-10", 9000.0),
+                # Segment H3-H4
+                ("2021-11-10", 69000.0),
+                ("2022-11-21", 15500.0),
+                ("2024-04-18", 64000.0),
+                # Post-H4 — deep crash
+                ("2024-12-17", 108000.0),
+                ("2025-06-01", 30000.0),  # ~72% drop — well beyond 23.6%
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min1 in last segment (H4-H5) has cycle_num = len(HALVING_DATES)
+        last_seg_min1 = [
+            p for p in points if p.point_type == "min1" and p.cycle_num == len(HALVING_DATES)
+        ]
+        assert len(last_seg_min1) == 1
+        assert last_seg_min1[0].price == pytest.approx(30000.0, rel=0.01)
+
+    def test_days_from_halving_sign_convention(self, analyzer):
+        """min1/max1 have negative days_from_halving, max2/min2 have positive."""
+        df = self._make_df(
+            [
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2020-05-10", 9000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        for p in points:
+            if p.point_type in ("min2", "max2"):
+                assert (
+                    p.days_from_halving >= 0
+                ), f"{p.point_type} should have non-negative days_from_halving"
+            if p.point_type in ("min1", "max1"):
+                assert (
+                    p.days_from_halving <= 0
+                ), f"{p.point_type} should have non-positive days_from_halving"
+
+    def test_no_data_in_segment_skipped(self, analyzer):
+        """Segments with no price data are skipped gracefully."""
+        # Only data in segment H3-H4, nothing for H2-H3
+        df = self._make_df(
+            [
+                ("2021-01-01", 30000.0),
+                ("2021-11-10", 69000.0),
+                ("2022-11-21", 15500.0),
+                ("2024-04-18", 64000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # Should still produce points from the segment that has data
         assert len(points) >= 1
-        point_types = {p.point_type for p in points}
-        # Should have max2 at minimum (the cycle peak)
-        assert "max2" in point_types
-        # Should NOT have min1 or max1 (no pre-halving data)
-        assert "min1" not in point_types
-        assert "max1" not in point_types
+        # No crash from the empty first segment
 
-    def test_find_cycle_points_current_cycle(self, analyzer):
-        """Test finding points for current (incomplete) cycle."""
-        # Data from 2024 halving onwards
-        dates = pd.date_range("2024-04-19", "2024-12-31", freq="D")
-        prices = 0.01 * (1 + np.random.uniform(-0.1, 0.1, len(dates)))
-        df = pd.DataFrame({"close": prices}, index=dates)
+    def test_pre_halving_pump_excluded_from_max2(self, analyzer):
+        """Pre-halving rally exceeding cycle top should become max1, not max2."""
+        # Mimics BTC cycle 3/4: Nov 2021 top at $69k, then bear to $15.5k,
+        # then pre-H4 rally to $73k (exceeds cycle top).
+        # Without buffer, max2 = $73k (wrong). With buffer, max2 = $69k (correct).
+        df = self._make_df(
+            [
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2020-05-10", 9000.0),
+                # Segment H3-H4: peak then crash then pre-halving pump exceeding peak
+                ("2021-11-10", 69000.0),  # actual cycle top
+                ("2022-11-21", 15500.0),  # bear bottom
+                ("2024-01-01", 42000.0),  # recovery (still below cycle top)
+                ("2024-03-14", 73000.0),  # pre-halving pump (exceeds $69k!)
+                ("2024-04-18", 65000.0),  # just before H4
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
 
-        # Mock BTC_CYCLE_PEAKS to have a recent peak
-        with patch("analysis.cycle_patterns.BTC_CYCLE_PEAKS", [date(2024, 4, 1)]):
-            points = analyzer._find_cycle_points(
-                df, date(2024, 4, 19), cycle_num=5, is_current_cycle=True
-            )
+        # max2 of cycle 3 should be the actual cycle top ($69k), not the pump
+        max2_c3 = [p for p in points if p.point_type == "max2" and p.cycle_num == 3]
+        assert len(max2_c3) == 1
+        assert max2_c3[0].price == pytest.approx(69000.0, rel=0.01)
 
-        # For current cycle, should find at most min1
-        assert len(points) <= 1
-        if points:
-            assert points[0].point_type == "min1"
-            assert points[0].cycle_num == 5
+        # min1 of cycle 4 should be the real bear bottom
+        min1_c4 = [p for p in points if p.point_type == "min1" and p.cycle_num == 4]
+        assert len(min1_c4) == 1
+        assert min1_c4[0].price == pytest.approx(15500.0, rel=0.01)
+
+        # max1 of cycle 4 should capture the pre-halving pump
+        max1_c4 = [p for p in points if p.point_type == "max1" and p.cycle_num == 4]
+        assert len(max1_c4) == 1
+        assert max1_c4[0].price == pytest.approx(73000.0, rel=0.01)
+
+    def test_min2_preserved_when_prev_segment_had_max1(self, analyzer):
+        """min2 must not be merged away when the previous segment had max1.
+
+        When prev segment ends with max1, the next segment's min2 is
+        structurally distinct (dip between max1 and max2). The merge logic
+        must NOT consume it.
+        """
+        # Segment H2-H3: has max1 (bounce before H3)
+        # Segment H3-H4: must keep min2 (dip between max1 and max2)
+        # Segment H4-H5 (current): peak then modest dip (no min1 yet)
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 cycle 2
+                ("2018-12-15", 3200.0),  # min1 cycle 3
+                ("2019-06-26", 13000.0),  # max1 cycle 3 (bounce)
+                ("2020-05-10", 9000.0),  # end of segment
+                # Segment H3-H4: min2 here should NOT be merged
+                ("2020-08-01", 8000.0),  # min2 cycle 3 (dip after max1)
+                ("2021-11-10", 69000.0),  # max2 cycle 3
+                ("2022-11-21", 15500.0),  # min1 cycle 4
+                ("2024-01-01", 42000.0),  # recovery
+                ("2024-03-14", 73000.0),  # max1 cycle 4 (pre-halving pump)
+                ("2024-04-18", 65000.0),  # end before H4
+                # Segment H4-H5 (current): peak, small dip
+                ("2024-08-05", 49000.0),  # min2 cycle 4 (dip after max1)
+                ("2024-12-17", 108000.0),  # max2 cycle 5
+                ("2025-02-01", 105000.0),  # only ~3% drop — no min1 yet
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min2 of cycle 4 (in H4-H5 segment) must exist because prev had max1
+        min2_c4 = [p for p in points if p.point_type == "min2" and p.cycle_num == 4]
+        assert len(min2_c4) == 1, (
+            f"min2(c4) should be preserved when prev segment had max1. "
+            f"Points: {[(p.point_type, p.cycle_num, p.price) for p in points]}"
+        )
+        assert min2_c4[0].price == pytest.approx(49000.0, rel=0.01)
+
+        # max2 in last segment (H4-H5) is assigned to prev_cycle = 4
+        max2_last = [p for p in points if p.point_type == "max2" and p.cycle_num == 4]
+        assert len(max2_last) == 1
+        assert max2_last[0].price == pytest.approx(108000.0, rel=0.01)
+
+    def test_min2_extended_before_halving_when_prev_had_max1(self, analyzer):
+        """min2 search extends back to prev max1, catching lows before halving.
+
+        Like the COVID crash (2020-03-18) which is before H3 (2020-05-11) but
+        is the true structural min2 between max1(c3) and max2(c3).
+        """
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 c2
+                ("2018-12-15", 3200.0),  # min1 c3
+                ("2019-06-26", 13000.0),  # max1 c3
+                ("2020-03-18", 3800.0),  # COVID crash — before H3!
+                ("2020-05-10", 9000.0),  # after H3
+                # Segment H3-H4
+                ("2021-11-10", 69000.0),  # max2 c3
+                ("2022-11-21", 15500.0),  # min1 c4
+                ("2024-04-18", 64000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min2(c3) should be the COVID crash, not the post-halving price
+        min2_c3 = [p for p in points if p.point_type == "min2" and p.cycle_num == 3]
+        assert len(min2_c3) == 1
+        assert min2_c3[0].price == pytest.approx(3800.0, rel=0.01)
+        # days_from_halving is negative (before H3)
+        assert min2_c3[0].days_from_halving < 0
+
+    def test_launch_price_not_accepted_as_min2(self, analyzer):
+        """min2 at the token's first data point is suppressed (launch price)."""
+        # Token launches Jan 2024, peaks briefly, data too short for structural min2
+        df = self._make_df(
+            [
+                ("2024-01-31", 0.000012),  # launch
+                ("2024-04-01", 0.000018),  # peak
+                ("2024-04-18", 0.000015),  # before H4
+                ("2024-08-05", 0.000008),  # decline
+                ("2024-12-17", 0.000010),  # recovery
+                ("2025-06-01", 0.000005),  # further decline
+                ("2026-02-01", 0.000002),  # bottom
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # No min2 — the launch price is not a structural dip
+        min2_points = [p for p in points if p.point_type == "min2"]
+        assert len(min2_points) == 0
+
+    def test_min1_not_accepted_above_max2(self, analyzer):
+        """min1 above max2 is rejected (price going up, not retracing)."""
+        # Token peaks in segment but price continues UP after max2 (buffer cutoff)
+        df = self._make_df(
+            [
+                ("2024-01-31", 0.000012),  # launch
+                ("2024-04-01", 0.000018),  # peak (after buffer cutoff)
+                ("2024-04-18", 0.000015),  # before H4
+                ("2024-08-05", 0.000008),  # decline post-H4
+                ("2026-02-01", 0.000002),  # bottom
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min1(c4) should NOT exist — in the H3-H4 segment, the price
+        # goes UP after max2 (buffer cutoff), not down.
+        min1_c4 = [p for p in points if p.point_type == "min1" and p.cycle_num == 4]
+        assert len(min1_c4) == 0
+
+    def test_adjacent_maxes_merged_when_no_min2(self, analyzer):
+        """max1 and max2 merge when no validated min2 separates them.
+
+        SOL-like case: pre-halving rally (max1) exceeds post-halving peak
+        (max2) with no significant dip between them. The higher one is
+        kept as max2.
+        """
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 c2
+                ("2018-12-15", 3200.0),  # min1 c3
+                ("2019-06-26", 13000.0),  # max1 c3
+                ("2020-03-18", 3800.0),  # COVID crash
+                # Segment H3-H4 — control interpolation with intermediate points
+                ("2020-05-12", 9000.0),
+                ("2021-11-10", 69000.0),  # max2 c3 (true cycle peak)
+                ("2022-11-21", 15500.0),  # min1 c4
+                ("2023-10-01", 30000.0),  # gradual recovery
+                ("2024-02-18", 50000.0),  # still below 69000 at buffer cutoff
+                ("2024-03-16", 73000.0),  # max1 c4 — exceeds max2 but after buffer
+                # Segment H4-H5 — mild dip, no significant min2
+                ("2024-04-20", 55000.0),  # after H4
+                ("2024-08-02", 65000.0),  # max2 c4 candidate — lower than max1
+                ("2025-04-01", 40000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # max1(c4) should NOT exist (merged into max2)
+        max1_c4 = [p for p in points if p.point_type == "max1" and p.cycle_num == 4]
+        assert len(max1_c4) == 0
+
+        # max2(c4) should use the higher price from the pre-halving max1
+        max2_c4 = [p for p in points if p.point_type == "max2" and p.cycle_num == 4]
+        assert len(max2_c4) == 1
+        assert max2_c4[0].price == pytest.approx(73000.0, rel=0.01)
+
+    def test_adjacent_maxes_merged_keeps_higher_max2(self, analyzer):
+        """When max2 > max1 and no min2 between them, max1 is removed."""
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 c2
+                ("2018-12-15", 3200.0),  # min1 c3
+                ("2019-06-26", 13000.0),  # max1 c3
+                ("2020-03-18", 3800.0),  # COVID crash
+                # Segment H3-H4 — control interpolation
+                ("2020-05-12", 9000.0),
+                ("2021-11-10", 69000.0),  # max2 c3
+                ("2022-11-21", 15500.0),  # min1 c4
+                ("2023-10-01", 30000.0),  # gradual recovery
+                ("2024-02-18", 50000.0),  # below 69000 at buffer cutoff
+                ("2024-03-16", 66000.0),  # max1 c4 — lower than post-halving
+                # Segment H4-H5 — mild dip, higher post-halving peak
+                ("2024-04-20", 63000.0),  # after H4 (shallow dip)
+                ("2024-08-02", 73000.0),  # max2 c4 candidate — higher than max1
+                ("2025-04-01", 40000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # max1(c4) should NOT exist (merged, max2 was higher)
+        max1_c4 = [p for p in points if p.point_type == "max1" and p.cycle_num == 4]
+        assert len(max1_c4) == 0
+
+        # max2(c4) keeps its original date/price (the higher one)
+        max2_c4 = [p for p in points if p.point_type == "max2" and p.cycle_num == 4]
+        assert len(max2_c4) == 1
+        assert max2_c4[0].price == pytest.approx(73000.0, rel=0.01)
 
 
 # =============================================================================

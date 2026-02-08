@@ -11,7 +11,7 @@ This document explains the cycle pattern analysis feature in Halvix, which ident
 The pattern analysis identifies characteristic points within each halving cycle and uses four methods to project price targets:
 
 1. **Log-Linear Trendline Regression** - Fits regression lines through cycle peaks and troughs
-2. **Fibonacci Extension (127.2%)** - Projects targets based on previous cycle moves
+2. **Fibonacci Extension (100%)** - Projects targets based on previous cycle moves
 3. **Diminishing Returns Model** - Accounts for decreasing cycle-over-cycle gains
 4. **Historical Peak** - Uses historical cycle peaks as a price reference
 
@@ -144,7 +144,7 @@ The pattern is classified based on slope relationships:
 
 Target is projected by extending the upper trendline to the expected cycle 5 peak date (~September 2029 = 2028 halving + 550 days).
 
-### 2. Fibonacci Extension (127.2%)
+### 2. Fibonacci Extension (100%)
 
 Uses Fibonacci extension in **log-space** to respect the multiplicative nature of price movements:
 
@@ -485,7 +485,7 @@ Each chart shows:
 | Color | Method |
 |-------|--------|
 | Blue | Trendline projection |
-| Orange | Fibonacci 127.2% extension |
+| Orange | Fibonacci 100% extension |
 | Purple | Diminishing returns |
 | Green | Historical peak |
 
@@ -524,13 +524,13 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MAX_RETRACEMENT_LEVEL` | 0.886 | Fibonacci retracement filter (88.6% = √0.786) |
 | `GOLDEN_RETRACEMENT_LEVEL` | 0.618 | Retracement penalty starts at this level |
 | `RETRACEMENT_PENALTY_AT_MAX` | 0.5 | Composite multiplier at MAX_RETRACEMENT_LEVEL |
-| `DEFAULT_FIBONACCI_LEVEL` | 1.272 | Fibonacci extension level |
+| `DEFAULT_FIBONACCI_LEVEL` | 1.0 | Fibonacci extension level |
 | `DIM_RETURN_MIN_GAIN_RATIO` | 0.1 | Minimum projected gain ratio (0.1x = 10% gain from trough) |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 
 ## Halving Cycle Windows
 
-> **Note**: Halving dates are defined in [`src/config.py`](../src/config.py) (`HALVING_DATES` and `PROJECTED_5TH_HALVING`). Window calculations use `DAYS_BEFORE_HALVING` (550) and `DAYS_AFTER_HALVING` (950).
+> **Note**: Halving dates are defined in [`src/config.py`](../src/config.py) (`HALVING_DATES`, including the projected 5th halving). Window calculations use `DAYS_BEFORE_HALVING` (550) and `DAYS_AFTER_HALVING` (950).
 
 | Cycle | Halving Date | Pre-Window Start | Post-Window End |
 |-------|--------------|------------------|-----------------|

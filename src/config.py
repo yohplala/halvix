@@ -30,10 +30,8 @@ HALVING_DATES: list[date] = [
     date(2016, 7, 9),  # 2nd halving
     date(2020, 5, 11),  # 3rd halving
     date(2024, 4, 19),  # 4th halving
+    date(2028, 3, 31),  # 5th halving (projected)
 ]
-
-# Projected 5th halving (approximately 4 years after 4th)
-PROJECTED_5TH_HALVING = date(2028, 3, 31)
 
 # =============================================================================
 # BTC Cycle Peaks and Bottoms (verified from CryptoCompare data)
@@ -573,7 +571,7 @@ FIBONACCI_LEVELS = {
 }
 
 # Default Fibonacci level for pattern analysis
-DEFAULT_FIBONACCI_LEVEL = FIBONACCI_LEVELS["127.2%"]
+DEFAULT_FIBONACCI_LEVEL = 1.0
 
 # Default diminishing returns factor derived from BTC historical data
 # Used when only one cycle of data is available for a coin
@@ -717,6 +715,19 @@ MAX_RETRACEMENT_LEVEL = 0.886
 # Note: The actual detected min1 date/price is still used for display and other methods.
 CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
 
+# Minimum Fibonacci retracement for cycle point validity
+# Points (min2, max1) must show at least 23.6% retracement to be considered significant.
+# 23.6% is the smallest standard Fibonacci level — anything less is noise, not structure.
+# For min1 in the current/incomplete cycle, this also gates whether the bear has started.
+MIN_RETRACEMENT_LEVEL = 0.236
+
+# Buffer (days) to exclude pre-halving rally from max2 search.
+# The max2 search window ends at H[n] - buffer to prevent the pre-halving pump
+# (which is structurally max1) from being picked as the cycle peak.
+# BTC's pre-H4 rally exceeded the Nov 2021 ATH ~36 days before halving; 60 days
+# provides comfortable margin without risking exclusion of a genuine cycle top.
+MAX2_PRE_HALVING_BUFFER_DAYS = 60
+
 # Continuous retracement penalty parameters
 # Applied to coins between GOLDEN_RETRACEMENT_LEVEL and MAX_RETRACEMENT_LEVEL
 # to gradually penalize composite score as retracement deepens.
@@ -768,13 +779,6 @@ def validate_config() -> None:
                 f"HALVING_DATES must be chronological: "
                 f"{HALVING_DATES[i]} >= {HALVING_DATES[i + 1]}"
             )
-
-    # Validate projected halving is after the last known halving
-    if HALVING_DATES and PROJECTED_5TH_HALVING <= HALVING_DATES[-1]:
-        errors.append(
-            f"PROJECTED_5TH_HALVING ({PROJECTED_5TH_HALVING}) must be after "
-            f"last halving ({HALVING_DATES[-1]})"
-        )
 
     # Validate time window constants
     if DAYS_BEFORE_HALVING <= 0:
@@ -849,8 +853,8 @@ def validate_config() -> None:
         errors.append(f"MINOR_POINT_WEIGHT must be between 0 and 1: " f"{MINOR_POINT_WEIGHT}")
 
     # Validate Fibonacci level
-    if DEFAULT_FIBONACCI_LEVEL <= 1.0:
-        errors.append(f"DEFAULT_FIBONACCI_LEVEL must be > 1.0: {DEFAULT_FIBONACCI_LEVEL}")
+    if DEFAULT_FIBONACCI_LEVEL < 1.0:
+        errors.append(f"DEFAULT_FIBONACCI_LEVEL must be >= 1.0: {DEFAULT_FIBONACCI_LEVEL}")
 
     # Validate diminishing factor
     if not (0.0 < DEFAULT_DIMINISHING_FACTOR < 1.0):
@@ -902,9 +906,20 @@ def validate_config() -> None:
             f"DIM_RETURN_MIN_GAIN_RATIO must be non-negative: {DIM_RETURN_MIN_GAIN_RATIO}"
         )
 
-    # Validate retracement filter threshold
+    # Validate retracement filter thresholds
+    if not (0.0 < MIN_RETRACEMENT_LEVEL < 1.0):
+        errors.append(f"MIN_RETRACEMENT_LEVEL must be in (0, 1): {MIN_RETRACEMENT_LEVEL}")
     if not (0.0 < MAX_RETRACEMENT_LEVEL <= 1.0):
         errors.append(f"MAX_RETRACEMENT_LEVEL must be in (0, 1]: {MAX_RETRACEMENT_LEVEL}")
+    if MIN_RETRACEMENT_LEVEL >= GOLDEN_RETRACEMENT_LEVEL:
+        errors.append(
+            f"MIN_RETRACEMENT_LEVEL ({MIN_RETRACEMENT_LEVEL}) must be less than "
+            f"GOLDEN_RETRACEMENT_LEVEL ({GOLDEN_RETRACEMENT_LEVEL})"
+        )
+    if MAX2_PRE_HALVING_BUFFER_DAYS < 0:
+        errors.append(
+            f"MAX2_PRE_HALVING_BUFFER_DAYS must be non-negative: {MAX2_PRE_HALVING_BUFFER_DAYS}"
+        )
 
     if errors:
         raise ConfigurationError("Configuration validation failed:\n" + "\n".join(errors))
