@@ -25,13 +25,8 @@ from config import (
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
 )
 from utils.logging import get_logger
-from visualization.charts import (
-    _get_base_css,
-    _get_footer_css,
-    _get_footer_html,
-    _get_header_css,
-    _get_header_html,
-)
+from visualization.charts import _get_footer_css, _get_footer_html
+from visualization.templates import render_template
 
 logger = get_logger(__name__)
 
@@ -82,6 +77,30 @@ _COIN_CSV_SCHEMA = ["id", "name", "symbol", "reason", "url"]
 def _load_csv_coins(filepath: Path) -> list[dict]:
     """Load coins from a semicolon-delimited CSV file."""
     return _load_csv_with_schema(filepath, _COIN_CSV_SCHEMA, required_fields=5)
+
+
+def _get_reason_class(reason: str) -> str:
+    """Map a skip/fail reason string to a CSS class for badge styling."""
+    if "BTC" in reason or "Bitcoin" in reason:
+        return "reason-btc"
+    if "Stablecoin" in reason:
+        return "reason-stablecoin"
+    if "historical" in reason.lower() or "Insufficient" in reason:
+        return "reason-history"
+    if "CCCAGG" in reason or "pair" in reason.lower() or "market" in reason.lower():
+        return "reason-nopair"
+    return "reason-wrapped"
+
+
+def _format_market_cap(market_cap: float, has_usd_data: bool) -> str:
+    """Format market cap value for display."""
+    if not has_usd_data or market_cap == 0:
+        return '<span style="color: var(--text-muted);">N/A</span>'
+    if market_cap >= 1_000_000_000:
+        return f"${market_cap / 1_000_000_000:.2f}B"
+    if market_cap >= 1_000_000:
+        return f"${market_cap / 1_000_000:.2f}M"
+    return f"${market_cap:,.0f}"
 
 
 # =============================================================================
@@ -222,25 +241,8 @@ class HtmlGenerator:
         price_summaries: dict[str, dict],
         fetch_metadata: dict,
     ) -> str:
-        """
-        Generate the complete HTML documentation page.
-
-        Uses shared footer from visualization.charts for consistency across all pages.
-
-        Args:
-            coins_to_download: List of coins to download dictionaries
-            skipped_coins: List of filtered coins (stablecoins, wrapped, etc.)
-            failed_coins: List of coins that failed to download (no BTC pair, etc.)
-            no_usd_data_coins: List of coins without USD data from API
-            price_summaries: Dictionary mapping coin_id to price data summary with quotes
-            fetch_metadata: Metadata about the fetch operation
-
-        Returns:
-            Complete HTML string
-        """
+        """Generate the data status HTML page via Jinja2 template."""
         update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-        footer_css = _get_footer_css()
-        footer_html = _get_footer_html()
 
         # Count statistics from metadata
         coins_requested = fetch_metadata.get("coins_requested", TOP_N_BY_MARKETCAP_TO_FETCH)
@@ -248,493 +250,83 @@ class HtmlGenerator:
         coins_no_usd = fetch_metadata.get("coins_no_usd_data", 0)
         coins_no_usd_accepted = fetch_metadata.get("coins_no_usd_accepted", 0)
         total_accepted = fetch_metadata.get("coins_accepted", len(coins_to_download))
-
-        # Count coins with actual downloaded price data
         coins_with_data = sum(
             1 for c in coins_to_download if c.get("id", "").lower() in price_summaries
         )
 
-        # All skipped = filtered + failed downloads
         all_skipped = skipped_coins + failed_coins
         total_skipped = len(all_skipped)
-
-        # Count pairs downloaded (sum of all quotes for all coins)
         total_pairs = sum(len(s.get("quotes", [])) for s in price_summaries.values())
 
-        html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Halvix - Cryptocurrency Data Status</title>
-    <style>
-        :root {{
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-tertiary: #21262d;
-            --text-primary: #c9d1d9;
-            --text-secondary: #8b949e;
-            --text-muted: #6e7681;
-            --accent-orange: #f0883e;
-            --accent-green: #3fb950;
-            --accent-red: #f85149;
-            --accent-blue: #58a6ff;
-            --border-color: #30363d;
-        }}
-
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            line-height: 1.6;
-            min-height: 100vh;
-        }}
-
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }}
-
-        header {{
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            padding: 0.5rem 2rem;
-            text-align: center;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
-            position: relative;
-        }}
-
-        .back-link {{
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 1.1rem;
-            position: absolute;
-            left: 1.25rem;
-        }}
-
-        .back-link:hover {{
-            color: var(--accent-blue);
-        }}
-
-        .header-content {{
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }}
-
-        .logo {{
-            font-size: 1.25rem;
-        }}
-
-        h1 {{
-            font-size: 1.1rem;
-            font-weight: 700;
-            background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }}
-
-        .page-title {{
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 1rem;
-        }}
-
-        .update-time {{
-            color: var(--text-muted);
-            font-size: 0.85rem;
-            margin-bottom: 1.5rem;
-        }}
-
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 3rem;
-        }}
-
-        .stat-card {{
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1.5rem;
-            text-align: center;
-        }}
-
-        .stat-value {{
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: var(--accent-blue);
-        }}
-
-        .stat-value.green {{ color: var(--accent-green); }}
-        .stat-value.red {{ color: var(--accent-red); }}
-        .stat-value.orange {{ color: var(--accent-orange); }}
-
-        .stat-label {{
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }}
-
-        .stat-sublabel {{
-            color: var(--text-muted);
-            font-size: 0.75rem;
-            margin-top: 0.25rem;
-        }}
-
-        section {{
-            margin-bottom: 3rem;
-        }}
-
-        h2 {{
-            color: var(--text-primary);
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--accent-orange);
-            display: inline-block;
-        }}
-
-        .section-description {{
-            color: var(--text-secondary);
-            margin-bottom: 1.5rem;
-        }}
-
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            background: var(--bg-secondary);
-            border-radius: 8px;
-            overflow: hidden;
-        }}
-
-        th, td {{
-            padding: 0.75rem 1rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border-color);
-        }}
-
-        th {{
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 0.5px;
-        }}
-
-        tr:hover {{
-            background: var(--bg-tertiary);
-        }}
-
-        .coin-symbol {{
-            font-weight: 600;
-            color: var(--accent-orange);
-        }}
-
-        .coin-name {{
-            color: var(--text-primary);
-        }}
-
-        .coin-id {{
-            color: var(--text-muted);
-            font-size: 0.85rem;
-        }}
-
-        .market-cap {{
-            color: var(--accent-green);
-            font-family: 'Monaco', 'Menlo', monospace;
-        }}
-
-        .reason-badge {{
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            font-size: 0.8rem;
-            font-weight: 500;
-        }}
-
-        .reason-wrapped {{ background: #3f2d1e; color: #f0883e; }}
-        .reason-btc {{ background: #2d1e3f; color: #a371f7; }}
-        .reason-stablecoin {{ background: #1e2d3f; color: #58a6ff; }}
-        .reason-history {{ background: #2d3f1e; color: #7ee68f; }}
-        .reason-nopair {{ background: #3f1e1e; color: #f85149; }}
-
-        .date-range {{
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-        }}
-
-        .days-count {{
-            color: var(--accent-green);
-            font-weight: 600;
-        }}
-
-        a {{
-            color: var(--accent-blue);
-            text-decoration: none;
-        }}
-
-        a:hover {{
-            text-decoration: underline;
-        }}
-
-        .table-container {{
-            overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-        }}
-
-        /* Consistent column widths for coin tables */
-        table th:first-child,
-        table td:first-child {{
-            width: 60px;
-            text-align: center;
-        }}
-
-        table th:nth-child(2),
-        table td:nth-child(2) {{
-            width: 100px;
-        }}
-
-        table th:nth-child(3),
-        table td:nth-child(3) {{
-            min-width: 200px;
-        }}
-
-        @media (max-width: 768px) {{
-            h1 {{
-                font-size: 1.75rem;
-            }}
-
-            nav ul {{
-                flex-wrap: wrap;
-                gap: 1rem;
-            }}
-
-            .container {{
-                padding: 1rem;
-            }}
-
-            .stat-value {{
-                font-size: 2rem;
-            }}
-
-            th, td {{
-                padding: 0.5rem;
-                font-size: 0.85rem;
-            }}
-        }}
-        {footer_css}
-    </style>
-</head>
-<body>
-    <header>
-        <a href="index.html" class="back-link">← Back</a>
-        <div class="header-content">
-            <div class="logo">📊</div>
-            <h1>Halvix</h1>
-        </div>
-    </header>
-
-    <div class="container">
-        <h2 class="page-title">🔶 Data Status</h2>
-        <p class="update-time">Last updated: {update_time}</p>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-value">{coins_requested}</div>
-                <div class="stat-label">Coins Requested</div>
-                <div class="stat-sublabel">{coins_with_usd} USD + {coins_no_usd} no-USD</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">{total_accepted}</div>
-                <div class="stat-label">Coins Accepted</div>
-                <div class="stat-sublabel">{coins_no_usd_accepted} from no-USD (BTC only)</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value green">{coins_with_data}</div>
-                <div class="stat-label">Coins Downloaded</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value red">{total_skipped}</div>
-                <div class="stat-label">Skipped / Failed</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value orange">{total_pairs}</div>
-                <div class="stat-label">Total Pairs</div>
-            </div>
-        </div>
-
-        <section id="downloaded">
-            <h2>📊 Downloaded Price Data ({coins_with_data} coins)</h2>
-            <p class="section-description">
-                Coins with price data downloaded from CryptoCompare.
-                <strong>Source</strong>: "USD" coins have market cap data; "BTC-only" coins were discovered without USD data but have BTC trading pairs.
-                Click coin name to view on CryptoCompare.
-            </p>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Symbol</th>
-                            <th>Name</th>
-                            <th>Source</th>
-                            <th>Quote(s)</th>
-                            <th>Market Cap</th>
-                            <th>Start Date</th>
-                            <th>End Date</th>
-                            <th>Days</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-"""
-
         # Sort coins: first by has_usd_data (True first), then by market cap (descending)
-        coins_sorted = sorted(
+        coins_sorted_raw = sorted(
             [c for c in coins_to_download if c.get("id", "").lower() in price_summaries],
             key=lambda c: (not c.get("has_usd_data", True), -c.get("market_cap", 0)),
         )
 
-        for i, coin in enumerate(coins_sorted, 1):
+        # Pre-process coins for template
+        coins_sorted = []
+        for coin in coins_sorted_raw:
             coin_id = coin.get("id", "").lower()
             price_info = price_summaries.get(coin_id, {})
             has_usd_data = coin.get("has_usd_data", True)
-
-            # Market cap display - N/A for coins without USD data
             market_cap = coin.get("market_cap", 0)
-            if not has_usd_data or market_cap == 0:
-                market_cap_str = '<span style="color: var(--text-muted);">N/A</span>'
-            elif market_cap >= 1_000_000_000:
-                market_cap_str = f"${market_cap / 1_000_000_000:.2f}B"
-            elif market_cap >= 1_000_000:
-                market_cap_str = f"${market_cap / 1_000_000:.2f}M"
-            else:
-                market_cap_str = f"${market_cap:,.0f}"
-
-            # Source indicator
-            if has_usd_data:
-                source_str = "USD"
-            else:
-                source_str = '<span style="color: var(--accent-orange);">BTC-only</span>'
-
             symbol = coin.get("symbol", "N/A")
-            name = coin.get("name", "N/A")
-            coin_url = f"https://www.cryptocompare.com/coins/{symbol.upper()}/overview"
             quotes = price_info.get("quotes", [])
-            quotes_str = ", ".join(quotes) if quotes else "N/A"
-            start_date = price_info.get("start_date", "N/A")
-            end_date = price_info.get("end_date", "N/A")
-            days = price_info.get("days", 0)
 
-            html += f"""                        <tr>
-                            <td>{i}</td>
-                            <td class="coin-symbol">{symbol}</td>
-                            <td class="coin-name"><a href="{coin_url}" target="_blank">{name}</a></td>
-                            <td>{source_str}</td>
-                            <td>{quotes_str}</td>
-                            <td class="market-cap">{market_cap_str}</td>
-                            <td class="date-range">{start_date}</td>
-                            <td class="date-range">{end_date}</td>
-                            <td class="days-count">{days:,}</td>
-                        </tr>
-"""
+            coins_sorted.append(
+                {
+                    "symbol": symbol,
+                    "name": coin.get("name", "N/A"),
+                    "url": f"https://www.cryptocompare.com/coins/{symbol.upper()}/overview",
+                    "source_str": (
+                        "USD"
+                        if has_usd_data
+                        else '<span style="color: var(--accent-orange);">BTC-only</span>'
+                    ),
+                    "quotes_str": ", ".join(quotes) if quotes else "N/A",
+                    "market_cap_str": _format_market_cap(market_cap, has_usd_data),
+                    "start_date": price_info.get("start_date", "N/A"),
+                    "end_date": price_info.get("end_date", "N/A"),
+                    "days": price_info.get("days", 0),
+                }
+            )
 
-        html += (
-            """                    </tbody>
-                </table>
-            </div>
-        </section>
+        # Pre-process skipped coins
+        skipped_processed = []
+        for coin in all_skipped:
+            reason = coin.get("reason", "Unknown")
+            skipped_processed.append(
+                {
+                    "symbol": coin.get("symbol", "N/A"),
+                    "name": coin.get("name", "N/A"),
+                    "url": coin.get("url", "#"),
+                    "reason": reason,
+                    "reason_class": _get_reason_class(reason),
+                }
+            )
 
-        <section id="skipped">
-            <h2>⏭️ Skipped / Failed ("""
-            + str(total_skipped)
-            + """)</h2>
-            <p class="section-description">
-                Coins excluded from analysis: stablecoins, wrapped/staked/bridged tokens, and coins without available trading pairs on CryptoCompare.
-                Click the coin name to view on CryptoCompare.
-            </p>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Symbol</th>
-                            <th>Name</th>
-                            <th>Reason</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-"""
+        return render_template(
+            "data_status.html",
+            back_link="index.html",
+            update_time=update_time,
+            coins_requested=coins_requested,
+            coins_with_usd=coins_with_usd,
+            coins_no_usd=coins_no_usd,
+            coins_no_usd_accepted=coins_no_usd_accepted,
+            total_accepted=total_accepted,
+            coins_with_data=coins_with_data,
+            total_skipped=total_skipped,
+            total_pairs=total_pairs,
+            coins_sorted=coins_sorted,
+            all_skipped=skipped_processed,
         )
 
-        for i, coin in enumerate(all_skipped, 1):
-            reason = coin.get("reason", "Unknown")
-            reason_class = "reason-wrapped"
-            if "BTC" in reason or "Bitcoin" in reason:
-                reason_class = "reason-btc"
-            elif "Stablecoin" in reason:
-                reason_class = "reason-stablecoin"
-            elif "historical" in reason.lower() or "Insufficient" in reason:
-                reason_class = "reason-history"
-            elif "CCCAGG" in reason or "pair" in reason.lower() or "market" in reason.lower():
-                reason_class = "reason-nopair"
-
-            html += f"""                        <tr>
-                            <td>{i}</td>
-                            <td class="coin-symbol">{coin.get('symbol', 'N/A')}</td>
-                            <td class="coin-name"><a href="{coin.get('url', '#')}" target="_blank">{coin.get('name', 'N/A')}</a></td>
-                            <td><span class="reason-badge {reason_class}">{reason}</span></td>
-                        </tr>
-"""
-
-        html += """                    </tbody>
-                </table>
-            </div>
-        </section>
-"""
-
-        html += f"""
-    </div>
-
-    {footer_html}
-</body>
-</html>
-"""
-
-        return html
-
     def _generate_index_html(self, max_weight_info: dict | None = None) -> str:
-        """
-        Generate the main index HTML page with simple navigation links.
-
-        Uses shared footer from visualization.charts for consistency across all pages.
-
-        Args:
-            max_weight_info: Optional dict with max_weight_change, coin, date, volume_outliers_corrected
-
-        Returns:
-            Complete HTML string for index.html
-        """
-        # Get shared footer components for consistency
+        """Generate the main index HTML page via Jinja2 template."""
         footer_css = _get_footer_css()
         footer_html = _get_footer_html()
 
-        # Extract stats for display in TOTAL2 buttons row
         volume_outliers = (
             max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
         )
@@ -745,353 +337,13 @@ class HtmlGenerator:
         total_corrections = len(volume_outliers) + len(price_events)
         total_coins = len(coin_statistics)
 
-        html = (
-            """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Halvix - Cryptocurrency Halving Cycle Analysis</title>
-    <style>
-        :root {
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --accent-orange: #f7931a;
-            --accent-blue: #58a6ff;
-            --accent-green: #3fb950;
-            --border-color: #30363d;
-            --button-height: 5.5rem;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            line-height: 1.6;
-        }
-
-        header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            padding: 1.5rem;
-            text-align: center;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .logo {
-            font-size: 2.5rem;
-            margin-bottom: 0.4rem;
-        }
-
-        h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            background: linear-gradient(90deg, var(--accent-orange), var(--accent-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .subtitle {
-            color: var(--text-secondary);
-            font-size: 1rem;
-            margin-top: 0.5rem;
-        }
-
-        main {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 3rem 2rem;
-        }
-
-        .nav-list {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .nav-list li a {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1.25rem 1.5rem;
-            min-height: var(--button-height);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            text-decoration: none;
-            color: var(--text-primary);
-            font-size: 1.1rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-
-        .nav-list li a:hover {
-            border-color: var(--accent-blue);
-            transform: translateX(4px);
-            background: var(--bg-primary);
-        }
-
-        .nav-list li a .icon {
-            font-size: 1.5rem;
-            width: 40px;
-            text-align: center;
-        }
-
-        .nav-list li a .description {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            font-weight: 400;
-            margin-top: 0.25rem;
-        }
-
-        .nav-list li a .link-content {
-            flex: 1;
-        }
-
-        .nav-list li a .arrow {
-            display: none;
-        }
-
-        .warning-box {
-            border-color: #f59e0b !important;
-            background: rgba(245, 158, 11, 0.1) !important;
-        }
-
-        .ok-box {
-            border-color: var(--accent-green) !important;
-            background: rgba(63, 185, 80, 0.1) !important;
-        }
-
-        .text-warning {
-            color: #f59e0b;
-        }
-
-        .text-ok {
-            color: var(--accent-green);
-        }
-
-        .text-muted {
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-        }
-
-        /* Info box (non-clickable) styling */
-        .info-box-container {
-            list-style: none;
-        }
-
-        .info-box {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1.25rem 1.5rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            color: var(--text-primary);
-        }
-
-        .info-box .icon {
-            font-size: 1.5rem;
-            width: 40px;
-            text-align: center;
-        }
-
-        .info-box .info-content {
-            flex: 1;
-        }
-
-        .info-box .info-title {
-            font-size: 1.1rem;
-            font-weight: 500;
-            margin-bottom: 0.25rem;
-        }
-
-        .info-box .info-description {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            font-weight: 400;
-        }
-
-        /* Horizontal button row for TOTAL2 buttons */
-        .total2-row {
-            display: flex;
-            gap: 1rem;
-            width: 100%;
-            list-style: none;
-            margin-top: 1rem;
-        }
-
-        .total2-row > li {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .total2-row li a {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 1rem 1.25rem;
-            min-height: var(--button-height);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            text-decoration: none;
-            color: var(--text-primary);
-            font-size: 0.95rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-
-        .total2-row li a:hover {
-            border-color: var(--accent-blue);
-            background: var(--bg-primary);
-        }
-
-        .total2-row li a .icon {
-            font-size: 1.25rem;
-            flex-shrink: 0;
-        }
-
-        .total2-row li a .link-content {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .total2-row li a .link-content > div:first-child {
-            font-size: 0.95rem;
-        }
-
-        .total2-row li a .description {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            font-weight: 400;
-            margin-top: 0.2rem;
-            line-height: 1.3;
-        }
-
-        .total2-row li a .arrow {
-            display: none;
-        }
-
-        """
-            + footer_css
-            + """
-
-        @media (max-width: 768px) {
-            h1 {
-                font-size: 1.5rem;
-            }
-
-            .nav-list li a {
-                padding: 1rem;
-                font-size: 1rem;
-            }
-
-            .total2-row {
-                flex-direction: column;
-            }
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="logo">📊</div>
-        <h1>Halvix</h1>
-        <p class="subtitle">Cryptocurrency Analysis Relative to Bitcoin Halving Cycles</p>
-    </header>
-
-    <main>
-        <ul class="nav-list">
-            <li>
-                <a href="data_status.html">
-                    <span class="icon">🔶</span>
-                    <div class="link-content">
-                        <div>Data Status</div>
-                        <div class="description">View downloaded coins, price data coverage, and skipped tokens</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-            <li>
-                <a href="charts/btc_charts.html">
-                    <span class="icon">₿</span>
-                    <div class="link-content">
-                        <div>Bitcoin Charts</div>
-                        <div class="description">BTC/USD normalized and absolute price across 4 halving cycles</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-        </ul>
-"""
-            + f"""
-        <ul class="total2-row">
-            <li>
-                <a href="charts/total2_charts.html">
-                    <span class="icon">📈</span>
-                    <div class="link-content">
-                        <div>TOTAL2 Charts</div>
-                        <div class="description">TOTAL2 index vs USD and BTC across 3 halving cycles</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-            <li>
-                <a href="charts/total2_composition.html">
-                    <span class="icon">🧩</span>
-                    <div class="link-content">
-                        <div>TOTAL2 Composition</div>
-                        <div class="description">Explore which coins make up TOTAL2 on any date</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-            <li>
-                <a href="total2_statistics.html">
-                    <span class="icon">📊</span>
-                    <div class="link-content">
-                        <div>TOTAL2 Statistics</div>
-                        <div class="description">{total_coins} coins tracked, {total_corrections} corrections</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-        </ul>
-
-        <ul class="nav-list" style="margin-top: 1rem;">
-            <li>
-                <a href="pattern_analysis.html">
-                    <span class="icon">🎯</span>
-                    <div class="link-content">
-                        <div>Cycle Pattern Analysis</div>
-                        <div class="description">Price target projections using trendlines, Fibonacci, and diminishing returns</div>
-                    </div>
-                    <span class="arrow">→</span>
-                </a>
-            </li>
-        </ul>
-    </main>
-
-    """
-            + footer_html
-            + """
-</body>
-</html>
-"""
+        return render_template(
+            "index.html",
+            footer_css=footer_css,
+            footer_html=footer_html,
+            total_coins=total_coins,
+            total_corrections=total_corrections,
         )
-        return html
 
     def _generate_total2_statistics_html(
         self,
@@ -1103,75 +355,7 @@ class HtmlGenerator:
         max_weight_change_date: str | None = None,
         index_type: str = "total2b",
     ) -> str:
-        """
-        Generate HTML page with TOTAL2 statistics including coin rankings.
-
-        Uses the shared HTML helpers from visualization.charts for consistent styling.
-        Includes sortable tables with JavaScript.
-
-        Args:
-            volume_outliers: List of volume outlier dicts
-            price_events: List of price event dicts (scaling for TOTAL2b, capping for TOTAL2)
-            coin_statistics: List of coin statistics dicts (ranked by days in TOTAL2)
-            max_weight_change: Maximum weight change percentage
-            max_weight_change_coin: Coin with maximum weight change
-            max_weight_change_date: Date of maximum weight change
-            index_type: "total2" or "total2b" - determines display text
-
-        Returns:
-            Complete HTML string for total2_statistics.html
-        """
-        # Build coin statistics table rows
-        coin_rows = ""
-        for stats in coin_statistics:
-            still_present = "✓" if stats["still_present"] else "✗"
-            still_class = "text-ok" if stats["still_present"] else "text-muted"
-            coin_rows += f"""
-            <tr>
-                <td class="number">{stats['rank']}</td>
-                <td><a href="{stats['url']}" target="_blank"><strong>{stats['coin_id']}</strong></a></td>
-                <td class="number">{stats['days_in_total2']:,}</td>
-                <td class="{still_class}">{still_present}</td>
-                <td>{stats['first_date']}</td>
-                <td class="number">{stats['first_price']:.8f}</td>
-                <td class="number">{stats['first_weight']:.2f}%</td>
-                <td>{stats['last_date']}</td>
-                <td class="number">{stats['last_price']:.8f}</td>
-                <td class="number">{stats['last_weight']:.2f}%</td>
-                <td class="number">{stats['min_price']:.8f}</td>
-                <td class="number">{stats['max_price']:.8f}</td>
-                <td class="number">{stats['min_weight']:.2f}%</td>
-                <td class="number">{stats['max_weight']:.2f}%</td>
-            </tr>"""
-
-        # Build volume outlier table rows
-        volume_rows = ""
-        for o in volume_outliers:
-            volume_rows += f"""
-            <tr>
-                <td><strong>{o['coin']}</strong></td>
-                <td>{o['date']}</td>
-                <td class="number">{o['original']:,.2f}</td>
-                <td class="number">{o['corrected']:,.2f}</td>
-                <td class="number">{o['ratio']:,.0f}x</td>
-            </tr>"""
-
-        # Build price events table rows
-        # Both total2 and total2b use 'change_factor' key for their events
-        price_rows = ""
-        for o in price_events:
-            factor = o.get("change_factor", 1.0)
-            factor_str = f"{factor:.1f}x" if factor > 1 else f"{factor:.2f}x"
-            price_rows += f"""
-            <tr>
-                <td><strong>{o['coin']}</strong></td>
-                <td>{o['date']}</td>
-                <td class="number">{o['original']:.6f}</td>
-                <td class="number">{o['corrected']:.6f}</td>
-                <td class="number">{factor_str}</td>
-                <td>{o.get('type', 'unknown')}</td>
-            </tr>"""
-
+        """Generate the TOTAL2 statistics HTML page via Jinja2 template."""
         # Set section content based on index type
         if index_type == "total2b":
             price_section_title = "Price Scaling Events"
@@ -1184,7 +368,6 @@ class HtmlGenerator:
             )
             price_corrected_header = "Scaled Price (BTC)"
         else:
-            # TOTAL2 (legacy)
             price_section_title = "Entry Warmup Capping"
             price_section_description = (
                 "<strong>TOTAL2 entry warmup:</strong> When a coin first enters TOTAL2, its price is capped "
@@ -1196,357 +379,34 @@ class HtmlGenerator:
             )
             price_corrected_header = "Capped Price (BTC)"
 
-        # Get shared CSS and HTML components
-        base_css = _get_base_css()
-        header_css = _get_header_css()
-        footer_css = _get_footer_css()
-        header_html = _get_header_html(back_link="index.html")
-        footer_html = _get_footer_html()
-
-        # Page-specific CSS for tables
-        page_css = """
-        main {
-            max-width: 1600px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        h2 {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .description {
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
-            line-height: 1.6;
-        }
-
-        .table-container {
-            overflow-x: auto;
-            margin-bottom: 2rem;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: var(--bg-secondary);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        th, td {
-            padding: 0.5rem 0.75rem;
-            text-align: center;
-            border-bottom: 1px solid var(--border-color);
-            white-space: nowrap;
-        }
-
-        th {
-            background: var(--bg-primary);
-            font-weight: 600;
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        th:hover {
-            background: var(--bg-secondary);
-            color: var(--accent-blue);
-        }
-
-        th.sorted-asc::after {
-            content: ' ▲';
-            color: var(--accent-blue);
-        }
-
-        th.sorted-desc::after {
-            content: ' ▼';
-            color: var(--accent-blue);
-        }
-
-        td.number {
-            font-family: 'SF Mono', Consolas, monospace;
-            text-align: center;
-            font-size: 0.85rem;
-        }
-
-        tr:hover {
-            background: rgba(88, 166, 255, 0.05);
-        }
-
-        .section {
-            margin-bottom: 3rem;
-        }
-
-        .section h2 {
-            margin-bottom: 0.5rem;
-        }
-
-        .text-ok {
-            color: var(--accent-green);
-            font-weight: bold;
-        }
-
-        .text-muted {
-            color: var(--text-secondary);
-        }
-
-        .text-warning {
-            color: #f59e0b;
-        }
-
-        a {
-            color: var(--accent-blue);
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        /* Warning/Info box at top */
-        .quality-box {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1.25rem 1.5rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            margin-bottom: 2rem;
-        }
-
-        .quality-box.warning-box {
-            border-color: #f59e0b;
-            background: rgba(245, 158, 11, 0.1);
-        }
-
-        .quality-box.ok-box {
-            border-color: var(--accent-green);
-            background: rgba(63, 185, 80, 0.1);
-        }
-
-        .quality-box .icon {
-            font-size: 1.5rem;
-        }
-
-        .quality-box .info-content {
-            flex: 1;
-        }
-
-        .quality-box .info-title {
-            font-size: 1.1rem;
-            font-weight: 500;
-            margin-bottom: 0.25rem;
-        }
-
-        .quality-box .info-description {
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-        }
-    """
-
-        # JavaScript for sortable tables
-        sort_js = """
-    <script>
-    function sortTable(table, columnIndex, isNumeric, isPercent) {
-        const tbody = table.querySelector('tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        const th = table.querySelectorAll('th')[columnIndex];
-        const isAsc = th.classList.contains('sorted-asc');
-
-        // Remove sort classes from all headers
-        table.querySelectorAll('th').forEach(h => {
-            h.classList.remove('sorted-asc', 'sorted-desc');
-        });
-
-        // Sort rows
-        rows.sort((a, b) => {
-            let aVal = a.cells[columnIndex].textContent.trim();
-            let bVal = b.cells[columnIndex].textContent.trim();
-
-            if (isPercent) {
-                aVal = parseFloat(aVal.replace('%', '')) || 0;
-                bVal = parseFloat(bVal.replace('%', '')) || 0;
-            } else if (isNumeric) {
-                aVal = parseFloat(aVal.replace(/,/g, '').replace('x', '')) || 0;
-                bVal = parseFloat(bVal.replace(/,/g, '').replace('x', '')) || 0;
-            } else if (aVal === '✓' || aVal === '✗') {
-                aVal = aVal === '✓' ? 1 : 0;
-                bVal = bVal === '✓' ? 1 : 0;
-            }
-
-            if (isAsc) {
-                return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-            } else {
-                return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-            }
-        });
-
-        // Update sort indicator
-        th.classList.add(isAsc ? 'sorted-desc' : 'sorted-asc');
-
-        // Re-append sorted rows
-        rows.forEach(row => tbody.appendChild(row));
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        // Make coin statistics table sortable
-        const coinTable = document.getElementById('coin-stats-table');
-        if (coinTable) {
-            coinTable.querySelectorAll('th').forEach((th, index) => {
-                th.addEventListener('click', () => {
-                    const numericCols = [0, 2, 5, 6, 8, 9, 10, 11, 12, 13];
-                    const percentCols = [6, 9, 12, 13];
-                    sortTable(coinTable, index, numericCols.includes(index), percentCols.includes(index));
-                });
-            });
-            // Default sort by days (column 2) descending
-            coinTable.querySelectorAll('th')[2].classList.add('sorted-desc');
-        }
-    });
-    </script>
-    """
-
-        # Build quality analysis box
-        quality_box_html = ""
+        # Build quality analysis box context
+        quality_box = None
         if max_weight_change is not None:
-            warning_class = "warning-box" if abs(max_weight_change) > 0.5 else "ok-box"
-            status_class = "text-warning" if abs(max_weight_change) > 0.5 else "text-ok"
-            status_text = (
-                "⚠️ Exceeds 0.5% threshold"
-                if abs(max_weight_change) > 0.5
-                else "✓ Within acceptable range"
-            )
-            quality_box_html = f"""
-        <div class="quality-box {warning_class}">
-            <span class="icon">📊</span>
-            <div class="info-content">
-                <div class="info-title">TOTAL2 Quality Analysis</div>
-                <div class="info-description">
-                    <strong>Max Weight Change:</strong> {max_weight_change:.4f}% for <strong>{max_weight_change_coin or 'N/A'}</strong> on {max_weight_change_date or 'N/A'}<br>
-                    <span class="{status_class}">{status_text}</span>
-                </div>
-            </div>
-        </div>
-        """
+            is_warning = abs(max_weight_change) > 0.5
+            quality_box = {
+                "max_weight_change": max_weight_change,
+                "coin": max_weight_change_coin or "N/A",
+                "date": max_weight_change_date or "N/A",
+                "warning_class": "warning-box" if is_warning else "ok-box",
+                "status_class": "text-warning" if is_warning else "text-ok",
+                "status_text": (
+                    "\u26a0\ufe0f Exceeds 0.5% threshold"
+                    if is_warning
+                    else "\u2713 Within acceptable range"
+                ),
+            }
 
-        html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TOTAL2 Statistics - Halvix</title>
-    <style>
-        {base_css}
-        {header_css}
-        {footer_css}
-        {page_css}
-    </style>
-</head>
-<body>
-    {header_html}
-
-    <main>
-        {quality_box_html}
-
-        <div class="section">
-            <h2>📊 Coins in TOTAL2 - Ranking by Days ({len(coin_statistics)} coins)</h2>
-            <p class="description">
-                Ranking of all coins that have appeared in TOTAL2, sorted by number of days present.
-                Click any column header to sort. Links go to CryptoCompare coin pages.
-            </p>
-
-            <div class="table-container">
-                <table id="coin-stats-table">
-                    <thead>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Coin</th>
-                            <th>Days</th>
-                            <th>Still In</th>
-                            <th>First Date</th>
-                            <th>First Price</th>
-                            <th>First Weight</th>
-                            <th>Last Date</th>
-                            <th>Last Price</th>
-                            <th>Last Weight</th>
-                            <th>Min Price</th>
-                            <th>Max Price</th>
-                            <th>Min Weight</th>
-                            <th>Max Weight</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {coin_rows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>🔧 Volume Outliers Corrected</h2>
-            <p class="description">
-                CryptoCompare occasionally has bad data points with impossible volume spikes.
-                These corrupt values are automatically detected using a rolling median of past 7 days,
-                and corrected using a capped average approach. A data point is flagged as an outlier
-                if its volume is &gt;20x the rolling median AND &gt;5,000 BTC.<br><br>
-                <strong>{len(volume_outliers)} corrections</strong> were applied.
-            </p>
-
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Coin</th>
-                            <th>Date</th>
-                            <th>Original Volume (BTC)</th>
-                            <th>Corrected Volume (BTC)</th>
-                            <th>Ratio</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {volume_rows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>📈 {price_section_title}</h2>
-            <p class="description">
-                {price_section_description}
-            </p>
-
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Coin</th>
-                            <th>Date</th>
-                            <th>Original Price (BTC)</th>
-                            <th>{price_corrected_header}</th>
-                            <th>Factor</th>
-                            <th>Type</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {price_rows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </main>
-
-    {footer_html}
-    {sort_js}
-</body>
-</html>
-"""
-        return html
+        return render_template(
+            "total2_statistics.html",
+            back_link="index.html",
+            coin_statistics=coin_statistics,
+            volume_outliers=volume_outliers,
+            price_events=price_events,
+            price_section_title=price_section_title,
+            price_section_description=price_section_description,
+            price_corrected_header=price_corrected_header,
+            quality_box=quality_box,
+        )
 
     # =========================================================================
     # Public Page Generation Methods

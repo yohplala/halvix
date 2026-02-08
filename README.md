@@ -2,14 +2,16 @@
 
 **Cryptocurrency price analysis relative to Bitcoin halving cycles.**
 
-Halvix analyzes cryptocurrency performance across BTC halving cycles, comparing each coin's price action against the TOTAL2 market index (volume-weighted index of top altcoins).
+Halvix analyzes cryptocurrency performance across BTC halving cycles (2nd through 5th), comparing each coin's price action against the TOTAL2b market index (volume-weighted index of top altcoins).
 
 ## Features
 
 - 📊 Retrieve and analyze top 1200 cryptocurrencies by market cap
-- 🔍 Filter out from download wrapped, staked, bridged tokens and stablecoins
-- 📉 Volume-weighted TOTAL2 index with 120-day SMA smoothing
-- 📈 Compare altcoins price performance across 2nd to 4th BTC halving cycles
+- 🔍 Filter out wrapped, staked, bridged tokens and stablecoins
+- 📉 Volume-weighted TOTAL2b index with 21-day freeze period and price scaling
+- 📈 Compare altcoin price performance across 2nd to 5th BTC halving cycles
+- 🎯 Cycle pattern analysis with 4 projection methods (trendline, Fibonacci, diminishing returns, historical peak)
+- 🏆 Composite ranking of altcoins by projected return with confidence scoring
 - 🎨 Interactive Plotly charts with normalized values
 - 🧩 Composition viewer to explore TOTAL2 makeup on any date
 
@@ -51,6 +53,7 @@ poetry run python -m main status
 - **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching, data pipeline
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
 - **[Pattern Analysis](docs/PATTERN_ANALYSIS.md)** - Cycle pattern analysis and price target projections
+- **[Identification Kernel](docs/IDENTIFICATION_KERNEL.md)** - Segment-based cycle point detection algorithm
 - **[Deployment](docs/DEPLOYMENT.md)** - Charts generation and GitHub Pages deployment workflow
 - **[Changelog](CHANGELOG.md)** - Version history and release notes
 

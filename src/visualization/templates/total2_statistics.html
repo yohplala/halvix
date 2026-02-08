@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+
+{% block title %}TOTAL2 Statistics - Halvix{% endblock %}
+
+{% block extra_styles %}
+main {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.description {
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+}
+
+.table-container {
+    overflow-x: auto;
+    margin-bottom: 2rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+th, td {
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+th {
+    background: var(--bg-primary);
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+}
+
+th:hover {
+    background: var(--bg-secondary);
+    color: var(--accent-blue);
+}
+
+th.sorted-asc::after {
+    content: ' \25b2';
+    color: var(--accent-blue);
+}
+
+th.sorted-desc::after {
+    content: ' \25bc';
+    color: var(--accent-blue);
+}
+
+td.number {
+    font-family: 'SF Mono', Consolas, monospace;
+    text-align: center;
+    font-size: 0.85rem;
+}
+
+tr:hover {
+    background: rgba(88, 166, 255, 0.05);
+}
+
+.section {
+    margin-bottom: 3rem;
+}
+
+.section h2 {
+    margin-bottom: 0.5rem;
+}
+
+.text-ok {
+    color: var(--accent-green);
+    font-weight: bold;
+}
+
+.text-muted {
+    color: var(--text-secondary);
+}
+
+.text-warning {
+    color: #f59e0b;
+}
+
+a {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Warning/Info box at top */
+.quality-box {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 2rem;
+}
+
+.quality-box.warning-box {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.quality-box.ok-box {
+    border-color: var(--accent-green);
+    background: rgba(63, 185, 80, 0.1);
+}
+
+.quality-box .icon {
+    font-size: 1.5rem;
+}
+
+.quality-box .info-content {
+    flex: 1;
+}
+
+.quality-box .info-title {
+    font-size: 1.1rem;
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.quality-box .info-description {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+{% endblock %}
+
+{% block content %}
+<main>
+    {% if quality_box %}
+    <div class="quality-box {{ quality_box.warning_class }}">
+        <span class="icon">&#x1f4ca;</span>
+        <div class="info-content">
+            <div class="info-title">TOTAL2 Quality Analysis</div>
+            <div class="info-description">
+                <strong>Max Weight Change:</strong> {{ "%.4f"|format(quality_box.max_weight_change) }}% for <strong>{{ quality_box.coin }}</strong> on {{ quality_box.date }}<br>
+                <span class="{{ quality_box.status_class }}">{{ quality_box.status_text }}</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <h2>Coins in TOTAL2 - Ranking by Days ({{ coin_statistics|length }} coins)</h2>
+        <p class="description">
+            Ranking of all coins that have appeared in TOTAL2, sorted by number of days present.
+            Click any column header to sort. Links go to CryptoCompare coin pages.
+        </p>
+
+        <div class="table-container">
+            <table id="coin-stats-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Coin</th>
+                        <th>Days</th>
+                        <th>Still In</th>
+                        <th>First Date</th>
+                        <th>First Price</th>
+                        <th>First Weight</th>
+                        <th>Last Date</th>
+                        <th>Last Price</th>
+                        <th>Last Weight</th>
+                        <th>Min Price</th>
+                        <th>Max Price</th>
+                        <th>Min Weight</th>
+                        <th>Max Weight</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stats in coin_statistics %}
+                    <tr>
+                        <td class="number">{{ stats.rank }}</td>
+                        <td><a href="{{ stats.url }}" target="_blank"><strong>{{ stats.coin_id }}</strong></a></td>
+                        <td class="number">{{ "{:,}".format(stats.days_in_total2) }}</td>
+                        <td class="{{ 'text-ok' if stats.still_present else 'text-muted' }}">{{ '\u2713' if stats.still_present else '\u2717' }}</td>
+                        <td>{{ stats.first_date }}</td>
+                        <td class="number">{{ "%.8f"|format(stats.first_price) }}</td>
+                        <td class="number">{{ "%.2f"|format(stats.first_weight) }}%</td>
+                        <td>{{ stats.last_date }}</td>
+                        <td class="number">{{ "%.8f"|format(stats.last_price) }}</td>
+                        <td class="number">{{ "%.2f"|format(stats.last_weight) }}%</td>
+                        <td class="number">{{ "%.8f"|format(stats.min_price) }}</td>
+                        <td class="number">{{ "%.8f"|format(stats.max_price) }}</td>
+                        <td class="number">{{ "%.2f"|format(stats.min_weight) }}%</td>
+                        <td class="number">{{ "%.2f"|format(stats.max_weight) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Volume Outliers Corrected</h2>
+        <p class="description">
+            CryptoCompare occasionally has bad data points with impossible volume spikes.
+            These corrupt values are automatically detected using a rolling median of past 7 days,
+            and corrected using a capped average approach. A data point is flagged as an outlier
+            if its volume is &gt;20x the rolling median AND &gt;5,000 BTC.<br><br>
+            <strong>{{ volume_outliers|length }} corrections</strong> were applied.
+        </p>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Coin</th>
+                        <th>Date</th>
+                        <th>Original Volume (BTC)</th>
+                        <th>Corrected Volume (BTC)</th>
+                        <th>Ratio</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in volume_outliers %}
+                    <tr>
+                        <td><strong>{{ o.coin }}</strong></td>
+                        <td>{{ o.date }}</td>
+                        <td class="number">{{ "{:,.2f}".format(o.original) }}</td>
+                        <td class="number">{{ "{:,.2f}".format(o.corrected) }}</td>
+                        <td class="number">{{ "{:,.0f}".format(o.ratio) }}x</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>{{ price_section_title }}</h2>
+        <p class="description">
+            {{ price_section_description }}
+        </p>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Coin</th>
+                        <th>Date</th>
+                        <th>Original Price (BTC)</th>
+                        <th>{{ price_corrected_header }}</th>
+                        <th>Factor</th>
+                        <th>Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in price_events %}
+                    {% set factor = o.get('change_factor', 1.0) %}
+                    <tr>
+                        <td><strong>{{ o.coin }}</strong></td>
+                        <td>{{ o.date }}</td>
+                        <td class="number">{{ "%.6f"|format(o.original) }}</td>
+                        <td class="number">{{ "%.6f"|format(o.corrected) }}</td>
+                        <td class="number">{{ "%.1f"|format(factor) if factor > 1 else "%.2f"|format(factor) }}x</td>
+                        <td>{{ o.get('type', 'unknown') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function sortTable(table, columnIndex, isNumeric, isPercent) {
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const th = table.querySelectorAll('th')[columnIndex];
+    const isAsc = th.classList.contains('sorted-asc');
+
+    // Remove sort classes from all headers
+    table.querySelectorAll('th').forEach(h => {
+        h.classList.remove('sorted-asc', 'sorted-desc');
+    });
+
+    // Sort rows
+    rows.sort((a, b) => {
+        let aVal = a.cells[columnIndex].textContent.trim();
+        let bVal = b.cells[columnIndex].textContent.trim();
+
+        if (isPercent) {
+            aVal = parseFloat(aVal.replace('%', '')) || 0;
+            bVal = parseFloat(bVal.replace('%', '')) || 0;
+        } else if (isNumeric) {
+            aVal = parseFloat(aVal.replace(/,/g, '').replace('x', '')) || 0;
+            bVal = parseFloat(bVal.replace(/,/g, '').replace('x', '')) || 0;
+        } else if (aVal === '\u2713' || aVal === '\u2717') {
+            aVal = aVal === '\u2713' ? 1 : 0;
+            bVal = bVal === '\u2713' ? 1 : 0;
+        }
+
+        if (isAsc) {
+            return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+        } else {
+            return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+        }
+    });
+
+    // Update sort indicator
+    th.classList.add(isAsc ? 'sorted-desc' : 'sorted-asc');
+
+    // Re-append sorted rows
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Make coin statistics table sortable
+    const coinTable = document.getElementById('coin-stats-table');
+    if (coinTable) {
+        coinTable.querySelectorAll('th').forEach((th, index) => {
+            th.addEventListener('click', () => {
+                const numericCols = [0, 2, 5, 6, 8, 9, 10, 11, 12, 13];
+                const percentCols = [6, 9, 12, 13];
+                sortTable(coinTable, index, numericCols.includes(index), percentCols.includes(index));
+            });
+        });
+        // Default sort by days (column 2) descending
+        coinTable.querySelectorAll('th')[2].classList.add('sorted-desc');
+    }
+});
+</script>
+{% endblock %}

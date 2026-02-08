@@ -14,6 +14,7 @@
 | **CryptoCompare API details** | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) |
 | **TOTAL2/TOTAL2b calculation** | [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md) |
 | **Cycle pattern analysis** | [docs/PATTERN_ANALYSIS.md](docs/PATTERN_ANALYSIS.md) |
+| **Identification kernel** | [docs/IDENTIFICATION_KERNEL.md](docs/IDENTIFICATION_KERNEL.md) |
 | **Deployment (GitHub Pages)** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
 ---
