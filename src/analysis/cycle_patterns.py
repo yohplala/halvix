@@ -1950,6 +1950,25 @@ class CyclePatternAnalyzer:
                 "days_from_halving": p.days_from_halving,
             }
 
+        def result_to_dict(r: CoinPatternResult) -> dict:
+            return {
+                "points": [point_to_dict(p) for p in r.points],
+                "num_cycles": r.num_cycles,
+                "current_price": r.current_price,
+                "current_date": r.current_date.isoformat() if r.current_date else None,
+                "pattern_type": r.pattern_type,
+                "trendline_target": r.trendline_target,
+                "trendline_target_pct": r.trendline_target_pct,
+                "fib_target": r.fib_target,
+                "fib_target_pct": r.fib_target_pct,
+                "dim_return_target": r.dim_return_target,
+                "dim_return_target_pct": r.dim_return_target_pct,
+                "hist_peak_target": r.hist_peak_target,
+                "hist_peak_target_pct": r.hist_peak_target_pct,
+                "hist_peak_is_absolute": r.hist_peak_is_absolute,
+                "composite_target_pct": r.composite_target_pct,
+            }
+
         data = {
             "generated_at": pd.Timestamp.now().isoformat(),
             "note": "Returns are calculated as % gain from current_price to target",
@@ -1958,54 +1977,25 @@ class CyclePatternAnalyzer:
         }
 
         if btc_result:
-            data["btc"] = {
-                "points": [point_to_dict(p) for p in btc_result.points],
-                "num_cycles": btc_result.num_cycles,
-                "current_price": btc_result.current_price,
-                "current_date": (
-                    btc_result.current_date.isoformat() if btc_result.current_date else None
-                ),
-                "pattern_type": btc_result.pattern_type,
-                "trendline_target": btc_result.trendline_target,
-                "trendline_target_pct": btc_result.trendline_target_pct,
-                "fib_target": btc_result.fib_target,
-                "fib_target_pct": btc_result.fib_target_pct,
-                "dim_return_target": btc_result.dim_return_target,
-                "dim_return_target_pct": btc_result.dim_return_target_pct,
-                "hist_peak_target": btc_result.hist_peak_target,
-                "hist_peak_target_pct": btc_result.hist_peak_target_pct,
-                "hist_peak_is_absolute": btc_result.hist_peak_is_absolute,
-                "composite_target_pct": btc_result.composite_target_pct,
-            }
+            data["btc"] = result_to_dict(btc_result)
 
         for coin_id, result in coin_results.items():
-            data["altcoins"][coin_id] = {
-                "points": [point_to_dict(p) for p in result.points],
-                "num_cycles": result.num_cycles,
-                "confidence": result.confidence,
-                "first_in_total2": (
-                    result.first_in_total2.isoformat() if result.first_in_total2 else None
-                ),
-                "last_in_total2": (
-                    result.last_in_total2.isoformat() if result.last_in_total2 else None
-                ),
-                "days_in_total2": result.days_in_total2,
-                "current_price": result.current_price,
-                "current_date": result.current_date.isoformat() if result.current_date else None,
-                "pattern_type": result.pattern_type,
-                "trendline_target": result.trendline_target,
-                "trendline_target_pct": result.trendline_target_pct,
-                "fib_target": result.fib_target,
-                "fib_target_pct": result.fib_target_pct,
-                "dim_return_target": result.dim_return_target,
-                "dim_return_target_pct": result.dim_return_target_pct,
-                "dim_return_factor": result.dim_return_factor,
-                "hist_peak_target": result.hist_peak_target,
-                "hist_peak_target_pct": result.hist_peak_target_pct,
-                "hist_peak_is_absolute": result.hist_peak_is_absolute,
-                "retracement_ratio": result.retracement_ratio,
-                "composite_target_pct": result.composite_target_pct,
-            }
+            d = result_to_dict(result)
+            d.update(
+                {
+                    "confidence": result.confidence,
+                    "first_in_total2": (
+                        result.first_in_total2.isoformat() if result.first_in_total2 else None
+                    ),
+                    "last_in_total2": (
+                        result.last_in_total2.isoformat() if result.last_in_total2 else None
+                    ),
+                    "days_in_total2": result.days_in_total2,
+                    "dim_return_factor": result.dim_return_factor,
+                    "retracement_ratio": result.retracement_ratio,
+                }
+            )
+            data["altcoins"][coin_id] = d
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)

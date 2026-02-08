@@ -2055,7 +2055,7 @@ class TestDiminishingReturnFloor:
         """Test that dim return floor clamps very low projected gains.
 
         Simulates a SOL-like scenario: enormous first-cycle gain -> tiny dim factor
-        -> projected gain < 0.1x -> should be floored to 0.1x.
+        -> projected gain < 1.0x -> should be floored to 1.0x (peak >= trough).
         """
         points = [
             # Cycle 3: 1000x gain (simulating launch from near-zero)
@@ -2104,8 +2104,8 @@ class TestDiminishingReturnFloor:
         assert target is not None
         assert factor is not None
         # dim factor = 5/1000 = 0.005 -> projected gain = 5 * 0.005 = 0.025x
-        # BUT floor should clamp to 0.1x, so target = latest_min * 0.1 = 0.0003
-        assert pytest.approx(target, rel=0.01) == 0.003 * 0.1
+        # BUT floor should clamp to 1.0x, so target = latest_min * 1.0 = 0.003
+        assert pytest.approx(target, rel=0.01) == 0.003 * 1.0
 
     def test_dim_return_normal_gains_unaffected(self, analyzer):
         """Test that normal gains (above floor) are not affected."""

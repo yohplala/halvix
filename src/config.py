@@ -675,10 +675,10 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
 # The dim returns model projects decreasing but still positive gains each cycle.
 # A projected gain < 1.0x (i.e., a loss from the cycle minimum) is nonsensical
 # for this model - it contradicts the "diminishing positive returns" concept.
-# When the projected gain falls below this floor, it is clamped to this value.
-# 0.1 = minimum 10% gain (1.1x from trough), letting the model express
-# pessimism when diminishing factors point to very low cycle gains.
-DIM_RETURN_MIN_GAIN_RATIO = 0.1
+# When the projected gain ratio (max/min) falls below this floor, it is clamped.
+# A gain ratio < 1.0 is structurally impossible (peak below trough), so the
+# floor must be at least 1.0 to keep projections meaningful.
+DIM_RETURN_MIN_GAIN_RATIO = 1.0
 
 # Fibonacci retracement filter: filters out coins that retraced too much of their
 # last cycle's gain (trough → peak).
@@ -901,10 +901,8 @@ def validate_config() -> None:
             )
 
     # Validate diminishing returns gain floor
-    if DIM_RETURN_MIN_GAIN_RATIO < 0:
-        errors.append(
-            f"DIM_RETURN_MIN_GAIN_RATIO must be non-negative: {DIM_RETURN_MIN_GAIN_RATIO}"
-        )
+    if DIM_RETURN_MIN_GAIN_RATIO < 1.0:
+        errors.append(f"DIM_RETURN_MIN_GAIN_RATIO must be >= 1.0: {DIM_RETURN_MIN_GAIN_RATIO}")
 
     # Validate retracement filter thresholds
     if not (0.0 < MIN_RETRACEMENT_LEVEL < 1.0):
