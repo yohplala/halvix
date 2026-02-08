@@ -1254,6 +1254,70 @@ class TestFindAllCyclePoints:
         assert len(max2_c4) == 1
         assert max2_c4[0].price == pytest.approx(73000.0, rel=0.01)
 
+    def test_min1_replaced_when_lower_point_before_max2(self, analyzer):
+        """min1 is replaced by a lower point when no min2 separates them.
+
+        OKB-like case: alternation rule suppresses min2, but the price
+        continues declining past min1 before the next peak. The true
+        cycle bottom is the lowest point before max2.
+        """
+        df = self._make_df(
+            [
+                # Segment H2-H3 — simple: one peak, one trough
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 c2
+                ("2018-12-15", 3200.0),  # min1 c3
+                # No max1(c3) → alternation rule: next segment skips min2
+                # Segment H3-H4
+                ("2020-05-12", 9000.0),
+                ("2022-06-15", 69000.0),  # max2 c3
+                ("2024-03-01", 15500.0),  # min1 c4 (within H3-H4 segment)
+                # Segment H4-H5: price continues declining past min1
+                ("2024-04-20", 14000.0),  # still declining
+                ("2025-01-01", 8000.0),  # true bottom — below min1!
+                ("2025-08-01", 73000.0),  # max2 c4 (big spike)
+                ("2026-01-01", 40000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min1(c4) should be replaced by the lower point at 8000
+        min1_c4 = [p for p in points if p.point_type == "min1" and p.cycle_num == 4]
+        assert len(min1_c4) == 1
+        assert min1_c4[0].price == pytest.approx(8000.0, rel=0.01)
+        assert min1_c4[0].date == date(2025, 1, 1)
+
+    def test_min1_not_replaced_when_min2_exists(self, analyzer):
+        """min1 is NOT replaced when a validated min2 separates them."""
+        df = self._make_df(
+            [
+                # Segment H2-H3 — with max1 → next segment CAN have min2
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),  # max2 c2
+                ("2018-12-15", 3200.0),  # min1 c3
+                ("2019-06-26", 13000.0),  # max1 c3
+                ("2020-03-18", 3800.0),  # COVID crash
+                # Segment H3-H4
+                ("2020-05-12", 9000.0),
+                ("2021-11-10", 69000.0),  # max2 c3
+                ("2022-11-21", 15500.0),  # min1 c4
+                ("2023-10-01", 30000.0),
+                ("2024-02-18", 50000.0),
+                ("2024-03-16", 73000.0),  # max1 c4
+                # Segment H4-H5 — price dips then peaks (min2 is validated)
+                ("2024-04-20", 55000.0),
+                ("2025-01-01", 5000.0),  # deep dip — but min2 IS validated
+                ("2025-08-01", 80000.0),  # max2 c4
+                ("2026-01-01", 40000.0),
+            ]
+        )
+        points = analyzer._find_all_cycle_points(df)
+
+        # min1(c4) should KEEP its original value (min2 exists between them)
+        min1_c4 = [p for p in points if p.point_type == "min1" and p.cycle_num == 4]
+        assert len(min1_c4) == 1
+        assert min1_c4[0].price == pytest.approx(15500.0, rel=0.01)
+
 
 # =============================================================================
 # Analyzer Integration Tests
