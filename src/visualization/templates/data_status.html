@@ -82,8 +82,6 @@ table {
     width: 100%;
     border-collapse: collapse;
     background: var(--bg-secondary);
-    border-radius: 8px;
-    overflow: hidden;
 }
 
 th, td {
@@ -258,9 +256,9 @@ table td:nth-child(3) {
                         <td>{{ loop.index }}</td>
                         <td class="coin-symbol">{{ coin.symbol }}</td>
                         <td class="coin-name"><a href="{{ coin.url }}" target="_blank">{{ coin.name }}</a></td>
-                        <td>{{ coin.source_str }}</td>
+                        <td>{{ coin.source_str | safe }}</td>
                         <td>{{ coin.quotes_str }}</td>
-                        <td class="market-cap">{{ coin.market_cap_str }}</td>
+                        <td class="market-cap">{{ coin.market_cap_str | safe }}</td>
                         <td class="date-range">{{ coin.start_date }}</td>
                         <td class="date-range">{{ coin.end_date }}</td>
                         <td class="days-count">{{ "{:,}".format(coin.days) }}</td>
