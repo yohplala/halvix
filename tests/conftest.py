@@ -232,7 +232,7 @@ def sample_result():
         }
     )
 
-    return Total2Result.create(
+    return Total2Result(
         index_df=index_df,
         composition_df=composition_df,
         coins_processed=2,

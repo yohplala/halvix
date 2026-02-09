@@ -59,12 +59,6 @@ class NoDataError(ProcessorError):
     pass
 
 
-class InsufficientDataError(ProcessorError):
-    """Raised when data exists but is insufficient for calculation."""
-
-    pass
-
-
 class IndexNotFoundError(ProcessorError):
     """Raised when a pre-computed index file cannot be found."""
 
@@ -72,19 +66,13 @@ class IndexNotFoundError(ProcessorError):
 
 
 @dataclass
-class IndexData:
-    """Core index data from TOTAL2/TOTAL2b calculation."""
+class Total2Result:
+    """Complete result of TOTAL2/TOTAL2b calculation."""
 
     index_df: pd.DataFrame  # Daily index values (date, total2_price, total_volume, coin_count)
     composition_df: (
         pd.DataFrame
     )  # Daily composition (date, rank, coin_id, volume, weight, price_btc)
-
-
-@dataclass
-class CalculationMetadata:
-    """Metadata and statistics from TOTAL2/TOTAL2b calculation."""
-
     coins_processed: int
     date_range: tuple[date, date]
     avg_coins_per_day: float
@@ -94,95 +82,6 @@ class CalculationMetadata:
     max_weight_change_date: date | None = None
     volume_outliers_corrected: list[dict] | None = None
     price_outliers_corrected: list[dict] | None = None
-
-
-@dataclass
-class Total2Result:
-    """
-    Complete result of TOTAL2/TOTAL2b calculation.
-
-    Composes IndexData and CalculationMetadata for a cleaner separation of concerns.
-    Provides backward-compatible access to all fields.
-    """
-
-    data: IndexData
-    metadata: CalculationMetadata
-
-    # Backward-compatible property accessors
-    @property
-    def index_df(self) -> pd.DataFrame:
-        return self.data.index_df
-
-    @property
-    def composition_df(self) -> pd.DataFrame:
-        return self.data.composition_df
-
-    @property
-    def coins_processed(self) -> int:
-        return self.metadata.coins_processed
-
-    @property
-    def date_range(self) -> tuple[date, date]:
-        return self.metadata.date_range
-
-    @property
-    def avg_coins_per_day(self) -> float:
-        return self.metadata.avg_coins_per_day
-
-    @property
-    def index_type(self) -> str:
-        return self.metadata.index_type
-
-    @property
-    def max_weight_change(self) -> float | None:
-        return self.metadata.max_weight_change
-
-    @property
-    def max_weight_change_coin(self) -> str | None:
-        return self.metadata.max_weight_change_coin
-
-    @property
-    def max_weight_change_date(self) -> date | None:
-        return self.metadata.max_weight_change_date
-
-    @property
-    def volume_outliers_corrected(self) -> list[dict] | None:
-        return self.metadata.volume_outliers_corrected
-
-    @property
-    def price_outliers_corrected(self) -> list[dict] | None:
-        return self.metadata.price_outliers_corrected
-
-    @classmethod
-    def create(
-        cls,
-        index_df: pd.DataFrame,
-        composition_df: pd.DataFrame,
-        coins_processed: int,
-        date_range: tuple[date, date],
-        avg_coins_per_day: float,
-        index_type: str = "total2",
-        max_weight_change: float | None = None,
-        max_weight_change_coin: str | None = None,
-        max_weight_change_date: date | None = None,
-        volume_outliers_corrected: list[dict] | None = None,
-        price_outliers_corrected: list[dict] | None = None,
-    ) -> "Total2Result":
-        """Factory method for backward-compatible creation."""
-        return cls(
-            data=IndexData(index_df=index_df, composition_df=composition_df),
-            metadata=CalculationMetadata(
-                coins_processed=coins_processed,
-                date_range=date_range,
-                avg_coins_per_day=avg_coins_per_day,
-                index_type=index_type,
-                max_weight_change=max_weight_change,
-                max_weight_change_coin=max_weight_change_coin,
-                max_weight_change_date=max_weight_change_date,
-                volume_outliers_corrected=volume_outliers_corrected,
-                price_outliers_corrected=price_outliers_corrected,
-            ),
-        )
 
 
 class BaseTotal2Processor(ABC):

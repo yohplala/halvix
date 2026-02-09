@@ -76,7 +76,7 @@ If min2 is **valid**:
 - Emit min2 as a point for the previous cycle
 
 If min2 is **invalid**:
-- When the previous segment had a max1 AND min2 fails, the max1 and max2 are adjacent peaks without a separating dip → merge them via `_merge_adjacent_maxes()`
+- When the previous segment had a max1 AND min2 fails, the max1 and max2 are adjacent peaks without a separating dip → merge them via `_merge_adjacent_maxes()`. The merged point is always **max2** (major type).
 - When no min2 exists between the previous min1 and current max2, check if the price went lower in that gap. If so, replace min1 with the lower point (`_replace_min1_if_lower`)
 
 #### Step 4: Find min1
@@ -97,10 +97,12 @@ The initial min1 search is bounded by the segment end (halving date). The true b
 
 #### Step 7: Merge mins (no max1 case)
 
-When no max1 is detected AND the previous segment also had no max1:
+When no max1 is detected in the current segment:
 - min2 and min1 are not separated by a high, so they merge
-- Keep the lower of min2/min1 as the new min1
-- When the previous segment DID have max1, min2 is structurally distinct and is preserved
+- Keep the lower of min2/min1 as the new min1 (major type)
+- Remove min2 from the points list
+
+This ensures that when a segment has only two extrema (no optional points), they are always the two **major** ones: max2 and min1. This is critical for projection methods (especially diminishing returns) that rely on min1→max2 pairs.
 
 ### Post-halving detection (current cycle)
 
@@ -109,6 +111,17 @@ After processing all inter-halving segments, the algorithm handles data beyond t
 1. **max2**: Maximum price since the last halving (provisional — cycle is ongoing)
 2. **min2**: If the previous segment had max1, searches [prev_max1_date, max2_date] for a dip, validated by Fibonacci retracement
 3. **min1**: Minimum price since max2 (provisional current-cycle trough)
+
+## Merge Invariant: Major Extrema Survive
+
+When an optional point (min2 or max1) is merged with its major counterpart, the result always keeps the **major type**:
+
+| Merge | Trigger | Surviving Type | Rule |
+|-------|---------|---------------|------|
+| max1 + max2 | No min2 separates them | **max2** | Keep the higher price |
+| min2 + min1 | No max1 separates them | **min1** | Keep the lower price |
+
+This guarantees that a segment with only two extrema always has the two structural (major) points: **max2** and **min1**. Projection methods — especially diminishing returns — rely on min1→max2 pairs across cycles.
 
 ## State Flow Between Segments
 

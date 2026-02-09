@@ -56,20 +56,25 @@ class CoinFilter:
        Downloads: BTC (needed for charting), all other coins
 
     2. For TOTAL2 (should_exclude_from_total2):
-       Excludes: BTC, stablecoins, wrapped/staked/bridged tokens, BTC derivatives
-       Includes: All coins including recent ones (for index immutability)
-
-    3. For INDIVIDUAL ANALYSIS:
-       Excludes: BTC (handled in fetcher after price data is downloaded)
+       Adds BTC exclusion on top of the download filter.
+       Includes: Recent coins (for index immutability)
 
     Maintains a list of skipped coins for export and review.
     """
+
+    # BTC derivative symbols derived from the wrapped/staked exclusion list
+    _btc_derivative_symbols = {s for s in EXCLUDED_WRAPPED_STAKED_IDS if "btc" in s}
 
     def __init__(self):
         self.skipped_coins: list[SkippedCoin] = []
         self._compiled_patterns = [
             re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS
         ]
+        self._btc_pattern = re.compile(r"btc|bitcoin", re.IGNORECASE)
+        self._derivative_pattern = re.compile(
+            r"wrapped|staked|bridged|liquid|synthetic|pegged|collateral|vault|yield",
+            re.IGNORECASE,
+        )
 
     def reset(self):
         """Clear the skipped coins list."""
@@ -177,37 +182,17 @@ class CoinFilter:
 
         combined = f"{coin_id_lower} {name_lower} {symbol_lower}"
 
-        # BTC patterns - use regex for consistent matching
-        btc_pattern = re.compile(r"btc|bitcoin", re.IGNORECASE)
-
-        # Derivative patterns - use regex for consistent matching
-        derivative_pattern = re.compile(
-            r"wrapped|staked|bridged|liquid|synthetic|pegged|collateral|vault|yield", re.IGNORECASE
-        )
-
-        has_btc = btc_pattern.search(combined) is not None
-        has_derivative = derivative_pattern.search(combined) is not None
+        has_btc = self._btc_pattern.search(combined) is not None
+        has_derivative = self._derivative_pattern.search(combined) is not None
 
         # If it has BTC in name AND derivative keyword, exclude it
         if has_btc and has_derivative:
             return True
 
-        # Check specific BTC derivative symbols
-        btc_derivative_symbols = {
-            "wbtc",
-            "tbtc",
-            "hbtc",
-            "renbtc",
-            "sbtc",
-            "fbtc",
-            "lbtc",
-            "solvbtc",
-            "clbtc",
-            "cbbtc",
-            "enzobtc",
-        }
-
-        return coin_id_lower in btc_derivative_symbols or symbol_lower in btc_derivative_symbols
+        return (
+            coin_id_lower in self._btc_derivative_symbols
+            or symbol_lower in self._btc_derivative_symbols
+        )
 
     def should_skip_download(
         self,
@@ -259,8 +244,7 @@ class CoinFilter:
         """
         Check if a token should be excluded from TOTAL2 calculation.
 
-        Excludes: BTC, stablecoins, wrapped/staked/bridged, BTC derivatives
-        Includes: Recent coins (for index immutability)
+        Adds BTC exclusion on top of should_skip_download checks.
 
         Args:
             coin_id: The coin ID (lowercase symbol)
@@ -273,27 +257,11 @@ class CoinFilter:
         coin_id_lower = coin_id.lower()
         symbol_lower = symbol.lower() if symbol else ""
 
-        # Check allowed list first
-        if self.is_allowed_token(coin_id, symbol):
-            return (False, "")
-
-        # Check if it's Bitcoin itself - excluded from TOTAL2
+        # BTC is always excluded from TOTAL2 (base currency)
         if coin_id_lower == "btc" or symbol_lower == "btc":
             return (True, "Bitcoin (base currency)")
 
-        # Check stablecoins
-        if self.is_stablecoin(coin_id, name, symbol):
-            return (True, "Stablecoin")
-
-        # Check wrapped/staked/bridged
-        if self.is_wrapped_or_staked(coin_id, name, symbol):
-            return (True, "Wrapped/Staked/Bridged token")
-
-        # Check BTC derivatives
-        if self.is_btc_derivative(coin_id, name, symbol):
-            return (True, "BTC derivative")
-
-        return (False, "")
+        return self.should_skip_download(coin_id, name, symbol)
 
     def get_coins_to_download(
         self,

@@ -292,30 +292,28 @@ def _add_fib_hint_lines(
     target_date: date,
     cycle5_display_date: date,
     current_cycle_num: int | None,
+    idx: dict[tuple[int, str], list],
+    cycles: list[int],
 ) -> None:
     """
-    Draw solid thin orange line connecting Fib A->B->C extrema.
+    Draw dashed thin orange line connecting Fib A->B->C extrema.
 
     Reconstructs the same A, B, C points used by _calculate_fib_extension:
     A = previous cycle min (prefer min1, fallback min2)
     B = previous cycle max2
     C = current cycle min1
+
+    A, B, C are shifted slightly downward to avoid visual overlap with
+    the diminishing-returns hint lines; the target (★) stays at true price.
     """
     if result.fib_target is None:
         return
 
-    valid_points = [p for p in result.points if p.price > 0]
-    cycles = sorted({p.cycle_num for p in valid_points})
     if len(cycles) < 2:
         return
 
     latest_cycle = max(cycles)
     prev_cycle = max(c for c in cycles if c < latest_cycle)
-
-    # Build local index for lookup
-    idx: dict[tuple[int, str], list] = {}
-    for p in valid_points:
-        idx.setdefault((p.cycle_num, p.point_type), []).append(p)
 
     # A = prev cycle min1, fallback min2
     a_point = None
@@ -341,13 +339,21 @@ def _add_fib_hint_lines(
     if current_cycle_num and latest_cycle == current_cycle_num:
         c_date = cycle5_display_date
 
+    # Shift A, B, C down slightly (log-scale) to separate from dim-return lines.
+    # ★ (target) stays at true price.
+    fib_y_shift = 0.90
     fig.add_trace(
         go.Scatter(
             x=[a_point.date, b_point.date, c_date, target_date],
-            y=[a_point.price, b_point.price, c_point.price, result.fib_target],
+            y=[
+                a_point.price * fib_y_shift,
+                b_point.price * fib_y_shift,
+                c_point.price * fib_y_shift,
+                result.fib_target,
+            ],
             mode="lines",
             name="Fib A→B→C→★",
-            line={"color": TARGET_COLORS["fibonacci"], "width": 1.5},
+            line={"color": TARGET_COLORS["fibonacci"], "width": 1.5, "dash": "dash"},
             showlegend=False,
             hoverinfo="skip",
         )
@@ -360,6 +366,8 @@ def _add_dim_return_hint_lines(
     target_date: date,
     cycle5_display_date: date,
     current_cycle_num: int | None,
+    idx: dict[tuple[int, str], list],
+    cycles: list[int],
 ) -> None:
     """
     Draw dotted purple lines connecting min-max pairs for diminishing returns.
@@ -372,23 +380,18 @@ def _add_dim_return_hint_lines(
         return
 
     valid_points = [p for p in result.points if p.price > 0]
-    cycles = sorted({p.cycle_num for p in valid_points})
-
-    # Build local index
-    idx: dict[tuple[int, str], list] = {}
-    for p in valid_points:
-        idx.setdefault((p.cycle_num, p.point_type), []).append(p)
 
     dim_color = TARGET_COLORS["diminishing"]
 
     # Draw min-max pair lines for each cycle that has both
+    # Prefer major types (min1, max2); fallback to minor (min2, max1)
     for cycle in cycles:
-        min_points = []
-        max_points = []
-        for pt in ("min1", "min2"):
-            min_points.extend(idx.get((cycle, pt), []))
-        for pt in ("max1", "max2"):
-            max_points.extend(idx.get((cycle, pt), []))
+        min_points = idx.get((cycle, "min1"), [])
+        if not min_points:
+            min_points = idx.get((cycle, "min2"), [])
+        max_points = idx.get((cycle, "max2"), [])
+        if not max_points:
+            max_points = idx.get((cycle, "max1"), [])
 
         if min_points and max_points:
             min_p = min(min_points, key=lambda p: p.price)
@@ -524,10 +527,7 @@ def _get_time_range() -> tuple[date, date]:
 
 def _add_halving_lines(fig: go.Figure, row: int = 1, col: int = 1) -> None:
     """Add vertical lines at halving dates."""
-    halvings = [HALVING_DATES[2], HALVING_DATES[3], HALVING_DATES[-1]]
-    labels = ["3rd Halving\n2020", "4th Halving\n2024", "5th Halving\n2028 (proj.)"]
-
-    for halving_date, _label in zip(halvings, labels, strict=False):
+    for halving_date in (HALVING_DATES[2], HALVING_DATES[3], HALVING_DATES[-1]):
         fig.add_vline(
             x=halving_date,
             line={"dash": "dot", "color": "rgba(200,200,200,0.4)", "width": 1.5},
@@ -645,15 +645,15 @@ def _create_pattern_chart(
     # Get cycle 5 approximated date for display
     cycle5_display_date = _get_cycle5_min1_display_date()
 
-    # Build index of max2 and min1 points by cycle for inter-cycle connections
-    max2_by_cycle = {}
-    min1_by_cycle = {}
-    current_cycle_num = None
+    # Build points index once for all chart helpers
+    idx: dict[tuple[int, str], list] = {}
     for p in valid_points:
-        if p.point_type == "max2":
-            max2_by_cycle[p.cycle_num] = p
-        elif p.point_type == "min1":
-            min1_by_cycle[p.cycle_num] = p
+        idx.setdefault((p.cycle_num, p.point_type), []).append(p)
+
+    # Derive max2/min1 lookups from the index for inter-cycle connections
+    max2_by_cycle = {k[0]: pts[0] for k, pts in idx.items() if k[1] == "max2"}
+    min1_by_cycle = {k[0]: pts[0] for k, pts in idx.items() if k[1] == "min1"}
+    current_cycle_num = None
 
     # Determine if the max cycle is the current cycle (has only min1)
     max_cycle = max(cycles) if cycles else 0
@@ -777,8 +777,12 @@ def _create_pattern_chart(
                 )
 
     # 3b. Add method hint lines (visual guides for projection methods)
-    _add_fib_hint_lines(fig, result, target_date, cycle5_display_date, current_cycle_num)
-    _add_dim_return_hint_lines(fig, result, target_date, cycle5_display_date, current_cycle_num)
+    _add_fib_hint_lines(
+        fig, result, target_date, cycle5_display_date, current_cycle_num, idx, cycles
+    )
+    _add_dim_return_hint_lines(
+        fig, result, target_date, cycle5_display_date, current_cycle_num, idx, cycles
+    )
 
     # 4. Add target predictions (stars + text label)
     targets = []

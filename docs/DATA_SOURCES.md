@@ -65,11 +65,11 @@ status = client.get_rate_limit_status()
 # Fallback minimum interval between requests (used if rate limit status unavailable)
 # The client dynamically checks /stats/rate/limit and adapts accordingly
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
-
-CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Max days per API request
 ```
 
 The `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` constant serves as a **conservative fallback**. The client's primary rate limiting is dynamic, checking the actual API quota status. When quota is available, it can make requests faster; when the status endpoint is unavailable, it falls back to the safe 5-second interval.
+
+**Note**: The CryptoCompare API allows up to 2000 days per request. This value is hardcoded in `src/api/cryptocompare.py`, not a config constant.
 
 ### Implementation Details
 
@@ -401,15 +401,9 @@ CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 # Free tier allows 10/sec (600/min), we use conservative fallback of 12/min (5 seconds between requests)
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12
-CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000  # Days per request
 
 # Coin fetching
 TOP_N_BY_MARKETCAP_TO_FETCH = 1200  # Request top 1200 coins by market cap
-
-# Retry configuration
-API_MAX_RETRIES = 5
-API_RETRY_MIN_WAIT = 1         # seconds
-API_RETRY_MAX_WAIT = 60        # seconds
 
 # Data completeness - this is a fixed constant ensuring only complete daily data is fetched
 USE_YESTERDAY_AS_END_DATE = True

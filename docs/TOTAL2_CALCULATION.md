@@ -1,64 +1,35 @@
-# TOTAL2 Index Calculation
+# TOTAL2b Index Calculation
 
 **[← Back to README](../README.md)**
 
 ---
 
-> **TOTAL2** is a volume-weighted market index representing the cryptocurrency market excluding Bitcoin. This document describes how Halvix calculates the TOTAL2 index, including both the legacy (TOTAL2) and new (TOTAL2b) methodologies.
+> **TOTAL2b** is a volume-weighted market index representing the cryptocurrency market excluding Bitcoin. This document describes how Halvix calculates the TOTAL2b index.
 
 ## Overview
 
-TOTAL2 provides a benchmark to compare individual coin performance against the overall altcoin market. Unlike a simple average, TOTAL2 is **volume-weighted**, meaning coins with higher trading volume have proportionally more influence on the index.
+TOTAL2b provides a benchmark to compare individual coin performance against the overall altcoin market. Unlike a simple average, TOTAL2b is **volume-weighted**, meaning coins with higher trading volume have proportionally more influence on the index.
 
 **Key features:**
 - Volume smoothing using Simple Moving Average (SMA) to reduce daily volatility
 - Vectorized calculation for efficient processing
 - Support for both BTC and USD denominated prices
-- **Two calculation methodologies**: Legacy (TOTAL2) and New (TOTAL2b)
-
-## TOTAL2 vs TOTAL2b
-
-Halvix supports two methodologies for calculating the index:
-
-| Feature | TOTAL2 (Legacy) | TOTAL2b (New, Default) |
-|---------|-----------------|------------------------|
-| **Volume smoothing** | 120-day SMA with zero-padding | 120-day SMA with zero-padding |
-| **Volume outlier correction** | ✓ Yes | ✓ Yes |
-| **New coin integration** | 21-day entry warmup (post-entry) | 21-day freeze period (pre-entry) |
-| **Price adjustment (post-entry)** | Cap price changes during warmup | Scale by TOTAL2b_d-1/COIN_PRICE_d |
-| **Symbol replacement detection** | ✗ No | ✓ Yes (>30x price jump resets first_seen) |
-| **TOTAL2 series smoothing** | ✓ Yes (caps extreme movements) | ✗ No |
-
-### Entry Timing Comparison
-
-Both methodologies use a **21-day period** but apply it differently:
-
-| Aspect | TOTAL2 (Legacy) | TOTAL2b (New) |
-|--------|-----------------|---------------|
-| **When** | After coin enters TOP30 | After first appearance on CryptoCompare (or after symbol replacement) |
-| **Mechanism** | Entry warmup: cap price changes | Freeze period: coin not eligible for inclusion, cannot enter TOP30 |
-| **Duration** | `TOTAL2_ENTRY_WARMUP_PERIOD_DAYS` (21 days) | `TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS` (21 days) |
-| **Effect** | Prevent index spikes from extreme prices | Ensure stable data before inclusion |
-| **Symbol replacement** | Not handled | Resets first_seen date, restarts freeze period |
-
-### When to Use Each
-
-- **TOTAL2b (default)**: Recommended for new analyses, as this index is no longer distorted by coin entries with high absolute price values.
-- **TOTAL2 (legacy)**: For backward compatibility with existing analyses.
+- Freeze period + price scaling for smooth new coin integration
+- Symbol replacement detection (>30x price jump resets first_seen)
 
 ## Configuration
 
-The TOTAL2 calculation uses these key variables from `src/config.py`:
+The TOTAL2b calculation uses these key variables from `src/config.py`:
 
 ```python
-# Number of top coins to use for TOTAL2 calculation
+# Number of top coins to use for TOTAL2b calculation
 TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
 
 # Minimum coins required to calculate index for a day
 # If fewer coins have valid data, that day's index value is NaN
 TOTAL2_MIN_COINS_FOR_INDEX = 3
 
-# Volume smoothing window for TOTAL2 calculation (days)
+# Volume smoothing window for TOTAL2b calculation (days)
 # Uses Simple Moving Average to smooth out daily volume spikes
 # 120 days (~4 months) provides stable ranking and reduces max weight change
 VOLUME_SMA_WINDOW = 120
@@ -68,15 +39,6 @@ QUOTE_CURRENCIES = ["BTC", "USD"]
 
 # Default quote currency for analysis
 DEFAULT_QUOTE_CURRENCY = "BTC"
-```
-
-Additional configuration for **TOTAL2 (legacy)** in `src/config.py`:
-
-```python
-# TOTAL2 entry warmup settings (post-entry monitoring)
-TOTAL2_ENTRY_MAX_INCREASE = 1.7    # Threshold for tracking large increases (70% gain)
-TOTAL2_ENTRY_MAX_DECREASE = 0.5    # Threshold for tracking large decreases (50% loss)
-TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # Monitor for first 21 days after entry
 ```
 
 Additional configuration for **TOTAL2b** in `src/config.py`:
@@ -96,13 +58,13 @@ TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 30  # 30x price change indicates symbol s
 
 ## Calculation Algorithm
 
-### Daily TOTAL2 Value
+### Daily TOTAL2b Value
 
-For **each day** in the analysis window, TOTAL2 is calculated as follows:
+For **each day** in the analysis window, TOTAL2b is calculated as follows:
 
 ```
-TOTAL2(day) = Σ(price[i] × smoothed_volume[i]) / Σ(smoothed_volume[i])
-              for i in top N coins by smoothed volume on that day
+TOTAL2b(day) = Σ(price[i] × smoothed_volume[i]) / Σ(smoothed_volume[i])
+               for i in top N coins by smoothed volume on that day
 ```
 
 Where:
@@ -110,7 +72,7 @@ Where:
 - `smoothed_volume[i]` = 120-day SMA of 24h trading volume
 - `N` = `TOP_N_BY_VOLUME_FOR_TOTAL2` (default: 30)
 
-### Volume Smoothing (Shared)
+### Volume Smoothing
 
 Volume can change dramatically from one day to the next. To provide a more stable ranking, we apply a **120-day Simple Moving Average (SMA)** to the volume data:
 
@@ -118,7 +80,7 @@ Volume can change dramatically from one day to the next. To provide a more stabl
 smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day])
 ```
 
-### Zero-Padding of 24h Volume (Shared)
+### Zero-Padding of 24h Volume
 
 **Problem:** When a coin starts trading (first day of data), it could immediately have high volume and jump into the TOP30 with significant weight.
 
@@ -131,12 +93,12 @@ smoothed_volume[day] = average(volume[day-119], volume[day-118], ..., volume[day
 **Implementation detail (`zero_pad=True`):**
 - When `zero_pad=True` (default), the SMA treats missing values as zeros, causing new coins to enter gradually
 - When `zero_pad=False`, the SMA only uses available data, which could allow immediate high weight entries
-- The TOTAL2/TOTAL2b calculation always uses `zero_pad=True` to ensure gradual entry
+- The TOTAL2b calculation always uses `zero_pad=True` to ensure gradual entry
 
 **Daily Weight Recalculation:**
 Weights are recalculated daily based on the smoothed volume for that day. A coin's weight = `smoothed_volume[coin] / sum(smoothed_volume[top_N_coins])`. This means a coin's influence on the index changes as its relative volume changes over time.
 
-### Volume Outlier Detection (Shared)
+### Volume Outlier Detection
 
 CryptoCompare occasionally has bad data points with impossible volume spikes. These are automatically detected and corrected.
 
@@ -151,7 +113,7 @@ CryptoCompare occasionally has bad data points with impossible volume spikes. Th
 
 ---
 
-## TOTAL2b Algorithm (New, Default)
+## TOTAL2b Algorithm
 
 TOTAL2b uses a price scaling mechanism which makes it resistant to distortion because of coin entry with large prices:
 
@@ -204,10 +166,6 @@ Where:
 - Applies only when index already has 30+ coins (established baseline)
 - Persistent: once applied, the scaling factor remains for all subsequent days
 
-### 4. No TOTAL2 Series Smoothing
-
-TOTAL2b does **not** apply TOTAL2 series smoothing (capping extreme index movements). The freeze period, symbol replacement detection, and price scaling provide sufficient protection against entry spikes, making additional smoothing unnecessary.
-
 ### Algorithm Summary
 
 ```python
@@ -226,73 +184,22 @@ for each day:
 
 ---
 
-## TOTAL2 Algorithm (Legacy)
-
-TOTAL2 (legacy) uses entry warmup price capping and TOTAL2 series smoothing:
-
-### 1. Entry Warmup (Price Capping)
-
-When a new coin enters the TOP30, its price is **capped** during a **21-day warmup period** to prevent artificial spikes in the index.
-
-**Mechanism:**
-1. On entry day: Baseline is set to the **TOTAL2 value from the previous day** (market level)
-2. Each subsequent day: Cap price changes relative to the previous day's **capped price**
-3. The coin's price contribution gradually converges to its actual price over the warmup period
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| **Max Increase** | 1.7x (70% gain) | Cap price increases at this factor |
-| **Max Decrease** | 0.5x (50% loss) | Cap price decreases at this factor |
-| **Duration** | 21 days | Warmup capping period |
-
-**Example - ZEC entering on 2016-10-28:**
-- Day 0 (before): Baseline = TOTAL2 value (~0.01 BTC)
-- Day 1: Actual 27.8 BTC → **Capped at** 1.7x = 0.017 BTC
-- Day 2: Actual 2.79 BTC → **Capped at** 1.7x = 0.029 BTC
-- ... converges to actual price (~1-2 BTC) in ~9 days
-
-### 2. TOTAL2 Series Smoothing
-
-Extreme day-over-day movements in the **aggregate TOTAL2 index** are capped:
-- **Increases > 200%**: Capped at 3x the previous day's value
-- **Decreases > 65%**: Floored at 0.35x the previous day's value
-
-This prevents the index from having extreme jumps when coins with unusual prices enter or exit.
-
-### 3. Two-Pass Algorithm
-
-```python
-# Pass 1: Calculate Raw TOTAL2 (to get baseline for entry capping)
-raw_total2 = calculate_weighted_average(close_df, smoothed_volume_df, mask_df)
-
-# Apply entry warmup: CAP prices for coins during warmup period
-capped_close_df, warmup_events = apply_entry_warmup_capping(close_df, raw_total2, mask_df)
-
-# Pass 2: Recalculate TOTAL2 with capped prices
-total2_series = calculate_weighted_average(capped_close_df, smoothed_volume_df, mask_df)
-
-# Apply TOTAL2 series smoothing (cap extreme day-over-day movements in aggregate)
-smoothed_total2 = apply_series_smoothing(total2_series)
-```
-
----
-
 ## Max Weight Change Tracking
 
-**Purpose:** Ensure that TOTAL2 curve variations reflect actual price movements rather than sudden changes in coin weights.
+**Purpose:** Ensure that TOTAL2b curve variations reflect actual price movements rather than sudden changes in coin weights.
 
 **Implementation:**
-- Calculate daily weight change for each coin in TOTAL2
+- Calculate daily weight change for each coin in TOTAL2b
 - Track the maximum absolute change
-- Only track after **2016-07-04** when TOTAL2 first has 30 coins
+- Only track after **2016-07-04** when the index first has 30 coins
 - Log a warning if max change exceeds 0.5%
 
 ---
 
 ## Dynamic Composition
 
-The coins included in TOTAL2 change day by day based on trading volume rankings:
-- A coin might be #25 one day and #35 the next (dropping out of TOTAL2)
+The coins included in TOTAL2b change day by day based on trading volume rankings:
+- A coin might be #25 one day and #35 the next (dropping out of TOTAL2b)
 - New coins can enter the index as they gain trading activity
 - This reflects actual market dynamics
 
@@ -310,10 +217,10 @@ Halvix saves the daily composition to `data/processed/total2_daily_composition.p
 
 ## Exclusions
 
-### Excluded from TOTAL2 (Both Versions)
+### Excluded from TOTAL2b
 
 #### Bitcoin (BTC)
-- **BTC** is excluded as the base currency (TOTAL2 represents the altcoin market)
+- **BTC** is excluded as the base currency (TOTAL2b represents the altcoin market)
 
 #### Derivatives (no independent price action)
 - **Wrapped tokens**: wBTC, wETH, wSOL, wBNB
@@ -337,11 +244,11 @@ Some tokens with pattern-matching names are explicitly allowed:
 
 | File | Format | Description |
 |------|--------|-------------|
-| `data/processed/total2_index.parquet` | Parquet | Daily TOTAL2 values |
+| `data/processed/total2_index.parquet` | Parquet | Daily TOTAL2b values |
 | `data/processed/total2_daily_composition.parquet` | Parquet | Which coins were in top N each day |
 | `data/processed/total2_max_weight_change.json` | JSON | Statistics and outlier corrections |
 
-### TOTAL2 Index Schema
+### TOTAL2b Index Schema
 
 ```
 date: datetime (index)
@@ -369,9 +276,6 @@ price_btc: float        # Price in BTC on that day
 # Calculate TOTAL2b (default, recommended)
 python -m main calculate-total2
 
-# Calculate legacy TOTAL2
-python -m main calculate-total2 --index-type total2
-
 # Custom parameters
 python -m main calculate-total2 --top-n 100 --volume-sma 7 --quote-currency USD
 
@@ -383,7 +287,6 @@ python -m main generate-cycle-charts
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--index-type` | `total2b` | Index type: `total2` (legacy) or `total2b` (new) |
 | `--top-n` | 30 | Number of coins in index |
 | `--volume-sma` | 120 | Days for volume SMA smoothing |
 | `--quote-currency` | BTC | Quote currency for prices |
@@ -399,8 +302,7 @@ The processor code is organized into modules:
 src/data/
 ├── processor.py           # Re-exports and factory function
 ├── processor_base.py      # BaseTotal2Processor (shared algorithms)
-├── processor_total2.py    # Total2Processor (legacy)
-├── processor_total2b.py   # Total2bProcessor (new)
+├── processor_total2b.py   # Total2bProcessor
 └── price_filters.py       # Common filtering tools (shared with pattern analysis)
 ```
 
@@ -408,7 +310,7 @@ src/data/
 
 The volume outlier detection and SMA smoothing algorithms are implemented as standalone functions in `src/data/price_filters.py`. These are used by:
 
-- **TOTAL2/TOTAL2b calculation**: via `processor_base.py`
+- **TOTAL2b calculation**: via `processor_base.py`
 - **Pattern analysis**: via `cycle_patterns.py`
 
 This ensures consistent data quality across all analysis modules.
@@ -422,13 +324,13 @@ This ensures consistent data quality across all analysis modules.
 | `apply_volume_corrections_to_dataframe()` | Apply corrections to a DataFrame of multiple coins |
 | `apply_volume_sma_smoothing_to_dataframe()` | Apply smoothing to a DataFrame of multiple coins |
 
-### Using the Processors
+### Using the Processor
 
 ```python
-from data.processor import get_processor, Total2Processor, Total2bProcessor
+from data.processor import get_processor, Total2bProcessor
 
 # Use factory function (recommended)
-processor = get_processor("total2b")  # or "total2"
+processor = get_processor("total2b")
 result = processor.calculate_total2()
 
 # Direct instantiation
@@ -441,7 +343,7 @@ processor = Total2bProcessor(
 
 ### Total2Result
 
-Both processors return a `Total2Result` dataclass:
+The processor returns a `Total2Result` dataclass:
 
 ```python
 @dataclass
@@ -455,8 +357,8 @@ class Total2Result:
     max_weight_change_coin: str | None
     max_weight_change_date: date | None
     volume_outliers_corrected: list[dict] | None
-    price_outliers_corrected: list[dict] | None  # Or scaling events for TOTAL2b
-    index_type: str                  # "total2" or "total2b"
+    price_outliers_corrected: list[dict] | None  # Scaling events
+    index_type: str                  # "total2b"
 ```
 
 ---

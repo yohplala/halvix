@@ -1,8 +1,8 @@
 """
-Tests for TOTAL2 and TOTAL2b processors.
+Tests for TOTAL2b processor.
 
 Tests cover:
-- Volume-weighted TOTAL2/TOTAL2b calculation logic
+- Volume-weighted TOTAL2b calculation logic
 - Daily composition tracking
 - Filtering for TOTAL2 eligibility
 - TOTAL2b freeze period and price scaling
@@ -23,7 +23,6 @@ from data.price_filters import detect_symbol_replacement
 from data.processor import (
     ProcessorError,
     Total2bProcessor,
-    Total2Processor,
     Total2Result,
     get_processor,
 )
@@ -31,11 +30,6 @@ from data.processor import (
 
 class TestProcessorFactory:
     """Tests for the get_processor factory function."""
-
-    def test_get_total2_processor(self):
-        """Test factory returns Total2Processor for 'total2'."""
-        processor = get_processor("total2")
-        assert isinstance(processor, Total2Processor)
 
     def test_get_total2b_processor(self):
         """Test factory returns Total2bProcessor for 'total2b'."""
@@ -51,30 +45,6 @@ class TestProcessorFactory:
         """Test factory raises ValueError for unknown type."""
         with pytest.raises(ValueError, match="Unknown index type"):
             get_processor("invalid")
-
-
-class TestTotal2ProcessorInit:
-    """Tests for Total2Processor initialization."""
-
-    def test_default_initialization(self):
-        """Test processor initializes with defaults."""
-        from config import TOP_N_BY_VOLUME_FOR_TOTAL2
-
-        processor = Total2Processor()
-
-        assert processor.price_cache is not None
-        assert processor.coin_filter is not None
-        assert processor.top_n == TOP_N_BY_VOLUME_FOR_TOTAL2
-
-    def test_custom_top_n(self):
-        """Test processor with custom top_n."""
-        processor = Total2Processor(top_n=25)
-        assert processor.top_n == 25
-
-    def test_index_type(self):
-        """Test processor has correct index type."""
-        processor = Total2Processor()
-        assert processor.INDEX_TYPE == "total2"
 
 
 class TestTotal2bProcessorInit:
@@ -105,70 +75,6 @@ class TestTotal2bProcessorInit:
         """Test processor has correct index type."""
         processor = Total2bProcessor()
         assert processor.INDEX_TYPE == "total2b"
-
-
-class TestTotal2FilterCoins:
-    """Tests for coin filtering for TOTAL2 (shared by both processors)."""
-
-    @pytest.fixture
-    def processor(self):
-        return Total2Processor()
-
-    def test_filters_bitcoin(self, processor):
-        """Test that Bitcoin is filtered out."""
-        coins = ["btc", "eth", "sol"]
-        filtered = processor.filter_coins_for_total2(coins)
-
-        assert "btc" not in filtered
-        assert "eth" in filtered
-        assert "sol" in filtered
-
-    def test_filters_wrapped_tokens(self, processor):
-        """Test that wrapped tokens are filtered out."""
-        coins = ["eth", "wbtc", "steth", "sol"]
-        filtered = processor.filter_coins_for_total2(coins)
-
-        assert "eth" in filtered
-        assert "wbtc" not in filtered
-        assert "steth" not in filtered
-        assert "sol" in filtered
-
-    def test_filters_stablecoins(self, processor):
-        """Test that stablecoins are filtered out."""
-        coins = ["eth", "usdt", "usdc", "sol"]
-        filtered = processor.filter_coins_for_total2(coins)
-
-        assert "eth" in filtered
-        assert "usdt" not in filtered
-        assert "usdc" not in filtered
-        assert "sol" in filtered
-
-
-class TestTotal2Calculation:
-    """Tests for volume-weighted TOTAL2 calculation logic.
-
-    Uses shared fixtures from conftest.py: temp_dir, sample_price_data.
-    """
-
-    def test_full_calculation_pipeline(self, temp_dir, sample_price_data):
-        """Test full TOTAL2 calculation."""
-        cache = PriceDataCache(prices_dir=temp_dir)
-        for coin_id, df in sample_price_data.items():
-            cache.set_prices(coin_id, df)
-
-        processor = Total2Processor(price_cache=cache, top_n=3, volume_sma_window=2)
-
-        result = processor.calculate_total2(show_progress=False)
-
-        assert isinstance(result, Total2Result)
-        assert result.coins_processed == 3
-        assert result.index_type == "total2"
-        assert len(result.index_df) >= 3
-        assert not result.composition_df.empty
-
-        assert "total2_price" in result.index_df.columns
-        assert "total_volume" in result.index_df.columns
-        assert "coin_count" in result.index_df.columns
 
 
 class TestTotal2bCalculation:
@@ -248,14 +154,14 @@ class TestTotal2bCalculation:
 
 
 class TestTotal2SaveLoad:
-    """Tests for saving and loading TOTAL2 results.
+    """Tests for saving and loading TOTAL2b results.
 
     Uses shared fixtures from conftest.py: temp_dir, sample_result.
     """
 
     def test_save_and_load_index(self, temp_dir, sample_result):
-        """Test saving and loading TOTAL2 index."""
-        processor = Total2Processor()
+        """Test saving and loading TOTAL2b index."""
+        processor = Total2bProcessor()
 
         index_path = temp_dir / "total2_index.parquet"
         comp_path = temp_dir / "total2_composition.parquet"
@@ -276,8 +182,8 @@ class TestTotal2SaveLoad:
             )
 
 
-class TestTotal2EdgeCases:
-    """Tests for edge cases in TOTAL2 calculation.
+class TestTotal2bEdgeCases:
+    """Tests for edge cases in TOTAL2b calculation.
 
     Uses shared fixtures from conftest.py: temp_dir.
     """
@@ -285,7 +191,7 @@ class TestTotal2EdgeCases:
     def test_no_cached_data_raises_error(self, temp_dir):
         """Test that empty cache raises appropriate error."""
         cache = PriceDataCache(prices_dir=temp_dir)
-        processor = Total2Processor(price_cache=cache)
+        processor = Total2bProcessor(price_cache=cache)
 
         with pytest.raises(ProcessorError, match="No price data available"):
             processor.calculate_total2(show_progress=False)
@@ -294,17 +200,17 @@ class TestTotal2EdgeCases:
         """Test error when all coins are filtered out."""
         cache = PriceDataCache(prices_dir=temp_dir)
 
-        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        dates = pd.date_range("2024-01-01", periods=30, freq="D")
         wbtc_data = pd.DataFrame(
             {
-                "close": [1.0, 1.0, 1.0],
-                "volume_to": [1000, 1000, 1000],
+                "close": [1.0] * 30,
+                "volume_to": [1000] * 30,
             },
             index=dates,
         )
         cache.set_prices("wbtc", wbtc_data)
 
-        processor = Total2Processor(price_cache=cache)
+        processor = Total2bProcessor(price_cache=cache, freeze_period_days=5)
 
         with pytest.raises(ProcessorError, match="No eligible coins"):
             processor.calculate_total2(show_progress=False)
@@ -313,25 +219,25 @@ class TestTotal2EdgeCases:
         """Test calculation when fewer coins than top_n are available."""
         cache = PriceDataCache(prices_dir=temp_dir)
 
-        dates = pd.date_range("2024-01-01", periods=5, freq="D")
+        dates = pd.date_range("2024-01-01", periods=30, freq="D")
         eth_data = pd.DataFrame(
             {
-                "close": [0.05, 0.051, 0.052, 0.053, 0.054],
-                "volume_to": [10000, 10500, 11000, 11500, 12000],
+                "close": [0.05 + i * 0.0001 for i in range(30)],
+                "volume_to": [10000 + i * 50 for i in range(30)],
             },
             index=dates,
         )
         sol_data = pd.DataFrame(
             {
-                "close": [0.003, 0.0031, 0.0032, 0.0033, 0.0034],
-                "volume_to": [2000, 2100, 2200, 2300, 2400],
+                "close": [0.003 + i * 0.00001 for i in range(30)],
+                "volume_to": [2000 + i * 30 for i in range(30)],
             },
             index=dates,
         )
         ada_data = pd.DataFrame(
             {
-                "close": [0.00002, 0.000021, 0.000022, 0.000023, 0.000024],
-                "volume_to": [500, 550, 600, 650, 700],
+                "close": [0.00002 + i * 0.0000001 for i in range(30)],
+                "volume_to": [500 + i * 20 for i in range(30)],
             },
             index=dates,
         )
@@ -340,7 +246,9 @@ class TestTotal2EdgeCases:
         cache.set_prices("sol", sol_data)
         cache.set_prices("ada", ada_data)
 
-        processor = Total2Processor(price_cache=cache, top_n=50, volume_sma_window=2)
+        processor = Total2bProcessor(
+            price_cache=cache, top_n=50, volume_sma_window=2, freeze_period_days=5
+        )
         result = processor.calculate_total2(show_progress=False)
 
         assert result.coins_processed == 3
@@ -471,40 +379,6 @@ class TestTotal2bScalingOptimization:
         assert "change_factor" in event
         assert "prev_total2b" in event
         assert event["change_factor"] > 0
-
-
-class TestTotal2bEdgeCases:
-    """Tests for edge cases in TOTAL2b calculation.
-
-    Uses shared fixtures from conftest.py: temp_dir.
-    """
-
-    def test_no_cached_data_raises_error(self, temp_dir):
-        """Test that empty cache raises appropriate error."""
-        cache = PriceDataCache(prices_dir=temp_dir)
-        processor = Total2bProcessor(price_cache=cache)
-
-        with pytest.raises(ProcessorError, match="No price data available"):
-            processor.calculate_total2(show_progress=False)
-
-    def test_all_filtered_raises_error(self, temp_dir):
-        """Test error when all coins are filtered out."""
-        cache = PriceDataCache(prices_dir=temp_dir)
-
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
-        wbtc_data = pd.DataFrame(
-            {
-                "close": [1.0] * 30,
-                "volume_to": [1000] * 30,
-            },
-            index=dates,
-        )
-        cache.set_prices("wbtc", wbtc_data)
-
-        processor = Total2bProcessor(price_cache=cache, freeze_period_days=5)
-
-        with pytest.raises(ProcessorError, match="No eligible coins"):
-            processor.calculate_total2(show_progress=False)
 
 
 class TestSymbolReplacementDetection:
