@@ -309,6 +309,7 @@ class HtmlGenerator:
         return render_template(
             "data_status.html",
             back_link="index.html",
+            last_updated=update_time,
             update_time=update_time,
             coins_requested=coins_requested,
             coins_with_usd=coins_with_usd,

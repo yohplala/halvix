@@ -237,7 +237,7 @@
             display: none;
         }
 
-        {{ footer_css }}
+        {{ footer_css | safe }}
 
         @media (max-width: 768px) {
             h1 {
@@ -333,6 +333,6 @@
         </ul>
     </main>
 
-    {{ footer_html }}
+    {{ footer_html | safe }}
 </body>
 </html>
