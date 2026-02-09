@@ -2,6 +2,6 @@
 Analysis modules for filtering and regression.
 """
 
-from .filters import CoinFilter, SkippedCoin
+from .filters import CoinFilter
 
-__all__ = ["CoinFilter", "SkippedCoin"]
+__all__ = ["CoinFilter"]

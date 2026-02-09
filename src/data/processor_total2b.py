@@ -194,7 +194,7 @@ class Total2bProcessor(BaseTotal2Processor):
         # Create result
         date_range = (index_df.index.min().date(), index_df.index.max().date())
 
-        result = Total2Result.create(
+        result = Total2Result(
             index_df=index_df,
             composition_df=composition_df,
             coins_processed=len(price_data),

@@ -8,7 +8,6 @@ from .processor import (
     BaseTotal2Processor,
     ProcessorError,
     Total2bProcessor,
-    Total2Processor,
     Total2Result,
     get_processor,
 )
@@ -24,7 +23,6 @@ __all__ = [
     "FetchResult",
     # Processors
     "BaseTotal2Processor",
-    "Total2Processor",
     "Total2bProcessor",
     "Total2Result",
     "ProcessorError",

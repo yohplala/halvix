@@ -12,7 +12,7 @@
 |-------|----------|
 | **Tutorial & CLI usage** | [docs/TUTORIAL.md](docs/TUTORIAL.md) |
 | **CryptoCompare API details** | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) |
-| **TOTAL2/TOTAL2b calculation** | [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md) |
+| **TOTAL2b calculation** | [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md) |
 | **Cycle pattern analysis** | [docs/PATTERN_ANALYSIS.md](docs/PATTERN_ANALYSIS.md) |
 | **Identification kernel** | [docs/IDENTIFICATION_KERNEL.md](docs/IDENTIFICATION_KERNEL.md) |
 | **Deployment (GitHub Pages)** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
@@ -55,9 +55,8 @@ halvix/
 │   │   ├── fetcher.py          # Data retrieval
 │   │   ├── price_filters.py    # Volume outlier detection, SMA smoothing
 │   │   ├── processor.py        # Re-exports and factory function
-│   │   ├── processor_base.py   # BaseTotal2Processor (shared)
-│   │   ├── processor_total2.py # Total2Processor (legacy)
-│   │   └── processor_total2b.py # Total2bProcessor (default)
+│   │   ├── processor_base.py   # BaseTotal2Processor (shared algorithms)
+│   │   └── processor_total2b.py # Total2bProcessor
 │   ├── analysis/
 │   │   ├── filters.py          # Token filtering
 │   │   └── cycle_patterns.py   # Cycle pattern analysis
@@ -81,20 +80,17 @@ halvix/
 
 ## 3. Key Architecture
 
-### TOTAL2 Processor (see [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md))
+### TOTAL2b Processor (see [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md))
 
 ```python
 from data.processor import get_processor
 
-# Factory function - returns Total2Processor or Total2bProcessor
-processor = get_processor("total2b")  # or "total2" for legacy
+# Factory function - returns Total2bProcessor
+processor = get_processor("total2b")
 result = processor.calculate_total2()
 ```
 
-| Processor | Description |
-|-----------|-------------|
-| `Total2bProcessor` | **Default**. 21-day freeze period + price scaling at entry |
-| `Total2Processor` | Legacy. Entry warmup price capping + TOTAL2 series smoothing |
+`Total2bProcessor`: 21-day freeze period + price scaling at entry.
 
 
 ### Token Filtering

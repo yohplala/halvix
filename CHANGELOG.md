@@ -18,7 +18,7 @@ format YYYY.MM.patch.
 
 - **Added:** Cycle pattern analysis module (`analysis/cycle_patterns.py`)
   - Identifies min/max points within halving cycle windows
-  - Three projection methods: Log-Linear Trendline, Fibonacci 127.2% Extension, Diminishing Returns
+  - Four projection methods: Log-Linear Trendline, Fibonacci 100% Extension, Diminishing Returns, Historical Peak
   - Composite scoring with confidence-weighted average of available methods
   - TOTAL2 composition filtering for altcoin analysis
   - Symbol replacement detection for tokens with zero price history
@@ -92,7 +92,6 @@ format YYYY.MM.patch.
 - **Changed:** CI workflow refactored: separate `data.yml` workflow, removed test job
 - **Fixed:** Multiple fixes in TOTAL2 calculation logic
 - **Updated:** `TOTAL2_CALCULATION.md` with comprehensive TOTAL2b algorithm documentation
-- **Updated:** `EDGE_CASES.md` with symbol replacement and freeze period edge cases
 - **Updated:** `DEPLOYMENT.md`, `DATA_SOURCES.md`, `TUTORIAL.md`, `README.md` documentation
 
 **Categories:** Features, Algorithm, Refactoring, Documentation, CI/CD

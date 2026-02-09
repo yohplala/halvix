@@ -68,7 +68,7 @@ DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull
 # Expected peak timing: ~550 days after halving (~18 months)
 # This is when the bull market typically peaks before the next bear market.
 # Note: This equals DAYS_BEFORE_HALVING by design (peak is when next cycle's pre-window starts)
-EXPECTED_PEAK_DAYS_AFTER_HALVING = 550
+EXPECTED_PEAK_DAYS_AFTER_HALVING = DAYS_BEFORE_HALVING
 
 
 # =============================================================================
@@ -85,37 +85,6 @@ TOP_N_BY_VOLUME_FOR_TOTAL2 = 30
 # Uses Simple Moving Average to smooth out daily volume spikes
 # 120 days (~4 months) provides stable ranking and reduces max weight change
 VOLUME_SMA_WINDOW = 120
-
-# TOTAL2 Entry Warmup: Actual price capping when a coin first enters TOTAL2
-#
-# When a coin first enters TOTAL2 (TOP30 by volume), its price may cause
-# artificial spikes in the index. This warmup CAPS prices (not just monitors) by:
-# 1. Using raw TOTAL2 value as the baseline price at entry (market level)
-# 2. CAPPING daily price changes to MAX_INCREASE / MAX_DECREASE during warmup
-# 3. Each day uses the previous day's CAPPED price as reference
-#
-# This handles TWO types of cases:
-#
-# CASE 1 - ZEC (2016-10-28): Listed AND entered TOTAL2 on same day
-#   - Day 0 (before): Use corrected TOTAL2 (~0.01 BTC) as baseline
-#   - Day 1: Actual 27.8 BTC → Cap at 1.7x = 0.017 BTC
-#   - Day 2: Actual 2.79 BTC → Cap at 1.7x = 0.029 BTC
-#   - ... converges to actual price (~1-2 BTC) in ~9 days
-#
-# CASE 2 - YFI (2020-09-14): Entered TOTAL2 45 days after listing
-#   - Day 0 (before): Use corrected TOTAL2 (~0.012 BTC) as baseline
-#   - Day 1: Actual 3.73 BTC → Cap at 1.7x = 0.020 BTC
-#   - Day 2: Actual 3.27 BTC → Cap at 1.7x = 0.034 BTC
-#   - ... converges to actual price (~3.7 BTC) in ~10 days
-#
-# Both cases gradually ramp up from market level, preventing artificial TOTAL2 spikes.
-TOTAL2_ENTRY_MAX_INCREASE = 1.7  # Max 1.7x (70% gain) per day during warmup
-TOTAL2_ENTRY_MAX_DECREASE = 0.5  # Min 0.5x (50% loss) per day during warmup
-TOTAL2_ENTRY_WARMUP_PERIOD_DAYS = 21  # How many days entry warmup applies (3 weeks)
-
-# TOTAL2 series smoothing parameters (caps extreme day-over-day aggregate index movements)
-TOTAL2_SERIES_MAX_INCREASE = 3.0  # Cap TOTAL2 increase at 3x per day (200% gain)
-TOTAL2_SERIES_MAX_DECREASE = 0.35  # Cap TOTAL2 decrease at 0.35x per day (65% loss)
 
 # =============================================================================
 # TOTAL2b New Coin Entry Settings

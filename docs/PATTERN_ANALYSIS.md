@@ -528,6 +528,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `RETRACEMENT_PENALTY_AT_MAX` | 0.5 | Composite multiplier at MAX_RETRACEMENT_LEVEL |
 | `DEFAULT_FIBONACCI_LEVEL` | 1.0 | Fibonacci extension level |
 | `DIM_RETURN_MIN_GAIN_RATIO` | 1.0 | Minimum projected gain ratio (peak ≥ trough) |
+| `TRENDLINE_RECENCY_DECAY` | 0.7 | Recency decay factor for trendline regression (see above) |
 | `DEFAULT_DIMINISHING_FACTOR` | 0.20 | Conservative fallback for single-cycle coins (assumes 80% gain reduction vs prior cycle, more pessimistic than observed ~0.65 average) |
 
 ## Halving Cycle Windows

@@ -594,12 +594,6 @@ class CyclePatternAnalyzer:
                     df, min1_point, max1_point, curr_cycle, seg_end_halving
                 )
 
-            # Merge mins when no max1 and prev had no max1
-            if min1_point is not None and max1_point is None and not prev_had_max1:
-                min1_point, points = self._merge_mins(
-                    seg, min2_valid, min1_point, prev_cycle, curr_cycle, seg_end_halving, points
-                )
-
             if min1_point is not None:
                 points.append(min1_point)
             if max1_point is not None:
@@ -812,30 +806,6 @@ class CyclePatternAnalyzer:
                     _to_date(corr_idx), corr_price, curr_cycle, "min1", seg_end_halving
                 )
         return min1_point
-
-    @staticmethod
-    def _merge_mins(
-        seg: SegmentData,
-        min2_valid: bool,
-        min1_point: CyclePoint,
-        prev_cycle: int,
-        curr_cycle: int,
-        seg_end_halving: date,
-        points: list[CyclePoint],
-    ) -> tuple[CyclePoint, list[CyclePoint]]:
-        """Merge min1/min2 when no max1 and prev had no max1.
-
-        When prev segment had max1, min2 is structurally distinct and
-        must not be merged away.
-        """
-        if min2_valid and seg.min2_price is not None and seg.min2_price < min1_point.price:
-            min1_point = _make_point(
-                seg.min2_date, seg.min2_price, curr_cycle, "min1", seg_end_halving
-            )
-            points = [
-                p for p in points if not (p.cycle_num == prev_cycle and p.point_type == "min2")
-            ]
-        return min1_point, points
 
     def _detect_post_halving_points(
         self,
@@ -1284,15 +1254,13 @@ class CyclePatternAnalyzer:
         # Calculate gain ratios for each cycle
         gains = []
         for cycle in cycles:
-            # Collect all min/max points for this cycle from the index
-            min_prices = []
-            max_prices = []
-            for pt in ("min1", "min2"):
-                for p in idx.get((cycle, pt), []):
-                    min_prices.append(p.price)
-            for pt in ("max1", "max2"):
-                for p in idx.get((cycle, pt), []):
-                    max_prices.append(p.price)
+            # Prefer major types (min1, max2); fallback to minor (min2, max1)
+            min_prices = [p.price for p in idx.get((cycle, "min1"), [])]
+            if not min_prices:
+                min_prices = [p.price for p in idx.get((cycle, "min2"), [])]
+            max_prices = [p.price for p in idx.get((cycle, "max2"), [])]
+            if not max_prices:
+                max_prices = [p.price for p in idx.get((cycle, "max1"), [])]
 
             if min_prices and max_prices:
                 min_price = min(min_prices)
@@ -1840,7 +1808,6 @@ class CyclePatternAnalyzer:
             if result and result.composite_target_pct is not None:
                 results[coin_id] = result
 
-        self._pipeline_with_projections = len(results)
         logger.info("Successfully analyzed %d coins with valid projections", len(results))
         return results
 

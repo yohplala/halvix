@@ -1,11 +1,10 @@
 """
-Data processors for TOTAL2 index calculations.
+Data processors for TOTAL2b index calculations.
 
 This module re-exports classes from the processor submodules:
 
 - processor_base.py: BaseTotal2Processor with shared algorithms
-- processor_total2.py: Total2Processor for legacy TOTAL2 calculation
-- processor_total2b.py: Total2bProcessor for new TOTAL2b calculation
+- processor_total2b.py: Total2bProcessor for TOTAL2b calculation
 """
 
 from data.processor_base import (
@@ -13,7 +12,6 @@ from data.processor_base import (
     ProcessorError,
     Total2Result,
 )
-from data.processor_total2 import Total2Processor
 from data.processor_total2b import Total2bProcessor
 
 
@@ -25,21 +23,19 @@ def get_processor(
     Factory function to get the appropriate processor for an index type.
 
     Args:
-        index_type: "total2" for legacy, "total2b" for new methodology
+        index_type: Must be "total2b"
         **kwargs: Additional arguments passed to processor constructor
 
     Returns:
-        Processor instance (Total2Processor or Total2bProcessor)
+        Total2bProcessor instance
 
     Raises:
         ValueError: If index_type is not recognized
     """
-    if index_type == "total2":
-        return Total2Processor(**kwargs)
-    elif index_type == "total2b":
+    if index_type == "total2b":
         return Total2bProcessor(**kwargs)
     else:
-        raise ValueError(f"Unknown index type: {index_type}. Use 'total2' or 'total2b'.")
+        raise ValueError(f"Unknown index type: {index_type}. Use 'total2b'.")
 
 
 __all__ = [
@@ -47,8 +43,7 @@ __all__ = [
     "BaseTotal2Processor",
     "ProcessorError",
     "Total2Result",
-    # Processor implementations
-    "Total2Processor",
+    # Processor implementation
     "Total2bProcessor",
     # Factory function
     "get_processor",
