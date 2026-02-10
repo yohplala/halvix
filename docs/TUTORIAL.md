@@ -61,7 +61,7 @@ poetry run python -m main list-coins --no-cache
 **Output files:**
 - `data/processed/coins_to_download.json` - Coins to download
 - `data/processed/download_skipped.csv` - Download skipped with reasons
-- `site/index.html` - Auto-generated documentation page
+- `site/data_status.html` - Auto-generated data status page
 
 ### Step 2: Fetch Price Data
 

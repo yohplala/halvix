@@ -33,173 +33,6 @@ DEFAULT_OUTLIER_WINDOW_DAYS = 7
 DEFAULT_VOLUME_SMA_WINDOW = 120
 
 
-def detect_volume_outliers(
-    volume_series: pd.Series,
-    threshold: float = DEFAULT_VOLUME_OUTLIER_THRESHOLD,
-    min_volume: float = DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK,
-    window_days: int = DEFAULT_OUTLIER_WINDOW_DAYS,
-) -> pd.Series:
-    """
-    Detect volume outliers in a price series.
-
-    An outlier is defined as a volume that:
-    - Is > threshold times the rolling median of past window_days
-    - Exceeds min_volume (to avoid flagging small volumes)
-    - Has a positive past median (to ensure valid comparison)
-
-    Args:
-        volume_series: Series of volume data with DatetimeIndex
-        threshold: Multiple of median that triggers outlier detection
-        min_volume: Minimum volume to consider for outlier check
-        window_days: Rolling window size for median calculation
-
-    Returns:
-        Boolean Series where True indicates an outlier
-    """
-    if volume_series.empty:
-        return pd.Series(dtype=bool)
-
-    # Calculate rolling median of past values (shift to exclude current day)
-    rolling_median = volume_series.rolling(window=window_days, min_periods=3).median()
-    past_median = rolling_median.shift(1)
-
-    # Calculate ratio to past median
-    ratio = volume_series / past_median
-
-    # Identify outliers
-    is_outlier = (ratio > threshold) & (volume_series > min_volume) & (past_median > 0)
-
-    return is_outlier
-
-
-def correct_volume_outliers(
-    volume_series: pd.Series,
-    threshold: float = DEFAULT_VOLUME_OUTLIER_THRESHOLD,
-    min_volume: float = DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK,
-    window_days: int = DEFAULT_OUTLIER_WINDOW_DAYS,
-    max_iterations: int = 10,
-) -> tuple[pd.Series, list[dict]]:
-    """
-    Detect and correct volume outliers iteratively.
-
-    CryptoCompare occasionally has bad data points with impossible volume spikes.
-    This function detects outliers and replaces them with interpolated values.
-
-    Correction method:
-    1. Cap the outlier at threshold × past_median
-    2. Interpolate: (previous_day + capped_value) / 2
-
-    Args:
-        volume_series: Series of volume data with DatetimeIndex
-        threshold: Multiple of median that triggers outlier detection
-        min_volume: Minimum volume to consider for outlier check
-        window_days: Rolling window size for median calculation
-        max_iterations: Maximum correction iterations
-
-    Returns:
-        Tuple of (corrected_series, list_of_corrections)
-    """
-    corrected = volume_series.copy()
-    all_corrections = []
-
-    for iteration in range(max_iterations):
-        corrections_made = []
-
-        # Calculate rolling median and ratio
-        rolling_median = corrected.rolling(window=window_days, min_periods=3).median()
-        past_median = rolling_median.shift(1)
-        ratio = corrected / past_median
-
-        # Find outliers
-        is_outlier = (ratio > threshold) & (corrected > min_volume) & (past_median > 0)
-
-        outlier_indices = corrected.index[is_outlier]
-
-        if len(outlier_indices) == 0:
-            break
-
-        for idx in outlier_indices:
-            original_vol = corrected.loc[idx]
-            median_val = past_median.loc[idx]
-
-            # Get previous value
-            idx_pos = corrected.index.get_loc(idx)
-            if idx_pos == 0:
-                continue
-
-            prev_idx = corrected.index[idx_pos - 1]
-            prev_vol = corrected.loc[prev_idx]
-
-            if not pd.notna(prev_vol) or prev_vol <= 0:
-                continue
-            if not pd.notna(median_val) or median_val <= 0:
-                continue
-
-            # Cap and interpolate
-            capped_value = median_val * threshold
-            interpolated = (prev_vol + min(original_vol, capped_value)) / 2
-
-            if interpolated <= 0:
-                continue
-
-            corrected.loc[idx] = interpolated
-
-            corrections_made.append(
-                {
-                    "date": str(idx.date()) if hasattr(idx, "date") else str(idx),
-                    "original": float(original_vol),
-                    "corrected": float(interpolated),
-                    "ratio": float(ratio.loc[idx]) if np.isfinite(ratio.loc[idx]) else 0.0,
-                    "iteration": iteration + 1,
-                }
-            )
-
-        all_corrections.extend(corrections_made)
-
-        if not corrections_made:
-            break
-
-    return corrected, sorted(all_corrections, key=lambda x: x["ratio"], reverse=True)
-
-
-def apply_volume_sma_smoothing(
-    volume_series: pd.Series,
-    window: int = DEFAULT_VOLUME_SMA_WINDOW,
-    zero_pad: bool = True,
-) -> pd.Series:
-    """
-    Apply SMA smoothing to volume data with optional zero padding.
-
-    Zero-padding ensures new coins enter indices gradually over the
-    SMA window period, preventing sudden weight jumps.
-
-    Args:
-        volume_series: Series of volume data with DatetimeIndex
-        window: SMA window size in days
-        zero_pad: If True, pad with zeros before first valid value
-
-    Returns:
-        Smoothed volume Series
-    """
-    if volume_series.empty:
-        return volume_series.copy()
-
-    if zero_pad:
-        # Create copy and fill NaN before first valid with 0
-        padded = volume_series.copy()
-        first_valid_idx = volume_series.first_valid_index()
-
-        if first_valid_idx is not None:
-            mask = padded.index < first_valid_idx
-            padded.loc[mask] = 0.0
-
-        smoothed = padded.rolling(window=window).mean()
-    else:
-        smoothed = volume_series.rolling(window=window).mean()
-
-    return smoothed
-
-
 def apply_volume_corrections_to_dataframe(
     volume_df: pd.DataFrame,
     threshold: float = DEFAULT_VOLUME_OUTLIER_THRESHOLD,
@@ -404,33 +237,24 @@ def detect_symbol_replacement(
     )
 
     # For resurrection to be a symbol replacement (not just coin starting to trade),
-    # there must have been trading BEFORE the zero period
-    resurrection_dates = price_series.index[resurrection_mask]
-    valid_resurrection_dates = []
-
-    for res_date in resurrection_dates:
-        # Check if there was any trading before this resurrection
-        before_mask = price_series.index < res_date
-        if before_mask.any():
-            prices_before = price_series[before_mask]
-            # If there was any positive price before this date, it's a resurrection
-            if (prices_before > DEFAULT_ZERO_THRESHOLD).any():
-                valid_resurrection_dates.append(res_date)
+    # there must have been trading BEFORE the zero period.
+    # Vectorized: cumulative flag tracks whether any prior price was positive.
+    had_positive_before = (price_series > DEFAULT_ZERO_THRESHOLD).cumsum().shift(
+        1, fill_value=0
+    ) > 0
+    valid_resurrection_mask = resurrection_mask & had_positive_before
 
     # Combine both detection methods
-    all_replacement_dates: set[pd.Timestamp] = set()
+    combined_mask = extreme_jumps | valid_resurrection_mask
 
-    if extreme_jumps.any():
-        all_replacement_dates.update(price_series.index[extreme_jumps])
+    all_replacement_dates = price_series.index[combined_mask]
 
-    all_replacement_dates.update(valid_resurrection_dates)
-
-    if not all_replacement_dates:
+    if all_replacement_dates.empty:
         return None
 
     # Return the date of the LAST replacement (most recent)
     # This handles cases where a symbol might be replaced multiple times
-    last_jump_date = max(all_replacement_dates)
+    last_jump_date = all_replacement_dates[-1]
 
     # Only consider it a replacement if it happened after the first_seen date
     if first_seen is not None and last_jump_date <= first_seen:

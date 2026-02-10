@@ -43,10 +43,10 @@ import pandas as pd
 from config import (
     COMPOSITE_WEIGHT_PROFILES,
     CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,
+    DAYS_BEFORE_HALVING,
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
     DIM_RETURN_MIN_GAIN_RATIO,
-    EXPECTED_PEAK_DAYS_AFTER_HALVING,
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
     LAUNCH_DATE_BUFFER_DAYS,
@@ -591,29 +591,11 @@ class CyclePatternAnalyzer:
                 )
 
             # max1 before min2 (short-history: no prior max1 to precede this min2)
-            if min2_valid and prev_max1_date is None:
-                first_available = _to_date(df.index[0])
-                max1_search_start = first_available + timedelta(days=LAUNCH_DATE_BUFFER_DAYS)
-                max1_mask = (
-                    (df.index.date >= max1_search_start)
-                    & (df.index.date < seg.min2_date)
-                    & (df["close"] > 0)
-                )
-                max1_data = df[max1_mask]
-                if not max1_data.empty:
-                    max1_idx = max1_data["close"].idxmax()
-                    max1_date = _to_date(max1_idx)
-                    max1_price = float(max1_data.loc[max1_idx, "close"])
-                    try:
-                        ratio = fib_retracement_ratio(seg.min2_price, seg.max2_price, max1_price)
-                    except ValueError:
-                        ratio = None
-                    if ratio is not None and (1.0 - ratio) >= MIN_RETRACEMENT_LEVEL:
-                        points.append(
-                            _make_point(
-                                max1_date, max1_price, prev_cycle, "max1", seg_start_halving
-                            )
-                        )
+            max1_before = self._find_max1_before_min2(
+                df, seg, prev_max1_date, min2_valid, prev_cycle, seg_start_halving
+            )
+            if max1_before is not None:
+                points.append(max1_before)
 
             # Merge adjacent maxes when no min2 separates them
             if not min2_valid and prev_had_max1 and prev_max1_date is not None:
@@ -731,6 +713,70 @@ class CyclePatternAnalyzer:
         return (alt_min_date, alt_min_price)
 
     @staticmethod
+    def _find_max1_before_min2(
+        df: pd.DataFrame,
+        seg: SegmentData,
+        prev_max1_date: date | None,
+        min2_valid: bool,
+        prev_cycle: int,
+        seg_start_halving: date,
+    ) -> CyclePoint | None:
+        """Find max1 before min2 for short-history tokens with no prior max1."""
+        if not min2_valid or prev_max1_date is not None:
+            return None
+        first_available = _to_date(df.index[0])
+        max1_search_start = first_available + timedelta(days=LAUNCH_DATE_BUFFER_DAYS)
+        max1_mask = (
+            (df.index.date >= max1_search_start)
+            & (df.index.date < seg.min2_date)
+            & (df["close"] > 0)
+        )
+        max1_data = df[max1_mask]
+        if max1_data.empty:
+            return None
+        max1_idx = max1_data["close"].idxmax()
+        max1_date = _to_date(max1_idx)
+        max1_price = float(max1_data.loc[max1_idx, "close"])
+        try:
+            ratio = fib_retracement_ratio(seg.min2_price, seg.max2_price, max1_price)
+        except ValueError:
+            return None
+        if (1.0 - ratio) >= MIN_RETRACEMENT_LEVEL:
+            return _make_point(max1_date, max1_price, prev_cycle, "max1", seg_start_halving)
+        return None
+
+    @staticmethod
+    def _check_min2_retracement(
+        df: pd.DataFrame,
+        prev_min1_price: float | None,
+        max2_price: float,
+        min2_date: date,
+        min2_price: float,
+        max2_date: date,
+        *,
+        has_prior_context: bool,
+    ) -> tuple[date, float] | None:
+        """Validate min2 via fib retracement, with launch-price fallback.
+
+        If prev_min1_price is available, checks against MIN_RETRACEMENT_LEVEL.
+        If has_prior_context is True (e.g. prior max1 exists), accepts the min2.
+        Otherwise, delegates to _adjust_launch_min2 to suppress launch-price artifacts.
+
+        Returns (date, price) of the valid candidate, or None.
+        """
+        if prev_min1_price is not None:
+            try:
+                ratio = fib_retracement_ratio(prev_min1_price, max2_price, min2_price)
+                if ratio >= MIN_RETRACEMENT_LEVEL:
+                    return (min2_date, min2_price)
+            except ValueError:
+                pass
+            return None
+        if has_prior_context:
+            return (min2_date, min2_price)
+        return CyclePatternAnalyzer._adjust_launch_min2(df, min2_date, min2_price, max2_date)
+
+    @staticmethod
     def _validate_min2(
         df: pd.DataFrame,
         seg: SegmentData,
@@ -744,15 +790,14 @@ class CyclePatternAnalyzer:
         if not prev_had_max1 and s_idx > 0:
             # Alternation rule: prev segment ended with min (no max1)
             return False
-        if prev_min1_price is not None and s_idx > 0:
-            try:
-                ratio = fib_retracement_ratio(prev_min1_price, seg.max2_price, seg.min2_price)
-                return ratio >= MIN_RETRACEMENT_LEVEL
-            except ValueError:
-                return False
-        # First segment or no prior context — suppress launch-price min2
-        result = CyclePatternAnalyzer._adjust_launch_min2(
-            df, seg.min2_date, seg.min2_price, seg.max2_date
+        result = CyclePatternAnalyzer._check_min2_retracement(
+            df,
+            prev_min1_price if s_idx > 0 else None,
+            seg.max2_price,
+            seg.min2_date,
+            seg.min2_price,
+            seg.max2_date,
+            has_prior_context=False,
         )
         if result is None:
             return False
@@ -964,21 +1009,18 @@ class CyclePatternAnalyzer:
                 min2_idx = min2_ext["close"].idxmin()
                 min2_date = _to_date(min2_idx)
                 min2_price = float(min2_ext.loc[min2_idx, "close"])
-                if prev_min1_price is not None:
-                    try:
-                        ratio = fib_retracement_ratio(prev_min1_price, max2_price, min2_price)
-                        last_min2_valid = ratio >= MIN_RETRACEMENT_LEVEL
-                    except ValueError:
-                        last_min2_valid = False
-                elif prev_max1_date is None:
-                    # No prior context — suppress launch-price min2
-                    result = self._adjust_launch_min2(df, min2_date, min2_price, max2_date)
-                    if result is not None:
-                        min2_date, min2_price = result
-                        last_min2_valid = True
-                else:
+                result = self._check_min2_retracement(
+                    df,
+                    prev_min1_price,
+                    max2_price,
+                    min2_date,
+                    min2_price,
+                    max2_date,
+                    has_prior_context=prev_max1_date is not None,
+                )
+                if result is not None:
+                    min2_date, min2_price = result
                     last_min2_valid = True
-                if last_min2_valid:
                     last_min2_price = min2_price
                     points.append(
                         _make_point(min2_date, min2_price, last_cycle, "min2", last_halving)
@@ -1022,12 +1064,16 @@ class CyclePatternAnalyzer:
                 )
 
     @staticmethod
-    def _find_latest_min_point(points: list[CyclePoint]) -> CyclePoint | None:
-        """Find the most recent min point (min1 or min2) by date."""
+    def _find_latest_min_point(
+        idx: dict[tuple[int, PointType], list[CyclePoint]],
+    ) -> CyclePoint | None:
+        """Find the most recent min point (min1 or min2) by date using the index."""
         latest: CyclePoint | None = None
-        for p in points:
-            if "min" in p.point_type and (latest is None or p.date > latest.date):
-                latest = p
+        for (_, pt), pts in idx.items():
+            if "min" in pt:
+                for p in pts:
+                    if latest is None or p.date > latest.date:
+                        latest = p
         return latest
 
     @staticmethod
@@ -1415,7 +1461,7 @@ class CyclePatternAnalyzer:
             # (the "diminishing returns" concept implies decreasing but still positive gains)
             next_gain_ratio = max(next_gain_ratio, DIM_RETURN_MIN_GAIN_RATIO)
 
-            latest_min = self._find_latest_min_point(points)
+            latest_min = self._find_latest_min_point(idx)
 
             if latest_min:
                 target = latest_min.price * next_gain_ratio
@@ -1443,7 +1489,7 @@ class CyclePatternAnalyzer:
             # (the "diminishing returns" concept implies decreasing but still positive gains)
             next_gain_ratio = max(next_gain_ratio, DIM_RETURN_MIN_GAIN_RATIO)
 
-            latest_min = self._find_latest_min_point(points)
+            latest_min = self._find_latest_min_point(idx)
 
             if latest_min:
                 target = latest_min.price * next_gain_ratio
@@ -1694,7 +1740,7 @@ class CyclePatternAnalyzer:
             result.lower_intercept = lower_int
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
-            target_date = self.projected_halving + timedelta(days=EXPECTED_PEAK_DAYS_AFTER_HALVING)
+            target_date = self.projected_halving + timedelta(days=DAYS_BEFORE_HALVING)
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
             if target is not None:
                 result.trendline_target = target

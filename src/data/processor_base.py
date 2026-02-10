@@ -25,7 +25,6 @@ from tqdm import tqdm
 
 from analysis.filters import CoinFilter
 from config import (
-    CRYPTOCOMPARE_COIN_URL,
     DEFAULT_QUOTE_CURRENCY,
     PROCESSED_DIR,
     TOP_N_BY_VOLUME_FOR_TOTAL2,
@@ -33,6 +32,7 @@ from config import (
     TOTAL2_INDEX_FILE,
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
     VOLUME_SMA_WINDOW,
+    coin_url,
 )
 from data.cache import PriceDataCache
 from data.price_filters import (
@@ -55,12 +55,6 @@ class ProcessorError(Exception):
 
 class NoDataError(ProcessorError):
     """Raised when required data is missing or unavailable."""
-
-    pass
-
-
-class IndexNotFoundError(ProcessorError):
-    """Raised when a pre-computed index file cannot be found."""
 
     pass
 
@@ -477,14 +471,12 @@ class BaseTotal2Processor(ABC):
         if pd.isna(max_change):
             return None, None, None
 
-        for coin_id in abs_diff.columns:
-            for dt in abs_diff.index:
-                if abs_diff.loc[dt, coin_id] == max_change:
-                    actual_change = weight_diff.loc[dt, coin_id]
-                    change_date = dt.date() if hasattr(dt, "date") else dt
-                    return float(actual_change), coin_id, change_date
-
-        return None, None, None
+        # Vectorized lookup: stack to Series, find argmax
+        abs_stacked = abs_diff.stack()
+        dt, coin_id = abs_stacked.idxmax()
+        actual_change = weight_diff.loc[dt, coin_id]
+        change_date = dt.date() if hasattr(dt, "date") else dt
+        return float(actual_change), coin_id, change_date
 
     def calculate_coin_statistics(
         self,
@@ -509,53 +501,50 @@ class BaseTotal2Processor(ABC):
             composition_df[composition_df["date"] == latest_date]["coin_id"].tolist()
         )
 
+        # Sort once, then use first/last via groupby
+        sorted_df = composition_df.sort_values("date")
+        grouped = sorted_df.groupby("coin_id")
+
+        agg = grouped.agg(
+            first_date=("date", "first"),
+            first_price=("price_btc", "first"),
+            first_weight=("weight", "first"),
+            last_date=("date", "last"),
+            last_price=("price_btc", "last"),
+            last_weight=("weight", "last"),
+            min_price=("price_btc", "min"),
+            max_price=("price_btc", "max"),
+            min_weight=("weight", "min"),
+            max_weight=("weight", "max"),
+            days_in_total2=("date", "count"),
+        )
+        # Sort by days descending, assign rank
+        agg = agg.sort_values("days_in_total2", ascending=False)
+        agg["rank"] = range(1, len(agg) + 1)
+
         coin_stats = []
-        for coin_id, group in composition_df.groupby("coin_id"):
-            group_sorted = group.sort_values("date")
-
-            first_row = group_sorted.iloc[0]
-            first_date = first_row["date"]
-            first_price = first_row["price_btc"]
-            first_weight = first_row["weight"] * 100
-
-            last_row = group_sorted.iloc[-1]
-            last_date = last_row["date"]
-            last_price = last_row["price_btc"]
-            last_weight = last_row["weight"] * 100
-
-            min_price = group["price_btc"].min()
-            max_price = group["price_btc"].max()
-            min_weight = group["weight"].min() * 100
-            max_weight = group["weight"].max() * 100
-
-            days_in_total2 = len(group)
-            still_present = coin_id in latest_coins
-
+        for coin_id, row in agg.iterrows():
+            fd = row["first_date"]
+            ld = row["last_date"]
             coin_stats.append(
                 {
                     "coin_id": coin_id.upper(),
-                    "url": f"{CRYPTOCOMPARE_COIN_URL}/{coin_id.upper()}/overview",
-                    "days_in_total2": days_in_total2,
-                    "still_present": still_present,
-                    "first_date": str(
-                        first_date.date() if hasattr(first_date, "date") else first_date
-                    ),
-                    "first_price": float(first_price),
-                    "first_weight": float(first_weight),
-                    "last_date": str(last_date.date() if hasattr(last_date, "date") else last_date),
-                    "last_price": float(last_price),
-                    "last_weight": float(last_weight),
-                    "min_price": float(min_price),
-                    "max_price": float(max_price),
-                    "min_weight": float(min_weight),
-                    "max_weight": float(max_weight),
+                    "url": coin_url(coin_id),
+                    "days_in_total2": int(row["days_in_total2"]),
+                    "still_present": coin_id in latest_coins,
+                    "first_date": str(fd.date() if hasattr(fd, "date") else fd),
+                    "first_price": float(row["first_price"]),
+                    "first_weight": float(row["first_weight"]) * 100,
+                    "last_date": str(ld.date() if hasattr(ld, "date") else ld),
+                    "last_price": float(row["last_price"]),
+                    "last_weight": float(row["last_weight"]) * 100,
+                    "min_price": float(row["min_price"]),
+                    "max_price": float(row["max_price"]),
+                    "min_weight": float(row["min_weight"]) * 100,
+                    "max_weight": float(row["max_weight"]) * 100,
+                    "rank": int(row["rank"]),
                 }
             )
-
-        coin_stats.sort(key=lambda x: x["days_in_total2"], reverse=True)
-
-        for i, stats in enumerate(coin_stats, 1):
-            stats["rank"] = i
 
         return coin_stats
 
@@ -628,45 +617,3 @@ class BaseTotal2Processor(ABC):
             json.dump(max_weight_info, f, indent=2)
 
         return index_path, composition_path
-
-    def load_total2_index(self, path: Path | None = None) -> pd.DataFrame:
-        """Load previously calculated index."""
-        path = path or TOTAL2_INDEX_FILE
-
-        if not path.exists():
-            raise IndexNotFoundError("Index not found. Run calculate_total2 first.")
-
-        return pd.read_parquet(path)
-
-    def load_total2_composition(self, path: Path | None = None) -> pd.DataFrame:
-        """Load previously calculated daily composition."""
-        path = path or TOTAL2_COMPOSITION_FILE
-
-        if not path.exists():
-            raise IndexNotFoundError("Composition not found. Run calculate_total2 first.")
-
-        return pd.read_parquet(path)
-
-    def get_composition_for_date(
-        self,
-        target_date: date,
-        composition_df: pd.DataFrame | None = None,
-    ) -> pd.DataFrame:
-        """Get the index composition for a specific date."""
-        if composition_df is None:
-            composition_df = self.load_total2_composition()
-
-        mask = composition_df["date"].dt.date == target_date
-        return composition_df[mask].sort_values("rank")
-
-    def get_coin_total2_history(
-        self,
-        coin_id: str,
-        composition_df: pd.DataFrame | None = None,
-    ) -> pd.DataFrame:
-        """Get the history of a coin's inclusion in the index."""
-        if composition_df is None:
-            composition_df = self.load_total2_composition()
-
-        mask = composition_df["coin_id"] == coin_id
-        return composition_df[mask].sort_values("date")

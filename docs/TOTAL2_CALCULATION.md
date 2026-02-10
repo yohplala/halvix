@@ -274,13 +274,13 @@ price_btc: float        # Price in BTC on that day
 
 ```bash
 # Calculate TOTAL2b (default, recommended)
-python -m main calculate-total2
+poetry run python -m main calculate-total2
 
 # Custom parameters
-python -m main calculate-total2 --top-n 100 --volume-sma 7 --quote-currency USD
+poetry run python -m main calculate-total2 --top-n 100 --volume-sma 7 --quote-currency USD
 
 # Generate visualizations (after calculating)
-python -m main generate-cycle-charts
+poetry run python -m main generate-cycle-charts
 ```
 
 ### CLI Options
@@ -319,8 +319,6 @@ This ensures consistent data quality across all analysis modules.
 
 | Function | Description |
 |----------|-------------|
-| `correct_volume_outliers()` | Detect and correct volume spikes for a single series |
-| `apply_volume_sma_smoothing()` | Apply SMA smoothing with zero padding for a single series |
 | `apply_volume_corrections_to_dataframe()` | Apply corrections to a DataFrame of multiple coins |
 | `apply_volume_sma_smoothing_to_dataframe()` | Apply smoothing to a DataFrame of multiple coins |
 
@@ -330,7 +328,7 @@ This ensures consistent data quality across all analysis modules.
 from data.processor import get_processor, Total2bProcessor
 
 # Use factory function (recommended)
-processor = get_processor("total2b")
+processor = get_processor()
 result = processor.calculate_total2()
 
 # Direct instantiation

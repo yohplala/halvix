@@ -15,27 +15,17 @@ from data.processor_base import (
 from data.processor_total2b import Total2bProcessor
 
 
-def get_processor(
-    index_type: str = "total2b",
-    **kwargs,
-) -> BaseTotal2Processor:
+def get_processor(**kwargs) -> Total2bProcessor:
     """
-    Factory function to get the appropriate processor for an index type.
+    Factory function to create a Total2bProcessor.
 
     Args:
-        index_type: Must be "total2b"
-        **kwargs: Additional arguments passed to processor constructor
+        **kwargs: Arguments passed to Total2bProcessor constructor
 
     Returns:
         Total2bProcessor instance
-
-    Raises:
-        ValueError: If index_type is not recognized
     """
-    if index_type == "total2b":
-        return Total2bProcessor(**kwargs)
-    else:
-        raise ValueError(f"Unknown index type: {index_type}. Use 'total2b'.")
+    return Total2bProcessor(**kwargs)
 
 
 __all__ = [

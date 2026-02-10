@@ -18,6 +18,7 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 PRICES_DIR = RAW_DATA_DIR / "prices"
 PROCESSED_DIR = DATA_DIR / "processed"
 CACHE_DIR = DATA_DIR / "cache"
+CACHE_EXPIRY_SECONDS = 86400
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
 # =============================================================================
@@ -64,12 +65,7 @@ BTC_CYCLE_BOTTOMS: list[date] = [
 # How far before/after halving to include in cycle analysis
 DAYS_BEFORE_HALVING = 550
 DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
-
-# Expected peak timing: ~550 days after halving (~18 months)
-# This is when the bull market typically peaks before the next bear market.
-# Note: This equals DAYS_BEFORE_HALVING by design (peak is when next cycle's pre-window starts)
-EXPECTED_PEAK_DAYS_AFTER_HALVING = DAYS_BEFORE_HALVING
-
+USE_YESTERDAY_AS_END_DATE = True
 
 # =============================================================================
 # Data Filtering Configuration
@@ -319,15 +315,18 @@ ALLOWED_TOKENS = {
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
+
+def coin_url(symbol: str) -> str:
+    """Build CryptoCompare overview URL for a coin symbol."""
+    return f"{CRYPTOCOMPARE_COIN_URL}/{symbol.upper()}/overview"
+
+
 # Rate limiting: The client uses dynamic rate limiting by checking the
 # /stats/rate/limit endpoint to monitor actual quota usage.
 # This constant serves as a FALLBACK minimum interval between requests,
 # used when rate limit status is unavailable or as a baseline throttle.
 # We use a very conservative fallback of 1 call every 5 seconds.
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
-
-# Cache expiry (24 hours for coin list data)
-CACHE_EXPIRY_SECONDS = 86400
 
 # =============================================================================
 # Output Files
@@ -353,11 +352,6 @@ TOTAL2_MAX_WEIGHT_CHANGE_FILE = PROCESSED_DIR / "total2_max_weight_change.json"
 # =============================================================================
 # Data Fetching Configuration
 # =============================================================================
-
-# Always use yesterday as end date for price fetching.
-# Today's data is incomplete (market hasn't closed yet).
-# This is a fixed constant - do not change as it ensures data consistency.
-USE_YESTERDAY_AS_END_DATE = True
 
 # =============================================================================
 # Pattern Analysis Configuration
