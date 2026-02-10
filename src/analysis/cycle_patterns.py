@@ -590,6 +590,31 @@ class CyclePatternAnalyzer:
                     )
                 )
 
+            # max1 before min2 (short-history: no prior max1 to precede this min2)
+            if min2_valid and prev_max1_date is None:
+                first_available = _to_date(df.index[0])
+                max1_search_start = first_available + timedelta(days=LAUNCH_DATE_BUFFER_DAYS)
+                max1_mask = (
+                    (df.index.date >= max1_search_start)
+                    & (df.index.date < seg.min2_date)
+                    & (df["close"] > 0)
+                )
+                max1_data = df[max1_mask]
+                if not max1_data.empty:
+                    max1_idx = max1_data["close"].idxmax()
+                    max1_date = _to_date(max1_idx)
+                    max1_price = float(max1_data.loc[max1_idx, "close"])
+                    try:
+                        ratio = fib_retracement_ratio(seg.min2_price, seg.max2_price, max1_price)
+                    except ValueError:
+                        ratio = None
+                    if ratio is not None and (1.0 - ratio) >= MIN_RETRACEMENT_LEVEL:
+                        points.append(
+                            _make_point(
+                                max1_date, max1_price, prev_cycle, "max1", seg_start_halving
+                            )
+                        )
+
             # Merge adjacent maxes when no min2 separates them
             if not min2_valid and prev_had_max1 and prev_max1_date is not None:
                 points, seg.max2_price = self._merge_adjacent_maxes(
