@@ -26,11 +26,11 @@ from pathlib import Path
 
 from config import (
     ALLOWED_TOKENS,
-    CRYPTOCOMPARE_COIN_URL,
     DOWNLOAD_SKIPPED_CSV,
     EXCLUDED_PATTERNS,
     EXCLUDED_STABLECOINS,
     EXCLUDED_WRAPPED_STAKED_IDS,
+    coin_url,
 )
 
 
@@ -298,7 +298,7 @@ class CoinFilter:
                             name=name,
                             symbol=symbol,
                             reason=reason,
-                            url=f"{CRYPTOCOMPARE_COIN_URL}/{symbol.upper()}/overview",
+                            url=coin_url(symbol),
                         )
                     )
             else:

@@ -48,7 +48,6 @@ from tqdm import tqdm
 from api.cryptocompare import CryptoCompareClient
 from config import (
     COINS_TO_DOWNLOAD_JSON,
-    CRYPTOCOMPARE_COIN_URL,
     DOWNLOAD_FAILED_CSV,
     DOWNLOAD_SKIPPED_CSV,
     FETCH_METADATA_JSON,
@@ -58,6 +57,7 @@ from config import (
     TOP_N_BY_MARKETCAP_TO_FETCH,
     TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2_INDEX_FILE,
+    coin_url,
 )
 from data.cache import FileCache, PriceDataCache
 from data.fetcher import DataFetcher
@@ -142,7 +142,7 @@ def _append_insufficient_history_to_skipped(
 
         symbol = coin.get("symbol", coin_id.upper())
         name = coin.get("name", symbol)
-        url = f"{CRYPTOCOMPARE_COIN_URL}/{symbol.upper()}/overview"
+        url = coin_url(symbol)
 
         # Get actual start date for the reason message
         df = price_cache.get_prices(coin_id)
@@ -292,7 +292,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     # Load coins to download
     try:
         coins = fetcher.load_coins_to_download()
-    except Exception as e:
+    except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error("Failed to load coins: %s", e)
         logger.info("Run 'python -m main list-coins' first to generate the coin list.")
         return 1
@@ -390,7 +390,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
             coin_data = next((c for c in coins if c.get("id") == coin_id), {})
             coin_symbol = coin_data.get("symbol", coin_id.upper())
             coin_name = coin_data.get("name", coin_symbol)
-            url = f"{CRYPTOCOMPARE_COIN_URL}/{coin_symbol.upper()}/overview"
+            url = coin_url(coin_symbol)
 
             if rate_limit_hit:
                 # Skip API calls once we've hit rate limit, use generic reason
@@ -477,7 +477,6 @@ def cmd_calculate_total2(args: argparse.Namespace) -> int:
     volume_sma = args.volume_sma if args.volume_sma else VOLUME_SMA_WINDOW
 
     processor = get_processor(
-        index_type="total2b",
         top_n=args.top_n,
         volume_sma_window=volume_sma,
         quote_currency=quote_currency,

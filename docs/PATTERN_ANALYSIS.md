@@ -142,7 +142,7 @@ The pattern is classified based on slope relationships:
 - **Rising Wedge**: Upper slope > lower slope (accelerating returns)
 - **Channel**: Slopes approximately parallel
 
-Target is projected by extending the upper trendline to the expected cycle 5 peak date (~September 2029 = 2028 halving + 550 days).
+Target is projected by extending the upper trendline to the expected cycle 5 peak date (~October 2029 = 2028 halving + 550 days).
 
 ### 2. Fibonacci Extension (100%)
 
@@ -381,7 +381,7 @@ Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 
 
 **5. Price Liquidity Filter:**
 
-Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30) over their price history. This filters out illiquid coins with "staircase" patterns (e.g., ZBCN, HTX) where price stays constant for extended periods, indicating very low trading activity.
+Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30) within a **90-day window** (`UNIQUE_PRICES_WINDOW_DAYS` = 90). This filters out illiquid coins with "staircase" patterns (e.g., ZBCN, HTX) where price stays constant for extended periods, indicating very low trading activity.
 
 | Unique Prices | Included? | Example |
 |---------------|-----------|---------|
@@ -504,7 +504,7 @@ Each chart shows:
 
 ### Min/Max Detection
 
-The analyzer uses **segment-based detection** (the "identification kernel") to find cycle points. Price history is divided into segments between consecutive halvings, and each segment is analyzed with a 3-pass algorithm. Structural points (min1, max2) are always detected; optional points (max1, min2) require a 23.6% Fibonacci retracement for validation. See [Identification Kernel](IDENTIFICATION_KERNEL.md) for full details.
+See [Identification Kernel](IDENTIFICATION_KERNEL.md) for the full segment-based detection algorithm (3-pass, merge rules, validation).
 
 ### Reference Date
 

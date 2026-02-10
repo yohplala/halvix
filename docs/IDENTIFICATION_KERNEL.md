@@ -156,6 +156,7 @@ class CyclePoint:
     cycle_num: int
     point_type: PointType  # "min1" | "max1" | "min2" | "max2"
     days_from_halving: int
+    projected: bool = False  # True for projected points (e.g., min1 at 23.6% level)
 ```
 
 Downstream, `_build_points_index()` converts this list into a `dict[tuple[int, PointType], list[CyclePoint]]` for O(1) lookup by (cycle, point_type). This index is built once per coin and passed to all four projection methods.
@@ -178,7 +179,6 @@ The kernel is split into focused helpers:
 | `_find_min1()` | Finds min1 with retracement check |
 | `_find_max1()` | Finds max1 with extended search |
 | `_correct_min1_with_max1()` | Corrects min1 using max1 boundary |
-| `_merge_mins()` | Merges min1/min2 when no separating max1 |
 | `_detect_post_halving_points()` | Handles current/incomplete cycle |
 
 ---

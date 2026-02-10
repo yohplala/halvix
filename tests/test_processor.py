@@ -31,20 +31,10 @@ from data.processor import (
 class TestProcessorFactory:
     """Tests for the get_processor factory function."""
 
-    def test_get_total2b_processor(self):
-        """Test factory returns Total2bProcessor for 'total2b'."""
-        processor = get_processor("total2b")
-        assert isinstance(processor, Total2bProcessor)
-
-    def test_default_is_total2b(self):
-        """Test factory defaults to Total2bProcessor."""
+    def test_get_processor_returns_total2b(self):
+        """Test factory returns Total2bProcessor."""
         processor = get_processor()
         assert isinstance(processor, Total2bProcessor)
-
-    def test_invalid_index_type_raises(self):
-        """Test factory raises ValueError for unknown type."""
-        with pytest.raises(ValueError, match="Unknown index type"):
-            get_processor("invalid")
 
 
 class TestTotal2bProcessorInit:
@@ -176,7 +166,7 @@ class TestTotal2SaveLoad:
             assert index_path.exists()
             assert comp_path.exists()
 
-            loaded = processor.load_total2_index(index_path)
+            loaded = pd.read_parquet(index_path)
             pd.testing.assert_frame_equal(
                 loaded.reset_index(drop=True), sample_result.index_df.reset_index(drop=True)
             )

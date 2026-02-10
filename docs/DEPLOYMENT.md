@@ -58,7 +58,7 @@ This approach ensures:
 │  STEP 2: Calculate TOTAL2                                          │
 │  ┌────────────────────────────────────────────────────────────┐    │
 │  │ • Pulls: raw-data branch                                   │    │
-│  │ • Runs: calculate-total2 --index-type total2b              │    │
+│  │ • Runs: calculate-total2                                   │    │
 │  │ • Pushes to: processed-data branch (orphan)                │    │
 │  └────────────────────────────────────────────────────────────┘    │
 │                              │                                     │
@@ -182,23 +182,17 @@ Calculates the TOTAL2/TOTAL2b market index from cached price data.
 
 **Trigger**: Manual only (workflow_dispatch)
 
-**Inputs**:
-| Input | Description | Default |
-|-------|-------------|---------|
-| `index_type` | Index algorithm (total2 or total2b) | total2b |
-
 **What it does**:
 1. Checks out `main` branch (source code)
 2. Checks out `raw-data` branch (price data)
 3. Checks out `processed-data` branch (existing processed data)
-4. Runs `poetry run python -m main calculate-total2 --index-type <type>`
+4. Runs `poetry run python -m main calculate-total2`
 5. Force-pushes updated data to `processed-data` branch
 
 **To run**:
 1. Go to GitHub → Actions → "Calculate TOTAL2"
 2. Click "Run workflow"
-3. Select index type (total2b recommended)
-4. Click "Run workflow" button
+3. Click "Run workflow" button
 
 #### 3. Deploy to GitHub Pages (`pages.yml`)
 

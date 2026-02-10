@@ -86,7 +86,7 @@ halvix/
 from data.processor import get_processor
 
 # Factory function - returns Total2bProcessor
-processor = get_processor("total2b")
+processor = get_processor()
 result = processor.calculate_total2()
 ```
 
