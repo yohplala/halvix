@@ -11,6 +11,7 @@ Tests cover:
 - Edge cases (empty data, insufficient cycles)
 """
 
+import math
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -30,6 +31,7 @@ from config import (
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
     MAX_RETRACEMENT_LEVEL,
+    MIN_RETRACEMENT_LEVEL,
     RETRACEMENT_PENALTY_AT_MAX,
     TOTAL2_LOOKBACK_YEARS,
 )
@@ -941,7 +943,7 @@ class TestIdentifyCyclePoints:
         assert 4 in cycles_found  # min1 from segment 2
 
     def test_min1_validation_current_cycle(self, analyzer):
-        """For current/last segment, min1 requires 23.6% retracement."""
+        """For current/last segment, insufficient retracement produces projected min1."""
         # Data after last halving (H4=2024-04-19, H5=2028-03-31)
         # Two segments: H3-H4 provides context, H4-H5 is current
         # Build enough context for prev_min1_price
@@ -963,12 +965,15 @@ class TestIdentifyCyclePoints:
         )
         points = analyzer._identify_cycle_points(df)
 
-        # The last segment (H4-H5) should have max2 but NOT min1
-        # (105000 is only ~3% below 108000, far less than 23.6%)
+        # The last segment should have a PROJECTED min1 (at 23.6% retracement level)
         last_seg_min1 = [
             p for p in points if p.point_type == "min1" and p.cycle_num == len(HALVING_DATES)
         ]
-        assert len(last_seg_min1) == 0
+        assert len(last_seg_min1) == 1
+        assert last_seg_min1[0].projected is True
+        # Price should be the 23.6% retracement level, not the actual 105000
+        assert last_seg_min1[0].price < 108000.0
+        assert last_seg_min1[0].price != pytest.approx(105000.0, rel=0.01)
 
     def test_min1_accepted_when_deep_retracement(self, analyzer):
         """min1 accepted in last segment when retracement >= 23.6%."""
@@ -996,6 +1001,7 @@ class TestIdentifyCyclePoints:
         ]
         assert len(last_seg_min1) == 1
         assert last_seg_min1[0].price == pytest.approx(30000.0, rel=0.01)
+        assert last_seg_min1[0].projected is False
 
     def test_days_from_halving_sign_convention(self, analyzer):
         """min1/max1 have negative days_from_halving, max2/min2 have positive."""
@@ -1483,6 +1489,123 @@ class TestIdentifyCyclePoints:
         max2_c2 = [p for p in points if p.point_type == "max2" and p.cycle_num == 2]
         assert len(max2_c2) == 1
         assert max2_c2[0].price == pytest.approx(15000.0, rel=0.01)
+
+    def test_projected_min1_price_formula(self, analyzer):
+        """Projected min1 price matches the 23.6% Fibonacci retracement formula."""
+        df = self._make_df(
+            [
+                # Segment H2-H3
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2020-05-10", 9000.0),
+                # Segment H3-H4
+                ("2021-11-10", 69000.0),
+                ("2022-11-21", 15500.0),
+                ("2024-04-18", 64000.0),
+                # Post-H4 — shallow drop
+                ("2024-12-17", 108000.0),  # max2
+                ("2025-02-01", 105000.0),  # ~3% drop
+            ]
+        )
+        points = analyzer._identify_cycle_points(df)
+        projected = [p for p in points if p.projected]
+        assert len(projected) == 1
+
+        # ref = min2 price (64000.0) — min2 is valid via extend search to prev max1
+        # projected_price = 10^((1 - 0.236) * log10(108000) + 0.236 * log10(64000))
+        ref = 64000.0
+        max2 = 108000.0
+        expected = 10 ** (
+            (1 - MIN_RETRACEMENT_LEVEL) * math.log10(max2) + MIN_RETRACEMENT_LEVEL * math.log10(ref)
+        )
+        assert projected[0].price == pytest.approx(expected, rel=0.001)
+
+    def test_projected_min1_excluded_from_trendlines(self, analyzer):
+        """Projected points should not be included in trendline fitting."""
+        points = [
+            CyclePoint(
+                date=date(2018, 12, 15),
+                price=3200.0,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-878,
+            ),
+            CyclePoint(
+                date=date(2017, 12, 17),
+                price=19000.0,
+                cycle_num=2,
+                point_type="max2",
+                days_from_halving=526,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 10),
+                price=69000.0,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=549,
+            ),
+            CyclePoint(
+                date=date(2022, 11, 21),
+                price=15500.0,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-515,
+            ),
+            CyclePoint(
+                date=date(2025, 1, 15),
+                price=50000.0,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-200,
+                projected=True,
+            ),
+        ]
+
+        # Fit with projected point
+        result_with = analyzer._fit_log_trendlines(points)
+
+        # Fit without projected point
+        points_no_proj = [p for p in points if not p.projected]
+        result_without = analyzer._fit_log_trendlines(points_no_proj)
+
+        # Trendlines should be identical (projected point excluded)
+        for a, b in zip(result_with, result_without, strict=True):
+            if a is not None and b is not None:
+                assert a == pytest.approx(b, rel=1e-10)
+
+    def test_projected_min1_enables_fib_extension(self, analyzer):
+        """A projected min1 should be usable as C point in Fibonacci extension."""
+        points = [
+            CyclePoint(
+                date=date(2020, 1, 1),
+                price=0.001,
+                cycle_num=3,
+                point_type="min1",
+                days_from_halving=-131,
+            ),
+            CyclePoint(
+                date=date(2021, 11, 1),
+                price=0.01,
+                cycle_num=3,
+                point_type="max2",
+                days_from_halving=539,
+            ),
+            CyclePoint(
+                date=date(2024, 1, 1),
+                price=0.005,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-109,
+                projected=True,
+            ),
+        ]
+        idx = _build_idx(points)
+        result = analyzer._calculate_fib_extension(points, idx)
+        assert result is not None
+        # Fib extension: 10^(log10(C) + (log10(B) - log10(A)) * 1.0)
+        expected = 10 ** (math.log10(0.005) + (math.log10(0.01) - math.log10(0.001)) * 1.0)
+        assert result == pytest.approx(expected, rel=0.001)
 
 
 # =============================================================================

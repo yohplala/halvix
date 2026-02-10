@@ -82,11 +82,10 @@
 
         footer {
             text-align: center;
-            padding: 1.5rem;
-            color: var(--text-secondary);
-            font-size: 0.85rem;
+            padding: 0.75rem;
             border-top: 1px solid var(--border-color);
-            margin-top: 2rem;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
         }
 
         footer a {
@@ -98,9 +97,8 @@
             text-decoration: underline;
         }
 
-        .last-updated {
-            color: var(--text-secondary);
-            opacity: 0.7;
+        footer .last-updated {
+            opacity: 0.8;
         }
 
         {% block extra_styles %}{% endblock %}
@@ -108,9 +106,9 @@
 </head>
 <body>
     <header>
-        <a href="{{ back_link | default('../index.html') }}" class="back-link">&#8592;</a>
+        <a href="{{ back_link | default('../index.html') }}" class="back-link">&#8592; Back</a>
         <div class="header-content">
-            <span class="logo">&#8383;</span>
+            <span class="logo">&#x1f4ca;</span>
             <h1>Halvix</h1>
         </div>
     </header>

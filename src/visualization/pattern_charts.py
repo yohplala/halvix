@@ -694,6 +694,10 @@ def _create_pattern_chart(
         # Add individual points with markers
         for i, p in enumerate(cycle_points):
             display_date = x_vals[i]
+            is_projected = getattr(p, "projected", False)
+            point_color = POINT_COLORS.get(p.point_type, "#888")
+            marker_symbol = "circle-open" if is_projected else "circle"
+            projected_label = " (Projected)" if is_projected else ""
             fig.add_trace(
                 go.Scatter(
                     x=[display_date],
@@ -701,13 +705,15 @@ def _create_pattern_chart(
                     mode="markers",
                     marker={
                         "size": 12,
-                        "color": POINT_COLORS.get(p.point_type, "#888"),
+                        "color": point_color,
+                        "symbol": marker_symbol,
                         "line": {"width": 2, "color": "#fff"},
                     },
                     name=f"{p.point_type.upper()} C{p.cycle_num}",
                     showlegend=False,
                     hovertemplate=(
-                        f"<b>{p.point_type.upper()} (Cycle {p.cycle_num})</b><br>"
+                        f"<b>{p.point_type.upper()}{projected_label}"
+                        f" (Cycle {p.cycle_num})</b><br>"
                         f"{marker_price_tmpl.format(price=p.price)}<br>"
                         f"Days from halving: {p.days_from_halving:+d}"
                         "<extra></extra>"
