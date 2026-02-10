@@ -117,6 +117,7 @@ class CyclePoint:
     cycle_num: int
     point_type: PointType
     days_from_halving: int
+    projected: bool = False  # True when price is assumed (e.g., 23.6% retracement)
 
 
 @dataclass
@@ -211,6 +212,7 @@ def _make_point(
     cycle_num: int,
     point_type: PointType,
     halving_ref: date,
+    projected: bool = False,
 ) -> CyclePoint:
     """Create a CyclePoint with days_from_halving computed from halving_ref."""
     return CyclePoint(
@@ -219,6 +221,7 @@ def _make_point(
         cycle_num=cycle_num,
         point_type=point_type,
         days_from_halving=(pt_date - halving_ref).days,
+        projected=projected,
     )
 
 
@@ -635,6 +638,46 @@ class CyclePatternAnalyzer:
                 seg.min2_price = ext_min_price
 
     @staticmethod
+    def _adjust_launch_min2(
+        df: pd.DataFrame,
+        min2_date: date,
+        min2_price: float,
+        max2_date: date,
+    ) -> tuple[date, float] | None:
+        """Adjust min2 when it falls in the launch-price zone.
+
+        If the candidate is within LAUNCH_DATE_BUFFER_DAYS of first data,
+        searches for an alternative beyond the buffer. The alternative must
+        be a genuine dip (price was higher at some point before it), not
+        just launch-price continuation on an ascending slope.
+
+        Returns (date, price) of the valid candidate, or None.
+        """
+        first_available = _to_date(df.index[0])
+        if (min2_date - first_available).days > LAUNCH_DATE_BUFFER_DAYS:
+            return (min2_date, min2_price)
+        # Search beyond launch zone
+        buffer_cutoff = first_available + timedelta(days=LAUNCH_DATE_BUFFER_DAYS)
+        alt_mask = (
+            (df.index.date > buffer_cutoff) & (df.index.date <= max2_date) & (df["close"] > 0)
+        )
+        alt_data = df[alt_mask]
+        if alt_data.empty:
+            return None
+        alt_min_idx = alt_data["close"].idxmin()
+        alt_min_date = _to_date(alt_min_idx)
+        alt_min_price = float(alt_data.loc[alt_min_idx, "close"])
+        # Verify genuine dip: price must have been higher before the alt min2
+        pre_dip_mask = (
+            (df.index.date > buffer_cutoff)
+            & (df.index.date < alt_min_date)
+            & (df["close"] > alt_min_price)
+        )
+        if df[pre_dip_mask].empty:
+            return None
+        return (alt_min_date, alt_min_price)
+
+    @staticmethod
     def _validate_min2(
         df: pd.DataFrame,
         seg: SegmentData,
@@ -655,8 +698,13 @@ class CyclePatternAnalyzer:
             except ValueError:
                 return False
         # First segment or no prior context — suppress launch-price min2
-        first_available = _to_date(df.index[0])
-        return (seg.min2_date - first_available).days > LAUNCH_DATE_BUFFER_DAYS
+        result = CyclePatternAnalyzer._adjust_launch_min2(
+            df, seg.min2_date, seg.min2_price, seg.max2_date
+        )
+        if result is None:
+            return False
+        seg.min2_date, seg.min2_price = result
+        return True
 
     @staticmethod
     def _replace_min1_if_lower(
@@ -723,6 +771,23 @@ class CyclePatternAnalyzer:
                 return None
             if ratio >= MIN_RETRACEMENT_LEVEL:
                 return _make_point(min1_date, min1_price, curr_cycle, "min1", seg_end_halving)
+            # For the last segment (in-progress cycle), project min1 at 23.6%
+            if seg.is_last:
+                try:
+                    projected_price = 10 ** (
+                        (1 - MIN_RETRACEMENT_LEVEL) * math.log10(seg.max2_price)
+                        + MIN_RETRACEMENT_LEVEL * math.log10(ref_price)
+                    )
+                    return _make_point(
+                        min1_date,
+                        projected_price,
+                        curr_cycle,
+                        "min1",
+                        seg_end_halving,
+                        projected=True,
+                    )
+                except ValueError:
+                    pass
             return None
         # No reference price — still require min1 below max2
         if min1_price < seg.max2_price:
@@ -839,11 +904,19 @@ class CyclePatternAnalyzer:
         max2_price = float(post_data.loc[max2_idx, "close"])
         points.append(_make_point(max2_date, max2_price, last_cycle, "max2", last_halving))
 
-        # min2: dip between prev max1 and max2 (extends before halving)
+        # min2: dip between prev max1 (or first available date) and max2
         last_min2_valid = False
-        if prev_had_max1 and prev_max1_date is not None:
+        last_min2_price: float | None = None
+        if prev_had_max1:
+            if prev_max1_date is not None:
+                min2_search_start = prev_max1_date
+            else:
+                # No prior segments — fall back to first available data date
+                min2_search_start = _to_date(df.index[0])
             min2_ext_mask = (
-                (df.index.date >= prev_max1_date) & (df.index.date <= max2_date) & (df["close"] > 0)
+                (df.index.date >= min2_search_start)
+                & (df.index.date <= max2_date)
+                & (df["close"] > 0)
             )
             min2_ext = df[min2_ext_mask]
             if not min2_ext.empty:
@@ -856,9 +929,16 @@ class CyclePatternAnalyzer:
                         last_min2_valid = ratio >= MIN_RETRACEMENT_LEVEL
                     except ValueError:
                         last_min2_valid = False
+                elif prev_max1_date is None:
+                    # No prior context — suppress launch-price min2
+                    result = self._adjust_launch_min2(df, min2_date, min2_price, max2_date)
+                    if result is not None:
+                        min2_date, min2_price = result
+                        last_min2_valid = True
                 else:
                     last_min2_valid = True
                 if last_min2_valid:
+                    last_min2_price = min2_price
                     points.append(
                         _make_point(min2_date, min2_price, last_cycle, "min2", last_halving)
                     )
@@ -876,16 +956,43 @@ class CyclePatternAnalyzer:
             min1_date = _to_date(min1_idx)
             min1_price = float(min1_after.loc[min1_idx, "close"])
 
-            ref = prev_min1_price
+            # Use min2 as reference if detected, otherwise fall back to prev min1
+            ref = last_min2_price if last_min2_price is not None else prev_min1_price
             if ref is not None:
                 try:
                     ratio = fib_retracement_ratio(ref, max2_price, min1_price)
                 except ValueError:
                     ratio = None
                 if ratio is not None and ratio >= MIN_RETRACEMENT_LEVEL:
+                    # Actual min1: retracement is deep enough
                     points.append(
                         _make_point(min1_date, min1_price, last_cycle + 1, "min1", last_halving)
                     )
+                else:
+                    # Retracement insufficient — project min1 at 23.6% level
+                    # C = 10^((1 - r) * log10(B) + r * log10(A))
+                    try:
+                        projected_price = 10 ** (
+                            (1 - MIN_RETRACEMENT_LEVEL) * math.log10(max2_price)
+                            + MIN_RETRACEMENT_LEVEL * math.log10(ref)
+                        )
+                        points.append(
+                            _make_point(
+                                min1_date,
+                                projected_price,
+                                last_cycle + 1,
+                                "min1",
+                                last_halving,
+                                projected=True,
+                            )
+                        )
+                    except ValueError:
+                        pass
+            elif min1_price < max2_price:
+                # No reference price — still require min1 below max2
+                points.append(
+                    _make_point(min1_date, min1_price, last_cycle + 1, "min1", last_halving)
+                )
 
     @staticmethod
     def _find_latest_min_point(points: list[CyclePoint]) -> CyclePoint | None:
@@ -958,8 +1065,9 @@ class CyclePatternAnalyzer:
             or (None, None, None, None) if insufficient data
         """
         # Separate peaks and troughs, filtering out zero/negative prices
-        peaks = [p for p in points if "max" in p.point_type and p.price > 0]
-        troughs = [p for p in points if "min" in p.point_type and p.price > 0]
+        # Exclude projected points — manufactured prices would bias regression
+        peaks = [p for p in points if "max" in p.point_type and p.price > 0 and not p.projected]
+        troughs = [p for p in points if "min" in p.point_type and p.price > 0 and not p.projected]
 
         if not peaks or not troughs:
             return None, None, None, None
