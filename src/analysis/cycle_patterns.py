@@ -225,6 +225,30 @@ def _make_point(
     )
 
 
+def _project_min1(
+    min1_date: date,
+    max2_price: float,
+    ref_price: float,
+    cycle_num: int,
+    halving_ref: date,
+) -> CyclePoint | None:
+    """Project min1 at MIN_RETRACEMENT_LEVEL when actual retracement is insufficient.
+
+    Returns a CyclePoint with projected=True, or None if the price calculation
+    fails (e.g., non-positive inputs to log10).
+    """
+    try:
+        projected_price = 10 ** (
+            (1 - MIN_RETRACEMENT_LEVEL) * math.log10(max2_price)
+            + MIN_RETRACEMENT_LEVEL * math.log10(ref_price)
+        )
+        return _make_point(
+            min1_date, projected_price, cycle_num, "min1", halving_ref, projected=True
+        )
+    except ValueError:
+        return None
+
+
 class CyclePatternAnalyzer:
     """
     Analyzes cycle patterns for BTC and altcoins.
@@ -587,9 +611,13 @@ class CyclePatternAnalyzer:
             min1_point = self._find_min1(
                 seg, min2_valid, prev_min1_price, curr_cycle, seg_end_halving
             )
-            max1_point = self._find_max1(
-                df, seg, segments, s_idx, min1_point, curr_cycle, seg_end_halving
-            )
+            # Skip max1 search when min1 is projected — the assumed price
+            # hasn't been reached, so a recovery bounce is not meaningful.
+            max1_point = None
+            if min1_point is not None and not min1_point.projected:
+                max1_point = self._find_max1(
+                    df, seg, segments, s_idx, min1_point, curr_cycle, seg_end_halving
+                )
 
             # Correct min1 using max1 as boundary
             if min1_point is not None and max1_point is not None:
@@ -773,21 +801,9 @@ class CyclePatternAnalyzer:
                 return _make_point(min1_date, min1_price, curr_cycle, "min1", seg_end_halving)
             # For the last segment (in-progress cycle), project min1 at 23.6%
             if seg.is_last:
-                try:
-                    projected_price = 10 ** (
-                        (1 - MIN_RETRACEMENT_LEVEL) * math.log10(seg.max2_price)
-                        + MIN_RETRACEMENT_LEVEL * math.log10(ref_price)
-                    )
-                    return _make_point(
-                        min1_date,
-                        projected_price,
-                        curr_cycle,
-                        "min1",
-                        seg_end_halving,
-                        projected=True,
-                    )
-                except ValueError:
-                    pass
+                return _project_min1(
+                    min1_date, seg.max2_price, ref_price, curr_cycle, seg_end_halving
+                )
             return None
         # No reference price — still require min1 below max2
         if min1_price < seg.max2_price:
@@ -969,25 +985,11 @@ class CyclePatternAnalyzer:
                         _make_point(min1_date, min1_price, last_cycle + 1, "min1", last_halving)
                     )
                 else:
-                    # Retracement insufficient — project min1 at 23.6% level
-                    # C = 10^((1 - r) * log10(B) + r * log10(A))
-                    try:
-                        projected_price = 10 ** (
-                            (1 - MIN_RETRACEMENT_LEVEL) * math.log10(max2_price)
-                            + MIN_RETRACEMENT_LEVEL * math.log10(ref)
-                        )
-                        points.append(
-                            _make_point(
-                                min1_date,
-                                projected_price,
-                                last_cycle + 1,
-                                "min1",
-                                last_halving,
-                                projected=True,
-                            )
-                        )
-                    except ValueError:
-                        pass
+                    projected = _project_min1(
+                        min1_date, max2_price, ref, last_cycle + 1, last_halving
+                    )
+                    if projected:
+                        points.append(projected)
             elif min1_price < max2_price:
                 # No reference price — still require min1 below max2
                 points.append(
