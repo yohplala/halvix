@@ -2,7 +2,7 @@
 
 **Cryptocurrency price analysis relative to Bitcoin halving cycles.**
 
-Halvix analyzes cryptocurrency performance across BTC halving cycles (2nd through 5th), comparing each coin's price action against the TOTAL2b market index (volume-weighted index of top altcoins).
+Halvix analyzes cryptocurrency performance across BTC halving cycles (2nd through 5th), comparing each coin's price action against the TOTAL2 market index (volume-weighted index of top altcoins).
 
 ## Features
 
