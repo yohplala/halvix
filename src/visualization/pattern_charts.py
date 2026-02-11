@@ -1233,12 +1233,11 @@ def generate_pattern_analysis_page(
     <main>
         <h2>Cycle Pattern Analysis</h2>
         <p class="description">
-            Analysis of price patterns across Bitcoin halving cycles (2020, 2024) with projections
+            Analysis of price patterns across Bitcoin halving cycles with projections
             for cycle 5 (2028). Four methods are used to estimate targets: log-linear trendline
             regression, Fibonacci 100% extension, diminishing returns model, and historical peak.
-            <strong>Ranking is by composite score (descending).</strong> Coins with negative
-            trendline predictions are filtered out (underperforming BTC).
-            The composite score is a weighted average of available methods, with weights depending on confidence level.
+            <strong>Ranking is by composite score (descending).</strong>
+            See <a href="https://github.com/yohplala/halvix/blob/main/docs/PATTERN_ANALYSIS.md" target="_blank">full methodology</a> for details on filtering, confidence levels, and weight profiles.
         </p>
 
         <div class="table-container" style="overflow-x: auto;">
