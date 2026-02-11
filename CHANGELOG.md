@@ -12,7 +12,7 @@ format YYYY.MM.patch.
 
 ## 2026.02
 
-### [2026.02.3] - 2026-02-11
+### [2026.02.2] - 2026-02-11
 
 **Segment-based cycle point detection**
 
