@@ -454,6 +454,13 @@ jobs:
             echo "Restored cache from raw-data branch"
           fi
 
+          # Restore fetch metadata from raw-data branch (coins list, skipped/failed)
+          if [ -d "raw-data-branch/processed" ]; then
+            cp -r raw-data-branch/processed/* main/data/processed/ 2>/dev/null || true
+            echo "Restored fetch metadata from raw-data branch"
+          fi
+
+          # Restore TOTAL2 index from processed-data branch (overwrites if overlap)
           if [ -d "processed-data-branch/processed" ]; then
             cp -r processed-data-branch/processed/* main/data/processed/ 2>/dev/null || true
             echo "Restored processed data from processed-data branch"
