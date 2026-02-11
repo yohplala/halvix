@@ -8,7 +8,7 @@ Halvix analyzes cryptocurrency performance across BTC halving cycles (2nd throug
 
 - 📊 Retrieve and analyze top 1200 cryptocurrencies by market cap
 - 🔍 Filter out wrapped, staked, bridged tokens and stablecoins
-- 📉 Volume-weighted TOTAL2b index with 21-day freeze period and price scaling
+- 📉 Volume-weighted TOTAL2 index with 21-day freeze period and price scaling
 - 📈 Compare altcoin price performance across 2nd to 5th BTC halving cycles
 - 🎯 Cycle pattern analysis with 4 projection methods (trendline, Fibonacci, diminishing returns, historical peak)
 - 🏆 Composite ranking of altcoins by projected return with confidence scoring
@@ -66,10 +66,9 @@ poetry run python -m main status
 | CryptoCompare Client | ✅ Complete |
 | Data Fetcher & Caching | ✅ Complete |
 | TOTAL2 Calculation | ✅ Complete |
-| GitHub Pages Docs | ✅ Complete |
 | Halving Cycle Charts | ✅ Complete |
 | Cycle Pattern Analysis | ✅ Complete |
-
+| GitHub Pages Docs | ✅ Complete |
 
 ## License
 
