@@ -60,18 +60,20 @@ Points are detected using **segment-based analysis**: the price history is divid
 
 ### Cycle 5 (Current Cycle)
 
-For cycle 5, the analyzer detects min1 differently since the cycle is ongoing:
+For cycle 5, min1 can be either **actual** or **projected**, depending on whether the retracement from the cycle 4 max2 has reached the 23.6% Fibonacci level:
 
-| Attribute | Value | Notes |
-|-----------|-------|-------|
-| **Price** | Lowest since cycle 4 BTC peak | Actual minimum from `BTC_CYCLE_PEAKS[-1]` to current date |
-| **Date (display)** | Actual date of minimum | Used in charts and output |
-| **Date (regression)** | 5th halving − 520 days | ~Oct 28, 2026; used only for trendline x-coordinate |
+| Condition | Type | Price | Date | Chart Marker |
+|-----------|------|-------|------|-------------|
+| Retracement ≥ 23.6% | **Actual** | Detected minimum | Actual date of minimum | Solid circle |
+| Retracement < 23.6% | **Projected** | 23.6% retracement level | Approximated: halving − 520 days (~Oct 2026) | Open circle |
 
-The approximated regression date:
+For **projected min1**, the approximated date:
 - Places min1 within the typical window `[halving-550, halving]`
-- Provides a stable x-coordinate since the true bottom may not have occurred yet
+- Provides a stable x-coordinate since the true bottom hasn't occurred yet
+- Is used for **both** chart display and trendline regression (ensuring visual alignment)
 - Only affects trendline regression; Fibonacci and Diminishing Returns use the actual price only
+
+For **actual min1**, the detected date is used everywhere (chart, regression, all methods).
 
 This gives:
 - **4 points per completed cycle** (cycles 2, 3, 4)
@@ -88,7 +90,7 @@ Fits separate linear regression lines (on log-transformed prices) through:
 - **Upper trendline**: Through max1 and max2 points across cycles
 - **Lower trendline**: Through min1 and min2 points across cycles
 
-> **Note**: Cycle 5 min1 uses an approximated date for regression (see [Cycle 5](#cycle-5-current-cycle) above).
+> **Note**: Projected cycle 5 min1 uses an approximated date for regression (see [Cycle 5](#cycle-5-current-cycle) above). Actual min1 uses its detected date.
 
 **Weighted Regression**:
 
@@ -123,19 +125,23 @@ This prevents early high-growth cycles from making projections overly optimistic
 
 **Requirements (Major Extrema Approach)**:
 
-To calculate a trendline, the analyzer requires at least **2 major extrema of the same type** (either min1 or max2):
+To calculate a trendline, the analyzer requires at least **2 extrema on at least one side**. The priority order for fitting:
 
 | Condition | Upper Trendline | Lower Trendline | Result |
 |-----------|-----------------|-----------------|--------|
-| 2+ min1 AND 2+ max2 | Fit through max points | Fit through min points | Independent slopes |
+| 2+ min1 AND 2+ max2 | Fit through max points | Fit through min points | Independent slopes (major) |
 | 2+ min1 only | Use trough slope | Fit through min1 points | Parallel channel |
 | 2+ max2 only | Fit through max2 points | Use peak slope | Parallel channel |
-| <2 of both | None | None | No trendline |
+| 2+ total peaks AND 2+ total troughs | Fit through all max points | Fit through all min points | Independent slopes (mixed) |
+| 2+ total troughs only | Use trough slope | Fit through min points | Parallel channel |
+| 2+ total peaks only | Fit through max points | Use peak slope | Parallel channel |
+| <2 on both sides | None | None | No trendline |
 
-**Parallel Channel Assumption**: When only one side (peaks or troughs) has enough major extrema, the slope from that side is used for both trendlines. The intercept for the other side is calculated to pass through the available major point(s).
+**Parallel Channel Assumption**: When only one side (peaks or troughs) has enough points, the slope from that side is used for both trendlines. The intercept for the other side is calculated to pass through the available major point(s). When both sides have 2+ points, each trendline is fitted independently through its own points — this correctly captures compression patterns (e.g., VIRTUAL with falling upper and rising lower).
 
 **Additional Requirements**:
 - No zero or negative prices
+- **Projected min1 is included** in trendline regression. Its price (23.6% retracement level) is approximate, but it provides a useful second trough for coins with limited history. Its regression x-coordinate uses an approximated date (halving − 520 days), while actual min1 uses its detected date (see [Cycle 5](#cycle-5-current-cycle)).
 
 The pattern is classified based on slope relationships:
 - **Falling Wedge**: Upper slope < lower slope (diminishing returns pattern)
@@ -311,29 +317,39 @@ Coins are **ranked by composite target percentage** (descending). The composite 
 
 ### Filtering Rules
 
-Coins are filtered to exclude assets expected to underperform BTC or with insufficient data quality:
+Coins are filtered to exclude assets with insufficient data quality or structurally weak patterns:
 
-**1. Trendline Prediction Filter:**
+**1. Intermediate Extrema Filter:**
 
-| Trendline Value | Included? | Reason |
-|-----------------|-----------|--------|
-| **Positive** | Yes | Expected to outperform BTC |
-| **None/Missing** | No | Insufficient data for trendline — excluded |
-| **Negative** | No | Expected to underperform BTC |
+Coins must have at least one **intermediate extrema** (max1 or min2) beyond the structural pair (max2 + min1). A projected min1 counts toward the structural pair. This ensures the coin has enough cycle structure for meaningful pattern analysis — coins with only a single peak and trough lack the intermediate points needed to characterize the full cycle shape.
 
-**2. Floor Appreciation Filter:**
+| Extrema | Included? | Example |
+|---------|-----------|---------|
+| **max2 + min1 + max1/min2** | Yes | Sufficient cycle structure |
+| **max2 + min1 only** | No | Too few points for reliable pattern |
 
-Coins with declining floors (min points getting lower over cycles) are excluded. The lower trendline slope must indicate at least **8% annual floor appreciation** (`MIN_LOWER_SLOPE_ANNUAL_PCT` in config).
+**2. Minimum Actual Extrema Filter:**
+
+Coins must have at least **3 actual (non-projected) extrema**. This filters out coins like PIPPIN that have only 2 real points (e.g., min2 + max2) with a projected min1 enabling trendline fitting — the projections are technically computable but unreliable with so few real data points.
+
+| Actual Extrema | Included? | Example |
+|----------------|-----------|---------|
+| **≥ 3** | Yes | Enough real data points |
+| **< 3** | No | Too few actual points (e.g., PIPPIN with min2 + max2 + projected min1) |
+
+**3. Floor Appreciation Filter:**
+
+Coins with declining floors (min points getting lower over cycles) are excluded. The **lower trendline** slope (fitted through min1 and min2 points) must indicate at least **4% annual floor appreciation** (`MIN_LOWER_SLOPE_ANNUAL_PCT` in config).
 
 | Floor Trend | Included? | Example |
 |-------------|-----------|---------|
-| **Appreciating (≥8%/year)** | Yes | Healthy floor growth |
-| **Stagnant (<8%/year)** | No | Floor not keeping pace |
+| **Appreciating (≥4%/year)** | Yes | Healthy floor growth |
+| **Stagnant (<4%/year)** | No | Floor not keeping pace |
 | **Declining (negative)** | No | Bottoms getting lower (e.g., CTXC) |
 
-This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding - a sign of structural weakness.
+This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding — a sign of structural weakness. Note that the upper trendline (fitted through max1 and max2 points) is **not** filtered: a compression pattern with negative upper slope and positive lower slope is valid.
 
-**3. Fibonacci Retracement Filter:**
+**4. Fibonacci Retracement Filter:**
 
 Coins that have **retraced too deeply** from their last cycle peak are filtered out. This uses the standard Fibonacci retracement framework with three structural points:
 
@@ -370,7 +386,7 @@ If retracement > 0.618 and ≤ 0.886:
 | 75.2% (midpoint) | 0.75 | 25% reduction |
 | 88.6% (max) | 0.5 | 50% reduction (just before exclusion) |
 
-**4. Coin Age Filter:**
+**5. Coin Age Filter:**
 
 Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 days). This filters out very new coins (e.g., ZORA) with insufficient data for reliable projections.
 
@@ -379,7 +395,9 @@ Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 
 | **≥ 1 year** | Yes | Sufficient price history |
 | **< 1 year** | No | Too new for reliable analysis |
 
-**5. Price Liquidity Filter:**
+**Note**: When a symbol replacement is detected (see [Symbol Replacement Detection](#data-approach-full-price-history)), the price data is truncated to post-replacement only. This resets the effective `first_price_date` to the replacement date, so the coin age filter applies to the **new token's** history, not the old one's.
+
+**6. Price Liquidity Filter:**
 
 Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30) within a **90-day window** (`UNIQUE_PRICES_WINDOW_DAYS` = 90). This filters out illiquid coins with "staircase" patterns (e.g., ZBCN, HTX) where price stays constant for extended periods, indicating very low trading activity.
 
@@ -522,7 +540,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 | `MAJOR_POINT_WEIGHT` | 0.67 | Weight for min1, max2 in regression and historical peak averaging |
 | `MINOR_POINT_WEIGHT` | 0.33 | Weight for max1, min2 in regression and historical peak averaging |
 | `CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING` | 520 | Approximated min1 date for trendline |
-| `MIN_LOWER_SLOPE_ANNUAL_PCT` | 8 | Minimum annual floor appreciation (%) |
+| `MIN_LOWER_SLOPE_ANNUAL_PCT` | 4 | Minimum annual floor appreciation (%) |
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
 | `COMPOSITE_WEIGHT_PROFILES` | dict | Weight profiles per confidence level (see above) |

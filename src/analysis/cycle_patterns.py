@@ -1089,17 +1089,15 @@ class CyclePatternAnalyzer:
             index[key].append(p)
         return index
 
-    def _get_regression_date(self, point: CyclePoint) -> date:
+    @staticmethod
+    def _get_regression_date(point: CyclePoint) -> date:
         """
         Get the date to use for trendline regression for a given point.
 
-        For current cycle min1, uses an approximated date
-        (projected_halving - CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING days)
-        instead of the actual detected date. This provides a stable reference point
-        for regression calculations since the current cycle is ongoing and the actual
-        bottom may not have occurred yet.
-
-        For all other points, returns the actual date.
+        For actual (non-projected) points, returns the detected date.
+        For projected min1, returns the approximated date (520 days before
+        the last halving), matching the chart display position. This ensures
+        the trendline visually passes through the displayed point.
 
         Args:
             point: The cycle point
@@ -1107,11 +1105,8 @@ class CyclePatternAnalyzer:
         Returns:
             Date to use for regression x-coordinate
         """
-        if point.cycle_num == self.current_cycle_num and point.point_type == "min1":
-            # Use approximated date for current cycle min1
-            return self.projected_halving - timedelta(
-                days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING
-            )
+        if point.projected and point.point_type == "min1":
+            return HALVING_DATES[-1] - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
         return point.date
 
     def _fit_log_trendlines(
@@ -1129,18 +1124,25 @@ class CyclePatternAnalyzer:
         through 2 points is uniquely determined. With 3+ points, weights
         affect which points the regression line fits more closely.
 
-        Note: For cycle 5 min1, an approximated date is used (520 days before
-        the projected 5th halving) instead of the actual detected date. This
-        provides a stable reference for regression since cycle 5 is ongoing.
+        Note: Actual points use their detected dates for regression.
+        Projected min1 uses an approximated date (520 days before halving),
+        matching its chart display position. This ensures trendlines visually
+        pass through displayed points.
 
         Returns:
             Tuple of (upper_slope, upper_intercept, lower_slope, lower_intercept)
             or (None, None, None, None) if insufficient data
         """
         # Separate peaks and troughs, filtering out zero/negative prices
-        # Exclude projected points — manufactured prices would bias regression
+        # Include projected min1: its price is approximate (23.6% retracement) but
+        # provides a useful second trough for coins with limited history (e.g., PIPPIN,
+        # HYPE). _get_regression_date() already provides a stable x-coordinate for it.
         peaks = [p for p in points if "max" in p.point_type and p.price > 0 and not p.projected]
-        troughs = [p for p in points if "min" in p.point_type and p.price > 0 and not p.projected]
+        troughs = [
+            p
+            for p in points
+            if "min" in p.point_type and p.price > 0 and (not p.projected or p.point_type == "min1")
+        ]
 
         if not peaks or not troughs:
             return None, None, None, None
@@ -1170,7 +1172,7 @@ class CyclePatternAnalyzer:
 
         # Convert to arrays with days as x-axis (days from first halving date)
         # Use HALVING_DATES[1] (2016) as reference
-        # Note: Cycle 5 min1 uses approximated date via _get_regression_date()
+        # Note: Projected min1 uses approximated date via _get_regression_date()
         reference_date = HALVING_DATES[1]
 
         peak_x = np.array(
@@ -1272,8 +1274,19 @@ class CyclePatternAnalyzer:
                     float(lower_intercept),
                 )
 
+            elif has_enough_total_troughs and has_enough_total_peaks:
+                # Both sides have 2+ total points (but not 2+ major) - fit independently
+                upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1, w=peak_weights)
+                lower_fit = np.polyfit(trough_x.flatten(), trough_y, 1, w=trough_weights)
+                return (
+                    float(upper_fit[0]),
+                    float(upper_fit[1]),
+                    float(lower_fit[0]),
+                    float(lower_fit[1]),
+                )
+
             elif has_enough_total_troughs:
-                # Fallback: 2+ total troughs but not enough major - fit all troughs, use same slope for peaks
+                # Fallback: 2+ total troughs only - fit troughs, use same slope for peaks
                 lower_fit = np.polyfit(trough_x.flatten(), trough_y, 1, w=trough_weights)
                 slope = lower_fit[0]
                 # Calculate intercept for upper line passing through the highest peak
@@ -1289,7 +1302,7 @@ class CyclePatternAnalyzer:
                 )
 
             else:
-                # Fallback: 2+ total peaks but not enough major - fit all peaks, use same slope for troughs
+                # Fallback: 2+ total peaks only - fit peaks, use same slope for troughs
                 upper_fit = np.polyfit(peak_x.flatten(), peak_y, 1, w=peak_weights)
                 slope = upper_fit[0]
                 # Calculate intercept for lower line passing through the lowest trough
@@ -2003,7 +2016,8 @@ class CyclePatternAnalyzer:
         Get top N coins by composite target percentage.
 
         Filtering rules:
-        - Coins must have a positive trendline prediction (missing or negative = excluded)
+        - Coins must have at least one intermediate extrema (max1 or min2) beyond max2 + min1
+        - Coins must have at least 3 actual (non-projected) extrema
         - Coins with declining floor (lower_slope < MIN_LOWER_SLOPE) are excluded
         - Coins with excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL) are excluded
         - Coins must be at least MIN_COIN_AGE_DAYS old (1 year)
@@ -2032,21 +2046,27 @@ class CyclePatternAnalyzer:
         candidates = list(results.values())
         total_start = len(candidates)
 
-        # Filter 1: Must have positive trendline (no trendline = filtered out)
+        # Filter 1: Must have at least one intermediate extrema (max1 or min2) beyond
+        # the structural pair (max2 + min1). This ensures enough cycle structure for
+        # meaningful pattern analysis.
         candidates = [
-            r
-            for r in candidates
-            if r.trendline_target_pct is not None and r.trendline_target_pct > 0
+            r for r in candidates if any(p.point_type in ("max1", "min2") for p in r.points)
         ]
-        after_trendline = len(candidates)
+        after_extrema = len(candidates)
 
-        # Filter 2: Declining floor (lower_slope below MIN_LOWER_SLOPE)
+        # Filter 2: Must have at least 3 actual (non-projected) extrema.
+        # Coins with only 2 real points (e.g., PIPPIN with min2 + max2) have too little
+        # data for reliable predictions, even if a projected min1 enables trendline fitting.
+        candidates = [r for r in candidates if sum(1 for p in r.points if not p.projected) >= 3]
+        after_actual = len(candidates)
+
+        # Filter 3: Declining floor (lower_slope below MIN_LOWER_SLOPE)
         candidates = [
             r for r in candidates if r.lower_slope is None or r.lower_slope >= MIN_LOWER_SLOPE
         ]
         after_floor = len(candidates)
 
-        # Filter 3: Excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL)
+        # Filter 4: Excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL)
         candidates = [
             r
             for r in candidates
@@ -2054,7 +2074,7 @@ class CyclePatternAnalyzer:
         ]
         after_retracement = len(candidates)
 
-        # Filter 4: Too new (first_price_date < MIN_COIN_AGE_DAYS ago)
+        # Filter 5: Too new (first_price_date < MIN_COIN_AGE_DAYS ago)
         candidates = [
             r
             for r in candidates
@@ -2062,7 +2082,7 @@ class CyclePatternAnalyzer:
         ]
         after_age = len(candidates)
 
-        # Filter 5: Too few unique prices (staircase/illiquid patterns)
+        # Filter 6: Too few unique prices (staircase/illiquid patterns)
         candidates = [r for r in candidates if r.unique_price_count >= MIN_UNIQUE_PRICES]
         after_unique = len(candidates)
 
@@ -2096,9 +2116,14 @@ class CyclePatternAnalyzer:
         else:
             lines.append(_start("With cycle projections", total_start))
 
-        lines.append(_step("Positive trendline", after_trendline, total_start - after_trendline))
         lines.append(
-            _step("Floor not declining (slope >= min)", after_floor, after_trendline - after_floor)
+            _step(
+                "Has intermediate extrema (max1/min2)", after_extrema, total_start - after_extrema
+            )
+        )
+        lines.append(_step("Actual extrema >= 3", after_actual, after_extrema - after_actual))
+        lines.append(
+            _step("Floor not declining (slope >= min)", after_floor, after_actual - after_floor)
         )
         lines.append(
             _step(

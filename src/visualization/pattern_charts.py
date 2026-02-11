@@ -334,9 +334,13 @@ def _add_fib_hint_lines(
     if not (a_point and b_point and c_point):
         return
 
-    # Handle cycle 5 display date for C
+    # Handle cycle 5 display date for C (only when projected)
     c_date = c_point.date
-    if current_cycle_num and latest_cycle == current_cycle_num:
+    if (
+        current_cycle_num
+        and latest_cycle == current_cycle_num
+        and getattr(c_point, "projected", False)
+    ):
         c_date = cycle5_display_date
 
     # Shift A, B, C down slightly (log-scale) to separate from dim-return lines.
@@ -400,7 +404,7 @@ def _add_dim_return_hint_lines(
             min_date = min_p.date
             max_date = max_p.date
             if current_cycle_num and cycle == current_cycle_num:
-                if min_p.point_type == "min1":
+                if min_p.point_type == "min1" and getattr(min_p, "projected", False):
                     min_date = cycle5_display_date
 
             fig.add_trace(
@@ -428,6 +432,7 @@ def _add_dim_return_hint_lines(
             current_cycle_num
             and latest_min.cycle_num == current_cycle_num
             and latest_min.point_type == "min1"
+            and getattr(latest_min, "projected", False)
         ):
             min_date = cycle5_display_date
 
@@ -493,13 +498,13 @@ def _calculate_y_axis_range(
 
 def _get_cycle5_min1_display_date() -> date:
     """
-    Get the approximated date for displaying cycle 5 min1 on charts.
+    Get the approximated date for displaying projected cycle 5 min1 on charts.
 
-    This uses the trendline regression date rather than the actual detected date,
-    providing a stable position for the current cycle minimum point.
+    Only used for projected min1 (where the actual retracement hasn't reached
+    23.6% yet). Actual min1 points use their real detected date.
 
     Returns:
-        The approximated date for cycle 5 min1 (520 days before 5th halving)
+        The approximated date for projected cycle 5 min1 (520 days before 5th halving)
     """
     return HALVING_DATES[-1] - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
 
@@ -642,7 +647,7 @@ def _create_pattern_chart(
     valid_points = [p for p in result.points if p.price > 0]
     cycles = sorted({p.cycle_num for p in valid_points})
 
-    # Get cycle 5 approximated date for display
+    # Get cycle 5 approximated date for display (used only for projected min1)
     cycle5_display_date = _get_cycle5_min1_display_date()
 
     # Build points index once for all chart helpers
@@ -670,10 +675,15 @@ def _create_pattern_chart(
         if not cycle_points:
             continue
 
-        # For current cycle (only min1), use approximated date for min1
+        # For current cycle, use approximated date only for projected min1
         if cycle_num == current_cycle_num:
             x_vals = [
-                cycle5_display_date if p.point_type == "min1" else p.date for p in cycle_points
+                (
+                    cycle5_display_date
+                    if p.point_type == "min1" and getattr(p, "projected", False)
+                    else p.date
+                )
+                for p in cycle_points
             ]
         else:
             x_vals = [p.date for p in cycle_points]
@@ -730,7 +740,9 @@ def _create_pattern_chart(
         if prev_max2 and next_min1:
             # Standard bridge: max2 → min1
             next_min1_date = (
-                cycle5_display_date if next_cycle == current_cycle_num else next_min1.date
+                cycle5_display_date
+                if next_cycle == current_cycle_num and getattr(next_min1, "projected", False)
+                else next_min1.date
             )
 
             fig.add_trace(
@@ -763,7 +775,9 @@ def _create_pattern_chart(
                 first_p = next_pts[0]
                 first_date = (
                     cycle5_display_date
-                    if next_cycle == current_cycle_num and first_p.point_type == "min1"
+                    if next_cycle == current_cycle_num
+                    and first_p.point_type == "min1"
+                    and getattr(first_p, "projected", False)
                     else first_p.date
                 )
                 fig.add_trace(

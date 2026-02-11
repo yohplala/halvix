@@ -1521,8 +1521,8 @@ class TestIdentifyCyclePoints:
         )
         assert projected[0].price == pytest.approx(expected, rel=0.001)
 
-    def test_projected_min1_excluded_from_trendlines(self, analyzer):
-        """Projected points should not be included in trendline fitting."""
+    def test_projected_min1_included_in_trendlines(self, analyzer):
+        """Projected min1 should be included in trendline fitting."""
         points = [
             CyclePoint(
                 date=date(2018, 12, 15),
@@ -1562,17 +1562,23 @@ class TestIdentifyCyclePoints:
             ),
         ]
 
-        # Fit with projected point
+        # Fit with projected min1
         result_with = analyzer._fit_log_trendlines(points)
 
-        # Fit without projected point
+        # Fit without projected min1
         points_no_proj = [p for p in points if not p.projected]
         result_without = analyzer._fit_log_trendlines(points_no_proj)
 
-        # Trendlines should be identical (projected point excluded)
-        for a, b in zip(result_with, result_without, strict=True):
-            if a is not None and b is not None:
-                assert a == pytest.approx(b, rel=1e-10)
+        # Both should succeed
+        assert result_with[0] is not None
+        assert result_without[0] is not None
+
+        # Lower trendline should differ (projected min1 adds a third trough)
+        # Upper trendline should also differ since the lower slope change affects
+        # the overall fit (via parallel channel or independent slopes)
+        lower_slope_with = result_with[2]
+        lower_slope_without = result_without[2]
+        assert lower_slope_with != pytest.approx(lower_slope_without, rel=1e-6)
 
     def test_projected_min1_enables_fib_extension(self, analyzer):
         """A projected min1 should be usable as C point in Fibonacci extension."""
@@ -1688,26 +1694,56 @@ class TestGetTopCoins:
     def analyzer(self, mock_price_cache):
         return CyclePatternAnalyzer(price_cache=mock_price_cache)
 
+    def _make_points_with_intermediate(self):
+        """Create a minimal points list with an intermediate extrema (min2)."""
+        return [
+            CyclePoint(
+                date=date(2022, 6, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-600,
+            ),
+            CyclePoint(
+                date=date(2023, 6, 1),
+                price=0.02,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=-300,
+            ),
+            CyclePoint(
+                date=date(2024, 6, 1),
+                price=0.008,
+                cycle_num=4,
+                point_type="min2",
+                days_from_halving=-100,
+            ),
+        ]
+
     def test_get_top_coins_basic(self, analyzer):
-        """Test getting top N coins by composite target, filtered by positive trendline."""
-        # trendline_target_pct must be positive to be included (filtering criterion)
+        """Test getting top N coins by composite target."""
         # composite_target_pct determines the ranking order
         # unique_price_count must be >= MIN_UNIQUE_PRICES (30) to pass liquidity filter
+        # points must include at least one intermediate extrema (max1 or min2)
+        pts = self._make_points_with_intermediate()
         results = {
             "eth": CoinPatternResult(
                 coin_id="eth",
+                points=pts,
                 trendline_target_pct=100.0,
                 composite_target_pct=120.0,
                 unique_price_count=100,
             ),
             "sol": CoinPatternResult(
                 coin_id="sol",
+                points=pts,
                 trendline_target_pct=150.0,
                 composite_target_pct=180.0,
                 unique_price_count=100,
             ),
             "ada": CoinPatternResult(
                 coin_id="ada",
+                points=pts,
                 trendline_target_pct=50.0,
                 composite_target_pct=60.0,
                 unique_price_count=100,
@@ -1721,30 +1757,35 @@ class TestGetTopCoins:
         assert top[0].coin_id == "sol"  # composite=180
         assert top[1].coin_id == "eth"  # composite=120
 
-    def test_get_top_coins_filters_negative_trendline(self, analyzer):
-        """Test that coins with negative trendline target are filtered, but None is allowed."""
+    def test_get_top_coins_no_trendline_filter(self, analyzer):
+        """Test that coins with negative or None trendline are NOT filtered out."""
         # unique_price_count must be >= MIN_UNIQUE_PRICES (30) to pass liquidity filter
+        pts = self._make_points_with_intermediate()
         results = {
             "eth": CoinPatternResult(
                 coin_id="eth",
+                points=pts,
                 trendline_target_pct=100.0,
                 composite_target_pct=100.0,
                 unique_price_count=100,
             ),
             "sol": CoinPatternResult(
                 coin_id="sol",
+                points=pts,
                 trendline_target_pct=50.0,
                 composite_target_pct=200.0,
                 unique_price_count=100,
             ),
             "btc": CoinPatternResult(
                 coin_id="btc",
+                points=pts,
                 trendline_target_pct=-50.0,
                 composite_target_pct=150.0,
                 unique_price_count=100,
             ),
             "ada": CoinPatternResult(
                 coin_id="ada",
+                points=pts,
                 trendline_target_pct=None,
                 composite_target_pct=180.0,
                 unique_price_count=100,
@@ -1753,13 +1794,102 @@ class TestGetTopCoins:
 
         top = analyzer.get_top_coins(results, n=5)
 
-        # eth and sol are included (positive trendline)
-        # btc is filtered out (negative trendline)
-        # ada is filtered out (no trendline)
-        assert len(top) == 2
-        # Sorted by composite: sol (200) > eth (100)
+        # All 4 coins pass — trendline sign is not a filter
+        assert len(top) == 4
+        # Sorted by composite: sol (200) > ada (180) > btc (150) > eth (100)
         assert top[0].coin_id == "sol"
-        assert top[1].coin_id == "eth"
+        assert top[1].coin_id == "ada"
+        assert top[2].coin_id == "btc"
+        assert top[3].coin_id == "eth"
+
+    def test_get_top_coins_filters_no_intermediate_extrema(self, analyzer):
+        """Test that coins with only max2 + min1 (no max1/min2) are filtered out."""
+        structural_only = [
+            CyclePoint(
+                date=date(2022, 6, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=-600,
+            ),
+            CyclePoint(
+                date=date(2023, 6, 1),
+                price=0.02,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=-300,
+            ),
+        ]
+        pts = self._make_points_with_intermediate()
+        results = {
+            "eth": CoinPatternResult(
+                coin_id="eth",
+                points=pts,
+                composite_target_pct=100.0,
+                unique_price_count=100,
+            ),
+            "sol": CoinPatternResult(
+                coin_id="sol",
+                points=structural_only,  # Only max2 + min1, no intermediate
+                composite_target_pct=200.0,
+                unique_price_count=100,
+            ),
+        }
+
+        top = analyzer.get_top_coins(results, n=5)
+
+        # sol filtered out (no intermediate extrema), only eth remains
+        assert len(top) == 1
+        assert top[0].coin_id == "eth"
+
+    def test_get_top_coins_filters_few_actual_extrema(self, analyzer):
+        """Test that coins with <3 actual extrema are filtered out (e.g., PIPPIN-like)."""
+        # 2 actual points + 1 projected min1 = only 2 actual, should be filtered
+        two_actual_with_projected = [
+            CyclePoint(
+                date=date(2025, 1, 15),
+                price=0.005,
+                cycle_num=4,
+                point_type="min2",
+                days_from_halving=-100,
+            ),
+            CyclePoint(
+                date=date(2025, 6, 1),
+                price=0.01,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=50,
+            ),
+            CyclePoint(
+                date=date(2026, 2, 1),
+                price=0.002,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-784,
+                projected=True,
+            ),
+        ]
+        pts = self._make_points_with_intermediate()
+        results = {
+            "eth": CoinPatternResult(
+                coin_id="eth",
+                points=pts,  # 3 actual points, passes
+                composite_target_pct=100.0,
+                unique_price_count=100,
+            ),
+            "pippin": CoinPatternResult(
+                coin_id="pippin",
+                points=two_actual_with_projected,  # 2 actual + 1 projected
+                composite_target_pct=200.0,
+                unique_price_count=100,
+            ),
+        }
+
+        top = analyzer.get_top_coins(results, n=5)
+
+        # pippin filtered out (only 2 actual extrema), only eth remains
+        assert len(top) == 1
+        assert top[0].coin_id == "eth"
 
     def test_get_top_coins_empty_results(self, analyzer):
         """Test with empty results dictionary."""

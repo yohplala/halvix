@@ -402,9 +402,9 @@ TRENDLINE_RECENCY_DECAY = 0.7
 # The slope is in log10-space per day. To convert annual percentage to slope:
 #   annual_gain = 10^(slope * 365)
 #   slope = log10(1 + annual_pct/100) / 365
-# For 8% annual floor appreciation: slope = log10(1.08) / 365 ≈ 0.0000915
+# For 4% annual floor appreciation: slope = log10(1.04) / 365 ≈ 0.0000467
 # Coins with lower_slope below this threshold are filtered out as underperforming.
-MIN_LOWER_SLOPE_ANNUAL_PCT = 8  # Require at least 8% annual floor appreciation
+MIN_LOWER_SLOPE_ANNUAL_PCT = 4  # Require at least 4% annual floor appreciation
 MIN_LOWER_SLOPE = math.log10(1 + MIN_LOWER_SLOPE_ANNUAL_PCT / 100) / 365
 
 # Minimum coin age for pattern analysis (filters out very new coins)
