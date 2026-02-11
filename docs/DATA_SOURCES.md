@@ -67,9 +67,12 @@ status = client.get_rate_limit_status()
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
 ```
 
-The `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` constant serves as a **conservative fallback**. The client's primary rate limiting is dynamic, checking the actual API quota status. When quota is available, it can make requests faster; when the status endpoint is unavailable, it falls back to the safe 5-second interval.
+The client uses a **two-tier** rate limiting strategy:
 
-**Note**: The CryptoCompare API allows up to 2000 days per request. This value is hardcoded in `src/api/cryptocompare.py`, not a config constant.
+1. **Primary (dynamic)**: Periodically calls `/stats/rate/limit` (every `RATE_CHECK_INTERVAL_SECONDS`, default 30s) to check actual quota usage. When remaining calls drop below the "near limit" thresholds (`RATE_LIMIT_HOURLY_THRESHOLD`, `RATE_LIMIT_MONTHLY_THRESHOLD` in `config.py`), the client throttles adaptively.
+2. **Fallback (static)**: When the rate-limit endpoint is unreachable or quota status is unknown, the client falls back to `CRYPTOCOMPARE_API_CALLS_PER_MINUTE` (12 calls/min = 5-second minimum interval).
+
+The CryptoCompare API allows up to `CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST` (2000) days per histoday request and `CRYPTOCOMPARE_TOP_COINS_PER_PAGE` (100) results per page for the top-coins endpoint. Both are defined in `config.py`.
 
 ### Implementation Details
 

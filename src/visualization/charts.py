@@ -776,6 +776,12 @@ def create_total2_halving_chart(
     if show_composition and TOTAL2_COMPOSITION_FILE.exists():
         composition_df = pd.read_parquet(TOTAL2_COMPOSITION_FILE)
 
+    # Pre-build composition lookup by date (avoids per-row DataFrame filtering)
+    comp_by_date: dict = {}
+    if composition_df is not None:
+        for dt_key, group in composition_df.groupby("date"):
+            comp_by_date[dt_key] = group
+
     # Create figure
     fig = go.Figure()
 
@@ -796,31 +802,16 @@ def create_total2_halving_chart(
         hover_texts = []
         for idx, row in cycle_df.iterrows():
             dt = idx.date()
-            base_text = f"Cycle {cycle_num}: {dt}"
-
-            if composition_df is not None:
-                comp = composition_df[composition_df["date"] == dt]
-                if not comp.empty:
-                    top_coins = comp.nsmallest(10, "rank")["coin_id"].str.upper().tolist()
-                    coins_str = ", ".join(top_coins)
-                    hover_texts.append(
-                        f"{base_text}<br>"
-                        f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
-                        f"Coins: {row['coin_count']}<br>"
-                        f"Top 10: {coins_str}"
-                    )
-                else:
-                    hover_texts.append(
-                        f"{base_text}<br>"
-                        f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
-                        f"Coins: {row['coin_count']}"
-                    )
-            else:
-                hover_texts.append(
-                    f"{base_text}<br>"
-                    f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
-                    f"Coins: {row['coin_count']}"
-                )
+            hover = (
+                f"Cycle {cycle_num}: {dt}<br>"
+                f"TOTAL2: {row['total2_price']:.8f} BTC<br>"
+                f"Coins: {row['coin_count']}"
+            )
+            comp = comp_by_date.get(dt)
+            if comp is not None and "rank" in comp.columns and "coin_id" in comp.columns:
+                top_coins = comp.nsmallest(10, "rank")["coin_id"].str.upper().tolist()
+                hover += f"<br>Top 10: {', '.join(top_coins)}"
+            hover_texts.append(hover)
 
         fig.add_trace(
             go.Scatter(

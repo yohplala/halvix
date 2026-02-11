@@ -60,6 +60,7 @@ from config import (
     MINOR_POINT_WEIGHT,
     PROCESSED_DIR,
     RETRACEMENT_PENALTY_AT_MAX,
+    SLOPE_DIFF_CHANNEL_THRESHOLD,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_LOOKBACK_YEARS,
     TRENDLINE_LOG_PRICE_LIMIT,
@@ -204,6 +205,16 @@ class SegmentData:
     # Populated by Pass 2:
     min2_date: date | None = None
     min2_price: float | None = None
+
+
+@dataclass
+class _SegmentIterState:
+    """Mutable state carried between segments during Pass 3 validation."""
+
+    min1_price: float | None = None
+    min1_point: CyclePoint | None = None
+    had_max1: bool = True
+    max1_date: date | None = None
 
 
 def _make_point(
@@ -420,19 +431,8 @@ class CyclePatternAnalyzer:
         segments = self._build_segments(df, halvings, last_price_date)
         self._pass1_find_max2(segments)
         self._pass2_find_min2_candidates(segments)
-        points, prev_min1_price, prev_had_max1, prev_max1_date = self._pass3_validate_and_detect(
-            df, segments, halvings
-        )
-        self._detect_post_halving_points(
-            df,
-            points,
-            halvings,
-            last_price_date,
-            segments,
-            prev_min1_price,
-            prev_had_max1,
-            prev_max1_date,
-        )
+        points, state = self._pass3_validate_and_detect(df, segments, halvings)
+        self._detect_post_halving_points(df, points, halvings, last_price_date, segments, state)
         return points
 
     def _build_segments(
@@ -535,8 +535,8 @@ class CyclePatternAnalyzer:
             return points, new_max2_price
 
         prev_max1_pt = prev_max1_pts[0]
-        # Remove old max1 and old max2 for this cycle
-        points = [
+        # Remove old max1 and old max2 for this cycle (mutate in-place)
+        points[:] = [
             p
             for p in points
             if not (p.cycle_num == cycle_num and p.point_type in ("max1", "max2"))
@@ -556,95 +556,104 @@ class CyclePatternAnalyzer:
         df: pd.DataFrame,
         segments: list[SegmentData | None],
         halvings: list[date],
-    ) -> tuple[list[CyclePoint], float | None, bool, date | None]:
+    ) -> tuple[list[CyclePoint], _SegmentIterState]:
         """Pass 3: Sequential validation of min2/min1/max1 with merge logic."""
         points: list[CyclePoint] = []
-        prev_min1_price: float | None = None
-        prev_min1_point: CyclePoint | None = None
-        prev_had_max1 = True
-        prev_max1_date: date | None = None
+        state = _SegmentIterState()
 
         for s_idx, seg in enumerate(segments):
             if seg is None:
                 continue
+            self._process_segment(df, seg, segments, s_idx, halvings, points, state)
 
-            prev_cycle = seg.prev_cycle
-            curr_cycle = seg.curr_cycle
-            seg_start_halving = halvings[s_idx]
-            seg_end_halving = halvings[s_idx + 1]
+        return points, state
 
-            # max2 always exists
+    def _process_segment(
+        self,
+        df: pd.DataFrame,
+        seg: SegmentData,
+        segments: list[SegmentData | None],
+        s_idx: int,
+        halvings: list[date],
+        points: list[CyclePoint],
+        state: _SegmentIterState,
+    ) -> None:
+        """Process a single segment: detect, validate, and merge points.
+
+        Mutates *points* (appends detected cycle points) and *state*
+        (updates inter-segment tracking for the next iteration).
+        """
+        prev_cycle = seg.prev_cycle
+        curr_cycle = seg.curr_cycle
+        seg_start_halving = halvings[s_idx]
+        seg_end_halving = halvings[s_idx + 1]
+
+        # max2 always exists
+        points.append(
+            _make_point(seg.max2_date, seg.max2_price, prev_cycle, "max2", seg_start_halving)
+        )
+
+        # Extend min2 search to prev max1 when applicable
+        self._extend_min2_search(df, seg, state.had_max1, state.max1_date)
+
+        # Validate min2
+        min2_valid = self._validate_min2(df, seg, s_idx, state.had_max1, state.min1_price)
+        if min2_valid:
             points.append(
-                _make_point(seg.max2_date, seg.max2_price, prev_cycle, "max2", seg_start_halving)
+                _make_point(seg.min2_date, seg.min2_price, prev_cycle, "min2", seg_start_halving)
             )
 
-            # Extend min2 search to prev max1 when applicable
-            self._extend_min2_search(df, seg, prev_had_max1, prev_max1_date)
+        # max1 before min2 (short-history: no prior max1 to precede this min2)
+        max1_before = self._find_max1_before_min2(
+            df, seg, state.max1_date, min2_valid, prev_cycle, seg_start_halving
+        )
+        if max1_before is not None:
+            points.append(max1_before)
 
-            # Validate min2
-            min2_valid = self._validate_min2(df, seg, s_idx, prev_had_max1, prev_min1_price)
-            if min2_valid:
-                points.append(
-                    _make_point(
-                        seg.min2_date, seg.min2_price, prev_cycle, "min2", seg_start_halving
-                    )
-                )
-
-            # max1 before min2 (short-history: no prior max1 to precede this min2)
-            max1_before = self._find_max1_before_min2(
-                df, seg, prev_max1_date, min2_valid, prev_cycle, seg_start_halving
+        # Merge adjacent maxes when no min2 separates them
+        if not min2_valid and state.had_max1 and state.max1_date is not None:
+            points, seg.max2_price = self._merge_adjacent_maxes(
+                points,
+                state.max1_date,
+                seg.max2_date,
+                seg.max2_price,
+                prev_cycle,
+                seg_start_halving,
             )
-            if max1_before is not None:
-                points.append(max1_before)
 
-            # Merge adjacent maxes when no min2 separates them
-            if not min2_valid and prev_had_max1 and prev_max1_date is not None:
-                points, seg.max2_price = self._merge_adjacent_maxes(
-                    points,
-                    prev_max1_date,
-                    seg.max2_date,
-                    seg.max2_price,
-                    prev_cycle,
-                    seg_start_halving,
-                )
-
-            # Replace prev min1 if price went lower before max2
-            if not min2_valid and prev_min1_point is not None:
-                prev_min1_point, prev_min1_price = self._replace_min1_if_lower(
-                    df, points, seg, prev_min1_point, seg_start_halving
-                )
-
-            # Find min1 and max1
-            min1_point = self._find_min1(
-                seg, min2_valid, prev_min1_price, curr_cycle, seg_end_halving
+        # Replace prev min1 if price went lower before max2
+        if not min2_valid and state.min1_point is not None:
+            state.min1_point, state.min1_price = self._replace_min1_if_lower(
+                df, points, seg, state.min1_point, seg_start_halving
             )
-            # Skip max1 search when min1 is projected — the assumed price
-            # hasn't been reached, so a recovery bounce is not meaningful.
-            max1_point = None
-            if min1_point is not None and not min1_point.projected:
-                max1_point = self._find_max1(
-                    df, seg, segments, s_idx, min1_point, curr_cycle, seg_end_halving
-                )
 
-            # Correct min1 using max1 as boundary
-            if min1_point is not None and max1_point is not None:
-                min1_point = self._correct_min1_with_max1(
-                    df, min1_point, max1_point, curr_cycle, seg_end_halving
-                )
+        # Find min1 and max1
+        min1_point = self._find_min1(seg, min2_valid, state.min1_price, curr_cycle, seg_end_halving)
+        # Skip max1 search when min1 is projected — the assumed price
+        # hasn't been reached, so a recovery bounce is not meaningful.
+        max1_point = None
+        if min1_point is not None and not min1_point.projected:
+            max1_point = self._find_max1(
+                df, seg, segments, s_idx, min1_point, curr_cycle, seg_end_halving
+            )
 
-            if min1_point is not None:
-                points.append(min1_point)
-            if max1_point is not None:
-                points.append(max1_point)
+        # Correct min1 using max1 as boundary
+        if min1_point is not None and max1_point is not None:
+            min1_point = self._correct_min1_with_max1(
+                df, min1_point, max1_point, curr_cycle, seg_end_halving
+            )
 
-            # Update state for next iteration
-            if min1_point is not None:
-                prev_min1_price = min1_point.price
-                prev_min1_point = min1_point
-            prev_had_max1 = max1_point is not None
-            prev_max1_date = max1_point.date if max1_point is not None else None
+        if min1_point is not None:
+            points.append(min1_point)
+        if max1_point is not None:
+            points.append(max1_point)
 
-        return points, prev_min1_price, prev_had_max1, prev_max1_date
+        # Update state for next iteration
+        if min1_point is not None:
+            state.min1_price = min1_point.price
+            state.min1_point = min1_point
+        state.had_max1 = max1_point is not None
+        state.max1_date = max1_point.date if max1_point is not None else None
 
     @staticmethod
     def _extend_min2_search(
@@ -965,9 +974,7 @@ class CyclePatternAnalyzer:
         halvings: list[date],
         last_price_date: date,
         segments: list[SegmentData | None],
-        prev_min1_price: float | None,
-        prev_had_max1: bool,
-        prev_max1_date: date | None,
+        state: _SegmentIterState,
     ) -> None:
         """Handle last/current segment beyond the final halving.
 
@@ -993,9 +1000,9 @@ class CyclePatternAnalyzer:
         # min2: dip between prev max1 (or first available date) and max2
         last_min2_valid = False
         last_min2_price: float | None = None
-        if prev_had_max1:
-            if prev_max1_date is not None:
-                min2_search_start = prev_max1_date
+        if state.had_max1:
+            if state.max1_date is not None:
+                min2_search_start = state.max1_date
             else:
                 # No prior segments — fall back to first available data date
                 min2_search_start = _to_date(df.index[0])
@@ -1011,12 +1018,12 @@ class CyclePatternAnalyzer:
                 min2_price = float(min2_ext.loc[min2_idx, "close"])
                 result = self._check_min2_retracement(
                     df,
-                    prev_min1_price,
+                    state.min1_price,
                     max2_price,
                     min2_date,
                     min2_price,
                     max2_date,
-                    has_prior_context=prev_max1_date is not None,
+                    has_prior_context=state.max1_date is not None,
                 )
                 if result is not None:
                     min2_date, min2_price = result
@@ -1027,9 +1034,9 @@ class CyclePatternAnalyzer:
                     )
 
         # Merge adjacent maxes when no min2 separates them
-        if not last_min2_valid and prev_had_max1 and prev_max1_date is not None:
+        if not last_min2_valid and state.had_max1 and state.max1_date is not None:
             points, max2_price = self._merge_adjacent_maxes(
-                points, prev_max1_date, max2_date, max2_price, last_cycle, last_halving
+                points, state.max1_date, max2_date, max2_price, last_cycle, last_halving
             )
 
         # min1 for the next cycle (if bear has started)
@@ -1040,7 +1047,7 @@ class CyclePatternAnalyzer:
             min1_price = float(min1_after.loc[min1_idx, "close"])
 
             # Use min2 as reference if detected, otherwise fall back to prev min1
-            ref = last_min2_price if last_min2_price is not None else prev_min1_price
+            ref = last_min2_price if last_min2_price is not None else state.min1_price
             if ref is not None:
                 try:
                     ratio = fib_retracement_ratio(ref, max2_price, min1_price)
@@ -1088,6 +1095,11 @@ class CyclePatternAnalyzer:
                 index[key] = []
             index[key].append(p)
         return index
+
+    @staticmethod
+    def _count_min1_cycles(points: list[CyclePoint]) -> int:
+        """Count distinct cycles that have a min1 point (pre-halving data)."""
+        return len({p.cycle_num for p in points if p.point_type == "min1"})
 
     @staticmethod
     def _get_regression_date(point: CyclePoint) -> date:
@@ -1718,7 +1730,7 @@ class CyclePatternAnalyzer:
 
         slope_diff = abs(upper_slope - lower_slope)
 
-        if slope_diff < 0.00001:
+        if slope_diff < SLOPE_DIFF_CHANNEL_THRESHOLD:
             return "channel"
         elif upper_slope < lower_slope:
             return "falling_wedge"
@@ -1825,7 +1837,7 @@ class CyclePatternAnalyzer:
             logger.warning("No BTC cycle points found")
             return None
 
-        result.num_cycles = len({p.cycle_num for p in result.points if p.point_type == "min1"})
+        result.num_cycles = self._count_min1_cycles(result.points)
         result.current_price = float(btc_df["close"].iloc[-1])
         result.current_date = btc_df.index[-1].date()
 
@@ -1907,7 +1919,7 @@ class CyclePatternAnalyzer:
 
         # Count cycles where coin has min1 (pre-halving data proves coin existed before halving)
         # Post-halving-only data (min2/max2) doesn't count as experiencing a full cycle
-        result.num_cycles = len({p.cycle_num for p in result.points if p.point_type == "min1"})
+        result.num_cycles = self._count_min1_cycles(result.points)
 
         # Check minimum cycles requirement
         if not force and result.num_cycles < self.min_cycles:

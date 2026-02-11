@@ -543,3 +543,55 @@ PATTERN_ANALYSIS_TOP_N = 14
 # This expanded selection allows analysis of coins even if they temporarily
 # dropped out of the TOTAL2 top 30.
 TOTAL2_LOOKBACK_YEARS = 3
+
+# =============================================================================
+# CSV Export Configuration
+# =============================================================================
+
+# Semicolon delimiter for Excel compatibility (Excel auto-splits on ";")
+CSV_DELIMITER = ";"
+
+# =============================================================================
+# Trendline Pattern Classification
+# =============================================================================
+
+# Slope difference threshold for classifying trendline patterns.
+# When abs(upper_slope - lower_slope) < this value, slopes are considered
+# parallel and the pattern is classified as "channel" rather than a wedge.
+SLOPE_DIFF_CHANNEL_THRESHOLD = 0.00001
+
+# =============================================================================
+# API Rate Limiting Thresholds
+# =============================================================================
+
+# CryptoCompare rate limit "near limit" thresholds.
+# When remaining calls fall below these values, the client starts throttling.
+RATE_LIMIT_HOURLY_THRESHOLD = 300  # 10% of 3000 hourly quota
+RATE_LIMIT_MONTHLY_THRESHOLD = 1000  # 2% of 50000 monthly quota
+
+# How often (seconds) to re-check the rate limit endpoint
+RATE_CHECK_INTERVAL_SECONDS = 30.0
+
+# CryptoCompare histoday API maximum days per request
+CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST = 2000
+
+# CryptoCompare top coins API page size
+CRYPTOCOMPARE_TOP_COINS_PER_PAGE = 100
+
+# =============================================================================
+# Chart Layout Constants
+# =============================================================================
+
+# Annotation positioning for target text block on pattern charts
+CHART_ANNOTATION_DAYS_OFFSET = 30  # Days before halving line for text X position
+CHART_LINE_SPACING = 0.035  # Vertical spacing between annotation lines (paper coords)
+CHART_ANNOTATION_BASE_Y = 0.05  # Y position of bottom annotation line (paper coords)
+
+# Fibonacci hint line Y shift (log-scale multiplier to separate from dim-return lines)
+FIB_HINT_Y_SHIFT = 0.90
+
+# Y-axis padding for log-scale charts (added above/below data range in log10 space)
+CHART_Y_AXIS_PADDING = 0.2
+
+# Price formatting threshold for BTC/USD display
+BTC_PRICE_K_THRESHOLD = 1000  # Prices >= this are shown as "$Xk"

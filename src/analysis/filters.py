@@ -26,6 +26,7 @@ from pathlib import Path
 
 from config import (
     ALLOWED_TOKENS,
+    CSV_DELIMITER,
     DOWNLOAD_SKIPPED_CSV,
     EXCLUDED_PATTERNS,
     EXCLUDED_STABLECOINS,
@@ -352,7 +353,7 @@ class CoinFilter:
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
         with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f, delimiter=";")  # Use semicolon for Excel compatibility
+            writer = csv.writer(f, delimiter=CSV_DELIMITER)
             writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
 
             for coin in sorted(self.skipped_coins, key=lambda c: c.coin_id):

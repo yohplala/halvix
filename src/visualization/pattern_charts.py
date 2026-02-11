@@ -18,9 +18,15 @@ import plotly.graph_objects as go
 
 from analysis.cycle_patterns import CoinPatternResult
 from config import (
+    BTC_PRICE_K_THRESHOLD,
+    CHART_ANNOTATION_BASE_Y,
+    CHART_ANNOTATION_DAYS_OFFSET,
+    CHART_LINE_SPACING,
+    CHART_Y_AXIS_PADDING,
     CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
+    FIB_HINT_Y_SHIFT,
     HALVING_DATES,
     PATTERN_ANALYSIS_TOP_N,
 )
@@ -157,20 +163,27 @@ def _add_target_predictions(
     # Add targets in same order as stars (by price descending)
     for label, target_price, target_pct, color in targets_sorted:
         if is_btc:
-            price_k = target_price / 1000 if target_price >= 1000 else target_price
-            price_str = f"${price_k:.0f}k" if target_price >= 1000 else f"${target_price:.2f}"
+            price_k = (
+                target_price / BTC_PRICE_K_THRESHOLD
+                if target_price >= BTC_PRICE_K_THRESHOLD
+                else target_price
+            )
+            price_str = (
+                f"${price_k:.0f}k"
+                if target_price >= BTC_PRICE_K_THRESHOLD
+                else f"${target_price:.2f}"
+            )
         else:
             price_str = _format_pct(target_pct)
         text_lines.append((f"{label}: {price_str}", color))
 
     # Add text annotations at the bottom, left of the 5th halving vertical line
-    text_x_date = HALVING_DATES[-1] - timedelta(days=30)
+    text_x_date = HALVING_DATES[-1] - timedelta(days=CHART_ANNOTATION_DAYS_OFFSET)
     num_lines = len(text_lines)
-    line_spacing = 0.035  # Vertical spacing in paper coordinates
 
     for i, (text_label, color) in enumerate(text_lines):
-        # Y position from bottom up (0.05 base, increasing for each line)
-        y_paper = 0.05 + (num_lines - 1 - i) * line_spacing
+        # Y position from bottom up (base increasing for each line)
+        y_paper = CHART_ANNOTATION_BASE_Y + (num_lines - 1 - i) * CHART_LINE_SPACING
 
         fig.add_annotation(
             x=text_x_date,
@@ -345,7 +358,7 @@ def _add_fib_hint_lines(
 
     # Shift A, B, C down slightly (log-scale) to separate from dim-return lines.
     # ★ (target) stays at true price.
-    fib_y_shift = 0.90
+    fib_y_shift = FIB_HINT_Y_SHIFT
     fig.add_trace(
         go.Scatter(
             x=[a_point.date, b_point.date, c_date, target_date],
@@ -454,7 +467,7 @@ def _calculate_y_axis_range(
     point_prices: list[float],
     target_prices: list[float],
     hist_peak: float | None = None,
-    padding: float = 0.2,
+    padding: float = CHART_Y_AXIS_PADDING,
 ) -> list[float] | None:
     """
     Calculate y-axis range for log-scale charts based on actual data.

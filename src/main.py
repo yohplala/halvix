@@ -48,6 +48,7 @@ from tqdm import tqdm
 from api.cryptocompare import CryptoCompareClient
 from config import (
     COINS_TO_DOWNLOAD_JSON,
+    CSV_DELIMITER,
     DOWNLOAD_FAILED_CSV,
     DOWNLOAD_SKIPPED_CSV,
     FETCH_METADATA_JSON,
@@ -93,7 +94,7 @@ def _save_failed_coins(failed_coins: list[dict]) -> None:
 
     DOWNLOAD_FAILED_CSV.parent.mkdir(parents=True, exist_ok=True)
     with open(DOWNLOAD_FAILED_CSV, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=";")
+        writer = csv.writer(f, delimiter=CSV_DELIMITER)
         writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
         for coin in failed_coins:
             writer.writerow(
@@ -160,7 +161,7 @@ def _append_insufficient_history_to_skipped(
     # Append to CSV file
     file_exists = DOWNLOAD_SKIPPED_CSV.exists()
     with open(DOWNLOAD_SKIPPED_CSV, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=";")
+        writer = csv.writer(f, delimiter=CSV_DELIMITER)
         if not file_exists:
             writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
         for entry in new_entries:
@@ -227,6 +228,11 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info(
         "  Total accepted:   %d coins (capped at %d)", result.coins_accepted, result.coins_requested
     )
+    if result.coins_symbol_replaced > 0:
+        logger.info("")
+        logger.info(
+            "  Symbol replacements: %d (stale price data deleted)", result.coins_symbol_replaced
+        )
 
     # Print filter breakdown for USD coins
     summary = fetcher.get_filter_summary()

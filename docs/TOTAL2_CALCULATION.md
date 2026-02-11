@@ -128,6 +128,8 @@ When a coin first appears in CryptoCompare data, it must wait **21 days** before
 
 CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024, or old "OMG" replaced by OmiseGO in July 2017). When detected, the `first_seen` date is reset, and a new freeze period and price scaling apply to the new token.
 
+> **Note**: The same `detect_symbol_replacement()` function (from `data/price_filters.py`) is also used by the [pattern analysis](PATTERN_ANALYSIS.md) module to trim stale pre-replacement price history before cycle point detection.
+
 **Detection criteria:**
 - Price jumps by **>30x** (or **<1/30x**) in a single day
 - Both the pre-jump and post-jump prices must be positive (not a coin starting to trade)

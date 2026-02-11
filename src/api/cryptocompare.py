@@ -32,6 +32,11 @@ from tenacity import (
 from config import (
     CRYPTOCOMPARE_API_CALLS_PER_MINUTE,
     CRYPTOCOMPARE_BASE_URL,
+    CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST,
+    CRYPTOCOMPARE_TOP_COINS_PER_PAGE,
+    RATE_CHECK_INTERVAL_SECONDS,
+    RATE_LIMIT_HOURLY_THRESHOLD,
+    RATE_LIMIT_MONTHLY_THRESHOLD,
 )
 from utils.logging import get_logger
 
@@ -136,8 +141,8 @@ class RateLimitStatus:
         return (
             self.calls_left_second < 1
             or self.calls_left_minute < 10
-            or self.calls_left_hour < 300  # 10% of 3000
-            or self.calls_left_month < 1000  # 2% of 50000
+            or self.calls_left_hour < RATE_LIMIT_HOURLY_THRESHOLD
+            or self.calls_left_month < RATE_LIMIT_MONTHLY_THRESHOLD
         )
 
     @property
@@ -195,7 +200,7 @@ class CryptoCompareClient:
         self._last_request_time: float | None = None
         self._last_rate_check_time: float | None = None
         self._cached_rate_status: RateLimitStatus | None = None
-        self._rate_check_interval = 30.0  # Check rate limit every 30 seconds
+        self._rate_check_interval = RATE_CHECK_INTERVAL_SECONDS
 
         self.session = requests.Session()
         headers = {
@@ -560,7 +565,7 @@ class CryptoCompareClient:
         self,
         symbol: str,
         vs_currency: str = "BTC",
-        limit: int = 2000,
+        limit: int = CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST,
         to_timestamp: int | None = None,
     ) -> list[dict]:
         """
@@ -569,7 +574,7 @@ class CryptoCompareClient:
         Args:
             symbol: Coin symbol (e.g., "ETH", "SOL")
             vs_currency: Quote currency (default: "BTC")
-            limit: Number of days (max 2000 per request)
+            limit: Number of days (max CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST per request)
             to_timestamp: End timestamp (default: now)
 
         Returns:
@@ -578,7 +583,7 @@ class CryptoCompareClient:
         params = {
             "fsym": symbol.upper(),
             "tsym": vs_currency.upper(),
-            "limit": min(limit, 2000),  # API max is 2000
+            "limit": min(limit, CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST),
         }
 
         if to_timestamp:
@@ -632,7 +637,7 @@ class CryptoCompareClient:
             records = self.get_daily_history(
                 symbol=symbol,
                 vs_currency=vs_currency,
-                limit=2000,
+                limit=CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST,
                 to_timestamp=current_to_ts,
             )
 
@@ -722,7 +727,7 @@ class CryptoCompareClient:
         coins: list[Coin] = []
         coins_without_data: list[dict] = []
         page = 0
-        per_page = 100  # CryptoCompare returns 100 per page max
+        per_page = CRYPTOCOMPARE_TOP_COINS_PER_PAGE
         total_seen = 0
         termination_reason = "unknown"
 

@@ -12,7 +12,7 @@ from data.processor_base import (
     ProcessorError,
     Total2Result,
 )
-from data.processor_total2b import Total2bProcessor
+from data.processor_total2b import Total2bConfig, Total2bProcessor
 
 
 def get_processor(**kwargs) -> Total2bProcessor:
@@ -34,6 +34,7 @@ __all__ = [
     "ProcessorError",
     "Total2Result",
     # Processor implementation
+    "Total2bConfig",
     "Total2bProcessor",
     # Factory function
     "get_processor",

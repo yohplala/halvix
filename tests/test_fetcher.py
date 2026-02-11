@@ -421,3 +421,146 @@ class TestDataFetcherGetFilterSummary:
         assert isinstance(summary["skipped_count"], int)
         assert isinstance(summary["by_reason"], dict)
         assert isinstance(summary["skipped_coins"], list)
+
+
+class TestDetectSymbolReplacementsByName:
+    """Tests for name-based symbol replacement detection."""
+
+    @pytest.fixture
+    def temp_dirs(self):
+        """Create temporary directories."""
+        with (
+            tempfile.TemporaryDirectory() as cache_dir,
+            tempfile.TemporaryDirectory() as prices_dir,
+            tempfile.TemporaryDirectory() as processed_dir,
+        ):
+            yield Path(cache_dir), Path(prices_dir), Path(processed_dir)
+
+    @pytest.fixture
+    def fetcher(self, temp_dirs):
+        """Create a DataFetcher with temp directories."""
+        cache_dir, prices_dir, _ = temp_dirs
+        mock_client = MagicMock(spec=CryptoCompareClient)
+        cache = FileCache(cache_dir=cache_dir)
+        price_cache = PriceDataCache(prices_dir=prices_dir)
+        return DataFetcher(client=mock_client, cache=cache, price_cache=price_cache)
+
+    def _write_old_coins(self, path, coins):
+        """Write a coins_to_download.json file."""
+        import json
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(coins, f)
+
+    def _create_price_file(self, prices_dir, coin_id, vs_currency="btc"):
+        """Create a dummy parquet price file."""
+        dates = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {"close": [1.0, 1.1, 1.2, 1.3, 1.4]},
+            index=dates,
+        )
+        filepath = prices_dir / f"{coin_id}-{vs_currency}.parquet"
+        df.to_parquet(filepath)
+        return filepath
+
+    def test_no_previous_metadata(self, fetcher, temp_dirs):
+        """No existing coins_to_download.json → no detections."""
+        _, _, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        new_coins = [{"id": "lit", "name": "Lighter"}]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert result == []
+
+    def test_name_unchanged(self, fetcher, temp_dirs):
+        """Same name → no deletion."""
+        _, prices_dir, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        old_coins = [{"id": "eth", "name": "Ethereum"}]
+        self._write_old_coins(coins_path, old_coins)
+        price_file = self._create_price_file(prices_dir, "eth")
+
+        new_coins = [{"id": "eth", "name": "Ethereum"}]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert result == []
+        assert price_file.exists()
+
+    def test_name_changed_deletes_price_data(self, fetcher, temp_dirs):
+        """Name changed → price files deleted, replacement returned."""
+        _, prices_dir, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        old_coins = [{"id": "lit", "name": "Litentry"}]
+        self._write_old_coins(coins_path, old_coins)
+        btc_file = self._create_price_file(prices_dir, "lit", "btc")
+        usd_file = self._create_price_file(prices_dir, "lit", "usd")
+
+        new_coins = [{"id": "lit", "name": "Lighter"}]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert len(result) == 1
+        assert result[0]["id"] == "lit"
+        assert result[0]["old_name"] == "Litentry"
+        assert result[0]["new_name"] == "Lighter"
+        assert not btc_file.exists()
+        assert not usd_file.exists()
+
+    def test_new_coin_not_in_old_list(self, fetcher, temp_dirs):
+        """New coin ID not in old metadata → no action."""
+        _, _, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        old_coins = [{"id": "eth", "name": "Ethereum"}]
+        self._write_old_coins(coins_path, old_coins)
+
+        new_coins = [
+            {"id": "eth", "name": "Ethereum"},
+            {"id": "lit", "name": "Lighter"},
+        ]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert result == []
+
+    def test_coin_removed_from_new_list(self, fetcher, temp_dirs):
+        """Coin in old list but not in new → no action (data preserved)."""
+        _, prices_dir, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        old_coins = [{"id": "lit", "name": "Litentry"}, {"id": "eth", "name": "Ethereum"}]
+        self._write_old_coins(coins_path, old_coins)
+        price_file = self._create_price_file(prices_dir, "lit")
+
+        new_coins = [{"id": "eth", "name": "Ethereum"}]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert result == []
+        assert price_file.exists()
+
+    def test_corrupted_old_metadata(self, fetcher, temp_dirs):
+        """Corrupted JSON → graceful fallback, no crash."""
+        _, _, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        coins_path.parent.mkdir(parents=True, exist_ok=True)
+        coins_path.write_text("not valid json{{{")
+
+        new_coins = [{"id": "lit", "name": "Lighter"}]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert result == []

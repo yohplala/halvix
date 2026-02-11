@@ -178,6 +178,7 @@ The kernel is split into focused helpers:
 | `_replace_min1_if_lower()` | Replaces min1 when bear continues past it |
 | `_find_min1()` | Finds min1 with retracement check |
 | `_find_max1()` | Finds max1 with extended search |
+| `_find_max1_before_min2()` | Finds max1 for short-history tokens with no prior max1 |
 | `_correct_min1_with_max1()` | Corrects min1 using max1 boundary |
 | `_detect_post_halving_points()` | Handles current/incomplete cycle |
 

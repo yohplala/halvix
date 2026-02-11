@@ -305,9 +305,9 @@ Instead of separate code paths for different confidence levels, a **single weigh
 - **Historical Peak (20%)**: The only method that doesn't extrapolate — it uses actually achieved prices, making it the most trustworthy signal for single-cycle coins.
 - **Scale = 0.1**: A 90% penalty reflects the very high uncertainty of projections based on a single cycle.
 
-**Result**: Low-confidence composite ≈ historical_peak × 0.1
+When a method is unavailable (returns None), its weight is excluded and the remaining weights are **renormalized** (scaled to sum to 1.0) before applying the scale factor. For low-confidence coins, trendline/fibonacci/diminishing typically return None (insufficient cycles), so historical peak's raw 20% weight renormalizes to ~100% of the pre-scale total:
 
-When a method is unavailable (returns None), its weight is excluded and the remaining weights are renormalized before applying the scale factor.
+**Result**: Low-confidence composite ≈ historical_peak × 0.1
 
 ## Ranking and Filtering
 

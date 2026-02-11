@@ -8,6 +8,7 @@ Extends BaseTotal2Processor with:
 - Simpler, more predictable entry mechanics
 """
 
+from dataclasses import dataclass
 from datetime import date
 
 import pandas as pd
@@ -33,6 +34,19 @@ from data.processor_base import (
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class Total2bConfig:
+    """Configuration for TOTAL2b-specific processing parameters.
+
+    Groups the three knobs that distinguish TOTAL2b from the base processor:
+    freeze period timing, scaling threshold, and symbol replacement sensitivity.
+    """
+
+    freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
+    min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING
+    symbol_replacement_threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD
 
 
 class Total2bProcessor(BaseTotal2Processor):
@@ -80,9 +94,14 @@ class Total2bProcessor(BaseTotal2Processor):
             volume_sma_window=volume_sma_window,
             quote_currency=quote_currency,
         )
-        self.freeze_period_days = freeze_period_days
-        self.min_coins_for_scaling = min_coins_for_scaling
-        self.symbol_replacement_threshold = symbol_replacement_threshold
+        self.config = Total2bConfig(
+            freeze_period_days=freeze_period_days,
+            min_coins_for_scaling=min_coins_for_scaling,
+            symbol_replacement_threshold=symbol_replacement_threshold,
+        )
+        self.freeze_period_days = self.config.freeze_period_days
+        self.min_coins_for_scaling = self.config.min_coins_for_scaling
+        self.symbol_replacement_threshold = self.config.symbol_replacement_threshold
 
     def calculate_total2(
         self,

@@ -62,6 +62,7 @@ class FetchResult:
     coins_no_usd_capped: int = 0  # How many no-USD coins were excluded due to cap
     coins_filtered: int = 0  # How many USD coins were filtered out (stablecoins, wrapped, etc.)
     coins_accepted: int = 0  # Total coins accepted for download (USD + no-USD, capped at requested)
+    coins_symbol_replaced: int = 0  # How many coins had their symbol recycled (name changed)
     errors: list[str] | None = None
 
 
@@ -236,6 +237,9 @@ class DataFetcher:
             if export_skipped:
                 self.coin_filter.export_skipped_coins_csv()
 
+            # Detect symbol replacements by name change before overwriting metadata
+            replacements = self._detect_symbol_replacements_by_name(all_coins_to_download)
+
             # Save combined coins to download list
             self._save_coins_to_download(all_coins_to_download)
 
@@ -253,6 +257,7 @@ class DataFetcher:
                 coins_no_usd_capped=no_usd_capped,  # How many were excluded by cap
                 coins_filtered=usd_coins_filtered,
                 coins_accepted=len(all_coins_to_download),
+                coins_symbol_replaced=len(replacements),
             )
 
         except CryptoCompareError as e:
@@ -317,6 +322,56 @@ class DataFetcher:
             pd.DataFrame(columns=["symbol", "name", "rank"]).to_csv(NO_USD_DATA_CSV, index=False)
 
         return NO_USD_DATA_CSV
+
+    def _detect_symbol_replacements_by_name(self, new_coins: list[dict]) -> list[dict]:
+        """
+        Detect symbol recycling by comparing coin names against previous metadata.
+
+        CryptoCompare sometimes reassigns a symbol to a different project (e.g.,
+        LIT changed from Litentry to Lighter). Price-ratio detection misses this
+        when both tokens trade at similar price levels. Comparing names catches it.
+
+        When a name change is detected, cached price data is deleted so that
+        fetch-prices downloads only the new token's history.
+
+        Args:
+            new_coins: The new coins list about to be saved
+
+        Returns:
+            List of dicts with {id, old_name, new_name} for each replacement
+        """
+        if not COINS_TO_DOWNLOAD_JSON.exists():
+            return []
+
+        try:
+            with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
+                old_coins = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return []
+
+        old_names = {coin["id"]: coin.get("name", "") for coin in old_coins}
+        replacements = []
+
+        for coin in new_coins:
+            coin_id = coin["id"]
+            new_name = coin.get("name", "")
+            old_name = old_names.get(coin_id)
+
+            if old_name is not None and old_name != new_name:
+                # Delete cached price data for all quote currencies
+                for vs_currency in QUOTE_CURRENCIES:
+                    self.price_cache.delete_prices(coin_id, vs_currency)
+
+                replacements.append({"id": coin_id, "old_name": old_name, "new_name": new_name})
+                logger.warning(
+                    "Symbol replacement detected: %s renamed from '%s' to '%s'"
+                    " — deleted cached price data",
+                    coin_id.upper(),
+                    old_name,
+                    new_name,
+                )
+
+        return replacements
 
     def load_coins_to_download(self) -> list[dict]:
         """Load the previously saved coins to download list."""

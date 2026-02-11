@@ -15,6 +15,7 @@ import pandas as pd
 
 from config import (
     COINS_TO_DOWNLOAD_JSON,
+    CSV_DELIMITER,
     DOWNLOAD_FAILED_CSV,
     DOWNLOAD_SKIPPED_CSV,
     FETCH_METADATA_JSON,
@@ -56,8 +57,8 @@ def _load_csv_with_schema(
         with open(filepath, encoding="utf-8") as f:
             lines = f.readlines()
             if len(lines) > 1:
-                for line in lines[1:]:  # Skip header
-                    parts = line.strip().split(";")
+                for line in lines[1:]:
+                    parts = line.strip().split(CSV_DELIMITER)
                     if len(parts) >= required_fields:
                         coins.append(
                             {
@@ -66,7 +67,7 @@ def _load_csv_with_schema(
                             }
                         )
     except Exception as e:
-        logger.warning(f"Failed to load {filepath}: {e}")
+        logger.warning("Failed to load %s: %s", filepath, e)
     return coins
 
 
