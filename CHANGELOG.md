@@ -12,6 +12,43 @@ format YYYY.MM.patch.
 
 ## 2026.02
 
+### [2026.02.3] - 2026-02-11
+
+**Segment-based cycle point detection**
+
+- **Added:** Segment-based cycle point detection algorithm (`_identify_cycle_points`)
+  - 3-pass detection: max2 search, min2 candidates, sequential validation
+  - 23.6% Fibonacci retracement thresholds for optional points (min2, max1)
+  - Alternation rule: no max1 in prev segment suppresses min2 in next
+  - Merge logic for adjacent maxes when min2 validation fails
+  - min2 search extends back to prev max1 to catch pre-halving lows (e.g., COVID crash)
+  - min1 replacement when price goes lower before max2 (no min2 case)
+- **Added:** Short-history token support
+  - Launch-price min2 fallback (`_adjust_launch_min2`) for tokens starting near a halving
+  - Projected min1 at 23.6% retracement level with open-circle chart markers
+  - max1 detection before min2 for tokens with no prior segment data
+  - min1 < max2 guard for tokens without reference price
+- **Added:** Visual hints for projection methods in pattern charts
+  - Fibonacci extension: solid orange line connecting A→B→C extrema
+  - Diminishing returns: dotted purple lines connecting min-max pairs
+  - Trendlines: dotted blue (upper) and grey (lower)
+  - Historical peak: green line matching star color
+- **Added:** `--include` CLI flag to force-include coins bypassing TOTAL2 filter
+- **Added:** `IDENTIFICATION_KERNEL.md` documentation
+- **Changed:** Unified BTC/altcoin chart into single `_create_pattern_chart`
+- **Changed:** Fibonacci extension level 127.2% → 100%
+- **Changed:** Diminishing returns floor (`DIM_RETURN_MIN_GAIN_RATIO`) 0.1 → 1.0
+- **Changed:** 5th halving consolidated into `HALVING_DATES`, removed `PROJECTED_5TH_HALVING`
+- **Removed:** Legacy Total2 processor (`processor_total2.py`)
+- **Removed:** Dead code: `HalvingCycle`, `HALVING_CYCLES`, `utils/dates.py`, stale re-exports
+- **Improved:** Vectorized hot paths (max weight change, coin statistics, symbol resurrection)
+- **Improved:** Narrowed broad `except Exception` to specific exception types
+- **Improved:** Extracted Jinja2 templates for data status, index, and total2 statistics pages
+- **Fixed:** `data_status.html` showing 0 coins in daily build (missing fetch metadata restore)
+- **Fixed:** Jinja2 autoescape issues (missing `| safe` filters for raw HTML)
+
+**Categories:** Features, Analysis, Visualization, Refactoring, Code Quality, Documentation, CI/CD
+
 ### [2026.02.1] - 2026-02-05
 
 **Cycle pattern analysis with price target projections**
