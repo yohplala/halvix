@@ -1740,6 +1740,7 @@ class CyclePatternAnalyzer:
             result.lower_intercept = lower_int
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
+            # Expected peak ≈ halving + 550 days (same offset as DAYS_BEFORE_HALVING)
             target_date = self.projected_halving + timedelta(days=DAYS_BEFORE_HALVING)
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
             if target is not None:
@@ -2005,7 +2006,6 @@ class CyclePatternAnalyzer:
         - Coins must have a positive trendline prediction (missing or negative = excluded)
         - Coins with declining floor (lower_slope < MIN_LOWER_SLOPE) are excluded
         - Coins with excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL) are excluded
-        - Coins must have a valid composite score
         - Coins must be at least MIN_COIN_AGE_DAYS old (1 year)
         - Coins must have at least MIN_UNIQUE_PRICES distinct price values (filters illiquid/staircase)
 
@@ -2161,13 +2161,16 @@ class CyclePatternAnalyzer:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         def point_to_dict(p: CyclePoint) -> dict:
-            return {
+            d = {
                 "date": p.date.isoformat(),
                 "price": p.price,
                 "cycle_num": p.cycle_num,
                 "point_type": p.point_type,
                 "days_from_halving": p.days_from_halving,
             }
+            if p.projected:
+                d["projected"] = True
+            return d
 
         def result_to_dict(r: CoinPatternResult) -> dict:
             return {

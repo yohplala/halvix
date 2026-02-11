@@ -411,6 +411,9 @@ poetry run python -m main analyze-patterns --top-n 15
 
 # Custom output directory
 poetry run python -m main analyze-patterns --output-dir ./output
+
+# Force-include specific coins (bypass all quality filters)
+poetry run python -m main analyze-patterns --include eth,trx,virtual,hype
 ```
 
 ### Output Files
