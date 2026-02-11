@@ -27,9 +27,6 @@ concurrency:
   group: "daily-update"
   cancel-in-progress: false
 
-env:
-  INDEX_TYPE: 'total2b'
-
 jobs:
   # ==========================================================================
   # Step 1: Fetch Raw Data
@@ -322,7 +319,7 @@ jobs:
       - name: Calculate TOTAL2 index
         working-directory: main
         run: |
-          poetry run python -m main calculate-total2 --index-type ${{ env.INDEX_TYPE }}
+          poetry run python -m main calculate-total2
 
       - name: Show data status
         working-directory: main
@@ -357,7 +354,6 @@ jobs:
           echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
           echo "" >> README.md
           echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
-          echo "**Index type:** ${{ env.INDEX_TYPE }}" >> README.md
           echo "" >> README.md
           echo "**Do not manually edit files in this branch.**" >> README.md
           echo "" >> README.md
@@ -385,10 +381,10 @@ jobs:
 
           if git rev-parse HEAD >/dev/null 2>&1; then
             echo "Amending existing commit to squash history..."
-            git commit --amend -m "Update TOTAL2 index (${{ env.INDEX_TYPE }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit --amend -m "Update TOTAL2b index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           else
             echo "Creating initial commit..."
-            git commit -m "Update TOTAL2 index (${{ env.INDEX_TYPE }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit -m "Update TOTAL2b index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           fi
 
           echo "Pushing to processed-data branch..."

@@ -5,15 +5,6 @@ name: Calculate TOTAL2
 on:
   # Manual trigger
   workflow_dispatch:
-    inputs:
-      index_type:
-        description: 'Index type (total2 or total2b)'
-        required: false
-        default: 'total2b'
-        type: choice
-        options:
-          - total2b
-          - total2
 
 jobs:
   calculate:
@@ -120,7 +111,7 @@ jobs:
       - name: Calculate TOTAL2 index
         working-directory: main
         run: |
-          poetry run python -m main calculate-total2 --index-type ${{ github.event.inputs.index_type }}
+          poetry run python -m main calculate-total2
 
       - name: Show data status
         working-directory: main
@@ -159,7 +150,6 @@ jobs:
           echo "It is automatically updated by CI and has no history (orphan branch)." >> README.md
           echo "" >> README.md
           echo "**Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
-          echo "**Index type:** ${{ github.event.inputs.index_type }}" >> README.md
           echo "" >> README.md
           echo "**Do not manually edit files in this branch.**" >> README.md
           echo "" >> README.md
@@ -192,10 +182,10 @@ jobs:
           # Create a single commit (squash history)
           if git rev-parse HEAD >/dev/null 2>&1; then
             echo "Amending existing commit to squash history..."
-            git commit --amend -m "Update TOTAL2 index (${{ github.event.inputs.index_type }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit --amend -m "Update TOTAL2b index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           else
             echo "Creating initial commit..."
-            git commit -m "Update TOTAL2 index (${{ github.event.inputs.index_type }}) - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit -m "Update TOTAL2b index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           fi
 
           # Force push to keep orphan branch with single commit
