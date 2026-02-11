@@ -142,11 +142,15 @@ poetry run python -m main analyze-patterns --output-dir ./output
 
 # Suppress progress bars
 poetry run python -m main analyze-patterns --quiet
+
+# Force-include specific coins (bypass all quality filters)
+poetry run python -m main analyze-patterns --include eth,trx,virtual,hype
 ```
 
 **Options:**
 - `--top-n N` / `-n N` - Number of top altcoins to include (default: 14)
 - `--output-dir PATH` - Output directory for pattern charts (default: site/)
+- `--include COINS` - Comma-separated coin IDs to always include (bypass quality filters)
 - `--quiet` / `-q` - Suppress progress bars
 
 **Output files:**
