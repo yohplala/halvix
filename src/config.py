@@ -437,10 +437,11 @@ MIN_UNIQUE_PRICES = 30
 # Scale factor:
 # - Applied after computing the weighted average to adjust for confidence uncertainty.
 # - 1.0 for high confidence (no adjustment), 0.9 for medium
-# - 0.1 for low confidence (90% penalty reflecting very high uncertainty)
+# - 0.15 for low confidence (85% penalty reflecting very high uncertainty)
 #
-# Low confidence (1 cycle): trendline weight ≈ 0 because a 2-point trendline is
-# statistically unreliable, and scale = 0.1 to penalize for limited data.
+# Low confidence (1 cycle): historical peak dominates at 70%; trendline gets
+# a modest 10% weight for directional signal. Scale = 0.15 keeps low-confidence
+# coins below high-confidence peers.
 COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
     "high": {
         "trendline": 0.55,
@@ -457,11 +458,11 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
         "scale": 0.9,
     },
     "low": {
-        "trendline": 0.002,
-        "fibonacci": 0.02,
-        "historical": 0.20,
-        "diminishing": 0.02,
-        "scale": 0.1,
+        "trendline": 0.10,
+        "fibonacci": 0.08,
+        "historical": 0.70,
+        "diminishing": 0.12,
+        "scale": 0.15,
     },
 }
 

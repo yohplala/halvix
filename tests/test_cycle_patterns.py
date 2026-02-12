@@ -2293,19 +2293,17 @@ class TestWeightedComposite:
         assert result_high_trend > result_high_dim
 
     def test_weighted_composite_low_confidence_historical_dominates(self):
-        """Test composite with low confidence: historical peak dominates, 90% penalty."""
+        """Test composite with low confidence: historical peak dominates, scale=0.15."""
         result = CyclePatternAnalyzer._calculate_weighted_composite(
-            trendline_pct=999.0,  # Near-zero weight (0.002)
-            fib_pct=200.0,  # Near-zero weight (0.02)
-            dim_return_pct=50.0,  # Near-zero weight (0.02)
-            hist_peak_pct=150.0,  # Dominant weight (0.20)
+            trendline_pct=999.0,  # 10% weight
+            fib_pct=200.0,  # 8% weight
+            dim_return_pct=50.0,  # 12% weight
+            hist_peak_pct=150.0,  # 70% weight (dominant)
             confidence="low",
         )
-        # Historical peak dominates; trendline/fib/dim near-zero; scale=0.1
+        # Historical peak dominates at 70%; scale=0.15
         assert result is not None
-        expected = (
-            (999 * 0.002 + 200 * 0.02 + 50 * 0.02 + 150 * 0.20) / (0.002 + 0.02 + 0.02 + 0.20) * 0.1
-        )
+        expected = (999 * 0.10 + 200 * 0.08 + 50 * 0.12 + 150 * 0.70) / 1.0 * 0.15
         assert pytest.approx(result, rel=0.01) == expected
 
     def test_weighted_composite_medium_confidence_scaled(self):
@@ -2394,8 +2392,8 @@ class TestWeightedComposite:
     def test_weighted_composite_low_vs_high_confidence_penalty(self):
         """Test that low confidence composite is significantly lower than high.
 
-        Low profile has scale=0.1 and only historical peak retains meaningful
-        weight, so the result is well below 10% of the high-confidence result.
+        Low profile has scale=0.15 and historical-dominated weights,
+        so the result is well below 15% of the high-confidence result.
         """
         # Use inputs where trendline is None (so both profiles use same methods)
         result_high = CyclePatternAnalyzer._calculate_weighted_composite(
@@ -2414,12 +2412,12 @@ class TestWeightedComposite:
         )
         assert result_high is not None
         assert result_low is not None
-        # Low should be ~10% of high due to scale and weight differences
-        assert result_low < result_high * 0.1
+        # Low should be well below 15% of high due to scale and weight differences
+        assert result_low < result_high * 0.15
         # High: (200*0.19 + 100*0.11 + 150*0.15) / 0.45 * 1.0 = 158.89
         assert pytest.approx(result_high, rel=0.01) == 158.89
-        # Low: (200*0.02 + 100*0.02 + 150*0.20) / 0.24 * 0.1 = 15.00
-        assert pytest.approx(result_low, rel=0.01) == 15.00
+        # Low: (200*0.08 + 100*0.12 + 150*0.70) / 0.90 * 0.15 = 22.17
+        assert pytest.approx(result_low, rel=0.01) == 22.17
 
 
 # =============================================================================

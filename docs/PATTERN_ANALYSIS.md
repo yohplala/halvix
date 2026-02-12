@@ -232,20 +232,25 @@ Uses historical cycle peaks to establish a price target reference.
 **Logic:**
 
 1. If the **previous cycle's max2** is the **absolute maximum** across all historical cycles → use that value as the target
-2. Otherwise → calculate a **weighted average** of all historical peaks
+2. Otherwise → calculate a **weighted average** of historical peaks **at or above the last cycle's max2**
 
 **Weighted Average Formula:**
 
-When the previous cycle max2 is NOT the absolute maximum:
+When the previous cycle max2 is NOT the absolute maximum, only peaks with price ≥ last max2 are included:
 
 ```
-target = (sum(max2_prices) × 0.67 + sum(max1_prices) × 0.33) /
-         (count(max2) × 0.67 + count(max1) × 0.33)
+filtered_max2 = [p for p in max2_points if p.price >= last_max2.price]
+filtered_max1 = [p for p in max1_points if p.price >= last_max2.price]
+
+target = (sum(filtered_max2_prices) × 0.67 + sum(filtered_max1_prices) × 0.33) /
+         (count(filtered_max2) × 0.67 + count(filtered_max1) × 0.33)
 ```
 
 The weighting uses the same scheme as trendline regression:
 - **max2 points** (true cycle peaks): 67% weight
 - **max1 points** (pre-halving highs): 33% weight
+
+This guarantees the historical peak target is always ≥ the last cycle's max2.
 
 **Example:**
 
@@ -258,16 +263,16 @@ Since max2 of cycle 3 (0.015) is the absolute maximum:
 - **Target = 0.015 BTC** (previous cycle max2 used directly)
 
 If cycle 4 max2 were 0.020 BTC instead (making it the absolute max):
-- Weighted sum = (0.012 + 0.015 + 0.020) × 0.67 + (0.008 + 0.006 + 0.004) × 0.33
-- Weighted sum = 0.047 × 0.67 + 0.018 × 0.33 = 0.03149 + 0.00594 = 0.03743
-- Weight total = 3 × 0.67 + 3 × 0.33 = 2.01 + 0.99 = 3.0
-- **Target = 0.03743 / 3.0 = 0.01248 BTC**
+- Last max2 = 0.015 BTC (cycle 3). Peaks at or above 0.015: max2 of cycle 3 (0.015), max2 of cycle 4 (0.020)
+- Weighted sum = (0.015 + 0.020) × 0.67 = 0.02345
+- Weight total = 2 × 0.67 = 1.34
+- **Target = 0.02345 / 1.34 = 0.01750 BTC**
 
 **Rationale:**
 
 The historical peak method provides an anchor based on actual achieved prices:
 - If the previous cycle set an all-time high, that peak represents proven market valuation
-- If not, the weighted average of peaks gives a balanced view of historical highs
+- If not, the weighted average of peaks above the last max2 ensures the target stays at or above the most recent cycle peak
 - This complements the projection-based methods (trendline, Fibonacci, diminishing returns)
 
 ## Confidence Levels
@@ -288,26 +293,26 @@ Instead of separate code paths for different confidence levels, a **single weigh
 
 | Confidence | Trendline | Fibonacci | Historical | Diminishing | Scale | Notes |
 |------------|-----------|-----------|------------|-------------|-------|-------|
-| **HIGH** (3+ cycles) | 40% | 25% | 20% | 15% | 1.0 | Full weights, no penalty |
+| **HIGH** (3+ cycles) | 55% | 19% | 15% | 11% | 1.0 | Trendline-dominant, no penalty |
 | **MEDIUM** (2 cycles) | 40% | 25% | 20% | 15% | **0.9** | 10% penalty for limited data |
-| **LOW** (1 cycle) | **0.2%** | **2%** | 20% | **2%** | **0.1** | Historical peak dominates, 90% penalty |
+| **LOW** (1 cycle) | 10% | 8% | **70%** | 12% | **0.15** | Historical peak dominates, 85% penalty |
 
-**Method weight rationale (high/medium):**
-- **Trendline (40%)**: Captures structural multi-cycle trend direction
-- **Fibonacci (25%)**: Technical projection based on previous cycle move
-- **Historical Peak (20%)**: Reality anchor based on achieved valuations
-- **Diminishing Returns (15%)**: Most volatile; sensitive to outlier launch cycles
+All profiles sum to 100%.
+
+**High confidence weight rationale:**
+- **Trendline (55%)**: Captures structural multi-cycle trend direction; strongest signal with 3+ cycles. High weight rewards coins with positive structural trends.
+- **Fibonacci (19%)**: Technical projection based on previous cycle move
+- **Historical Peak (15%)**: Reality anchor based on achieved valuations
+- **Diminishing Returns (11%)**: Most volatile; sensitive to outlier launch cycles
 
 **Low confidence rationale:**
-- **Trendline weight ~0**: A 2-point trendline (one min1 + one max point) is statistically unreliable; small variations lead to wildly different extrapolations.
-- **Fibonacci weight ~0**: Log-space Fibonacci with a `min2` fallback for point A can produce extreme projections when the previous cycle's range is very large.
-- **Diminishing weight ~0**: With only one cycle of gain data, the diminishing returns factor is unreliable.
-- **Historical Peak (20%)**: The only method that doesn't extrapolate — it uses actually achieved prices, making it the most trustworthy signal for single-cycle coins.
-- **Scale = 0.1**: A 90% penalty reflects the very high uncertainty of projections based on a single cycle.
+- **Historical Peak (70%)**: The dominant method — it uses actually achieved prices, making it the most trustworthy signal for single-cycle coins.
+- **Trendline (10%)**: A modest weight gives directional signal even with limited data, rather than ignoring it entirely.
+- **Diminishing (12%)**: Small contribution from the diminishing returns model.
+- **Fibonacci (8%)**: Log-space Fibonacci can produce extreme projections with limited data, so it receives the smallest weight.
+- **Scale = 0.15**: An 85% penalty reflects the very high uncertainty of projections based on a single cycle, while still giving low-confidence coins meaningful composite scores.
 
-When a method is unavailable (returns None), its weight is excluded and the remaining weights are **renormalized** (scaled to sum to 1.0) before applying the scale factor. For low-confidence coins, trendline/fibonacci/diminishing typically return None (insufficient cycles), so historical peak's raw 20% weight renormalizes to ~100% of the pre-scale total:
-
-**Result**: Low-confidence composite ≈ historical_peak × 0.1
+When a method is unavailable (returns None), its weight is excluded and the remaining weights are **renormalized** (scaled to sum to 1.0) before applying the scale factor.
 
 ## Ranking and Filtering
 
