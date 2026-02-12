@@ -15,7 +15,7 @@ TOTAL2b provides a benchmark to compare individual coin performance against the 
 - Vectorized calculation for efficient processing
 - Support for both BTC and USD denominated prices
 - Freeze period + price scaling for smooth new coin integration
-- Symbol replacement detection (>30x price jump resets first_seen)
+- Symbol replacement detection (asymmetric thresholds: >4.42x increase or <0.101x decrease resets first_seen)
 
 ## Configuration
 
@@ -50,10 +50,12 @@ TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has thi
 
 # Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
-# or old "OMG" replaced by OmiseGO in July 2017 with a 633x jump).
-# When a coin's price jumps by more than this factor in a single day, we treat it
-# as a symbol replacement and reset the first_seen date to after the jump.
-TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 30  # 30x price change indicates symbol swap
+# or LIT changed from Litentry to Lighter in Jan 2026 with a 4.43x jump).
+# Asymmetric thresholds: increases are more suspicious than decreases because
+# legitimate crashes can cause sharp drops (e.g., OM/MANTRA at 0.164x), but a
+# 4x+ daily gain against BTC is virtually impossible without a symbol swap.
+SYMBOL_REPLACEMENT_INCREASE_THRESHOLD = 4.42  # ratio > 4.42x flags replacement
+SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacement
 ```
 
 ## Calculation Algorithm
@@ -131,7 +133,7 @@ CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthle
 > **Note**: The same `detect_symbol_replacement()` function (from `data/price_filters.py`) is also used by the [pattern analysis](PATTERN_ANALYSIS.md) module to trim stale pre-replacement price history before cycle point detection.
 
 **Detection criteria:**
-- Price jumps by **>30x** (or **<1/30x**) in a single day
+- Price jumps by **>4.42x** (or **<0.101x**) in a single day
 - Both the pre-jump and post-jump prices must be positive (not a coin starting to trade)
 - Takes the **last** detected jump (handles multiple replacements)
 
@@ -173,7 +175,7 @@ Where:
 ```python
 for each day:
     1. Calculate first-seen dates for all coins
-       - Detect symbol replacements (>30x price jumps)
+       - Detect symbol replacements (>4.42x increase or <0.101x decrease)
        - Reset first_seen date if replacement detected
     2. Filter eligible coins (passed freeze period + valid data)
     3. Detect new entries (coins entering TOP30 today)

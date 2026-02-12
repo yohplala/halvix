@@ -1087,9 +1087,9 @@ class CyclePatternAnalyzer:
     @staticmethod
     def _build_points_index(
         points: list[CyclePoint],
-    ) -> dict[tuple[int, str], list[CyclePoint]]:
+    ) -> dict[tuple[int, PointType], list[CyclePoint]]:
         """Build index of points by (cycle_num, point_type) for O(1) lookup."""
-        index: dict[tuple[int, str], list[CyclePoint]] = {}
+        index: dict[tuple[int, PointType], list[CyclePoint]] = {}
         for p in points:
             key = (p.cycle_num, p.point_type)
             if key not in index:

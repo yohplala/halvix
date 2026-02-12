@@ -66,16 +66,16 @@ class CoinFilter:
     # BTC derivative symbols derived from the wrapped/staked exclusion list
     _btc_derivative_symbols = {s for s in EXCLUDED_WRAPPED_STAKED_IDS if "btc" in s}
 
+    # Pre-compiled regex patterns (class-level, compiled once)
+    _compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS]
+    _btc_pattern = re.compile(r"btc|bitcoin", re.IGNORECASE)
+    _derivative_pattern = re.compile(
+        r"wrapped|staked|bridged|liquid|synthetic|pegged|collateral|vault|yield",
+        re.IGNORECASE,
+    )
+
     def __init__(self):
         self.skipped_coins: list[SkippedCoin] = []
-        self._compiled_patterns = [
-            re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_PATTERNS
-        ]
-        self._btc_pattern = re.compile(r"btc|bitcoin", re.IGNORECASE)
-        self._derivative_pattern = re.compile(
-            r"wrapped|staked|bridged|liquid|synthetic|pegged|collateral|vault|yield",
-            re.IGNORECASE,
-        )
 
     def reset(self):
         """Clear the skipped coins list."""
