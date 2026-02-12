@@ -100,12 +100,14 @@ TOTAL2_MIN_COINS_FOR_INDEX = 3  # Minimum coins required to calculate index for 
 
 # Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
-# or old "OMG" replaced by OmiseGO in July 2017 with a 633x jump).
-# When a coin's price jumps by more than this factor in a single day, we treat it
-# as a symbol replacement and reset the first_seen date to after the jump.
-# This prevents old scaling factors from being incorrectly applied to new tokens.
-# Note: 30x is used because a 30x daily gain is extremely unusual even for volatile altcoins.
-TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD = 30  # 30x price change indicates symbol swap
+# or LIT changed from Litentry to Lighter in Jan 2026 with a 4.43x jump).
+# Asymmetric thresholds: increases are more suspicious than decreases because
+# legitimate crashes can cause sharp drops (e.g., OM/MANTRA at 0.164x), but a
+# 4x+ daily gain against BTC is virtually impossible without a symbol swap.
+# Increase threshold calibrated from LIT (Litentry→Lighter) swap: 4.43x on 2026-01-08.
+# Decrease threshold set at 0.101 (~1/10): below OM's 0.164x crash, above real swaps.
+SYMBOL_REPLACEMENT_INCREASE_THRESHOLD = 4.42  # ratio > 4.42x flags replacement
+SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacement
 
 # Quote currencies for price data
 # Prices are fetched against each of these currencies

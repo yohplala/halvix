@@ -17,11 +17,12 @@ from tqdm import tqdm
 from analysis.filters import CoinFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
+    SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
+    SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
     TOP_N_BY_VOLUME_FOR_TOTAL2,
     TOTAL2_MIN_COINS_FOR_INDEX,
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
-    TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
@@ -46,7 +47,8 @@ class Total2bConfig:
 
     freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
     min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING
-    symbol_replacement_threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD
+    symbol_replacement_increase_threshold: float = SYMBOL_REPLACEMENT_INCREASE_THRESHOLD
+    symbol_replacement_decrease_threshold: float = SYMBOL_REPLACEMENT_DECREASE_THRESHOLD
 
 
 class Total2bProcessor(BaseTotal2Processor):
@@ -72,7 +74,8 @@ class Total2bProcessor(BaseTotal2Processor):
         quote_currency: str = DEFAULT_QUOTE_CURRENCY,
         freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
         min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING,
-        symbol_replacement_threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
+        symbol_replacement_increase_threshold: float = SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
+        symbol_replacement_decrease_threshold: float = SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
     ):
         """
         Initialize the TOTAL2b processor.
@@ -85,7 +88,8 @@ class Total2bProcessor(BaseTotal2Processor):
             quote_currency: Quote currency for prices
             freeze_period_days: Days to wait before including new coin
             min_coins_for_scaling: Min coins before applying scaling
-            symbol_replacement_threshold: Price change factor that indicates symbol swap
+            symbol_replacement_increase_threshold: Ratio above which increase flags swap
+            symbol_replacement_decrease_threshold: Ratio below which decrease flags swap
         """
         super().__init__(
             price_cache=price_cache,
@@ -97,11 +101,11 @@ class Total2bProcessor(BaseTotal2Processor):
         self.config = Total2bConfig(
             freeze_period_days=freeze_period_days,
             min_coins_for_scaling=min_coins_for_scaling,
-            symbol_replacement_threshold=symbol_replacement_threshold,
+            symbol_replacement_increase_threshold=symbol_replacement_increase_threshold,
+            symbol_replacement_decrease_threshold=symbol_replacement_decrease_threshold,
         )
         self.freeze_period_days = self.config.freeze_period_days
         self.min_coins_for_scaling = self.config.min_coins_for_scaling
-        self.symbol_replacement_threshold = self.config.symbol_replacement_threshold
 
     def calculate_total2(
         self,
@@ -279,7 +283,8 @@ class Total2bProcessor(BaseTotal2Processor):
             # Check for symbol replacement (extreme price jumps)
             replacement_date = detect_symbol_replacement(
                 close_df[coin_id],
-                threshold=self.symbol_replacement_threshold,
+                increase_threshold=self.config.symbol_replacement_increase_threshold,
+                decrease_threshold=self.config.symbol_replacement_decrease_threshold,
                 first_seen=initial_first_seen,
             )
 

@@ -17,7 +17,7 @@ all analysis modules.
 import numpy as np
 import pandas as pd
 
-from config import TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD
+from config import SYMBOL_REPLACEMENT_DECREASE_THRESHOLD, SYMBOL_REPLACEMENT_INCREASE_THRESHOLD
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -188,7 +188,8 @@ DEFAULT_ZERO_THRESHOLD = 1e-15
 
 def detect_symbol_replacement(
     price_series: pd.Series,
-    threshold: float = TOTAL2B_SYMBOL_REPLACEMENT_THRESHOLD,
+    increase_threshold: float = SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
+    decrease_threshold: float = SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
     first_seen: pd.Timestamp | None = None,
 ) -> pd.Timestamp | None:
     """
@@ -196,18 +197,22 @@ def detect_symbol_replacement(
 
     CryptoCompare sometimes reuses symbols for different tokens (e.g.,
     old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
-    or old "MOVE" token replaced by Movement Labs "MOVE" in Dec 2024).
+    or LIT changed from Litentry to Lighter in Jan 2026).
 
     Detection methods:
-    1. **Extreme ratio jump**: Price changes by >threshold (e.g., 30x) between
-       consecutive days where both prices are positive.
+    1. **Extreme ratio jump**: Price ratio exceeds asymmetric thresholds between
+       consecutive days where both prices are positive. Increases use a lower
+       threshold (4.42x) since legitimate daily gains that large are virtually
+       impossible on BTC pairs. Decreases use a higher bar (ratio < 0.101)
+       to avoid flagging legitimate crashes like OM/MANTRA.
     2. **Resurrection from zero**: Price transitions from zero to positive after
        a period of zero prices, when there was trading before the zero period.
        This catches cases like MOVE where the old token went to exactly 0.
 
     Args:
         price_series: Series of close prices for a coin with DatetimeIndex
-        threshold: Ratio threshold for extreme jumps (default: 30x)
+        increase_threshold: Ratio above which an increase flags replacement (default: 4.42x)
+        decrease_threshold: Ratio below which a decrease flags replacement (default: 0.101x)
         first_seen: Optional first-seen date; if provided, only returns
                    replacement dates that occur after this date
 
@@ -227,8 +232,10 @@ def detect_symbol_replacement(
     )
     price_ratio = price_series / prev_price
 
-    # Find dates with extreme price jumps (either direction)
-    extreme_jumps = ((price_ratio > threshold) | (price_ratio < 1 / threshold)) & valid_ratio_mask
+    # Find dates with extreme price jumps (asymmetric thresholds)
+    extreme_jumps = (
+        (price_ratio > increase_threshold) | (price_ratio < decrease_threshold)
+    ) & valid_ratio_mask
 
     # Method 2: Resurrection from zero detection
     # Find dates where price goes from zero to positive
