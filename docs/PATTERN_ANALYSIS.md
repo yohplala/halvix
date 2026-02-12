@@ -352,9 +352,19 @@ Coins with declining floors (min points getting lower over cycles) are excluded.
 | **Stagnant (<4%/year)** | No | Floor not keeping pace |
 | **Declining (negative)** | No | Bottoms getting lower (e.g., CTXC) |
 
-This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding — a sign of structural weakness. Note that the upper trendline (fitted through max1 and max2 points) is **not** filtered: a compression pattern with negative upper slope and positive lower slope is valid.
+This filter catches coins like CTXC where the upper trendline may show gains but the floor is eroding — a sign of structural weakness. Note that the upper trendline is separately filtered by the trendline projection filter below; a mildly negative upper slope (compression pattern) is allowed, but steep declines are excluded.
 
-**4. Fibonacci Retracement Filter:**
+**4. Trendline Projection Filter:**
+
+Coins whose upper trendline projects a decline steeper than **-30%** (`MIN_UPPER_TRENDLINE_TARGET_PCT` in config) are excluded. While a mildly negative projection can indicate a healthy compression pattern (converging upper and lower trendlines), a steep decline signals that cycle peaks are deteriorating too rapidly for meaningful upside projection.
+
+| Trendline Projection | Included? | Example |
+|---------------------|-----------|---------|
+| **≥ -30%** | Yes | Mild compression or growth |
+| **< -30%** | No | Steep peak decline (e.g., XRP at -40%) |
+| **None** | Yes | Insufficient data |
+
+**5. Fibonacci Retracement Filter:**
 
 Coins that have **retraced too deeply** from their last cycle peak are filtered out. This uses the standard Fibonacci retracement framework with three structural points:
 
@@ -391,7 +401,7 @@ If retracement > 0.618 and ≤ 0.886:
 | 75.2% (midpoint) | 0.75 | 25% reduction |
 | 88.6% (max) | 0.5 | 50% reduction (just before exclusion) |
 
-**5. Coin Age Filter:**
+**6. Coin Age Filter:**
 
 Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 days). This filters out very new coins (e.g., ZORA) with insufficient data for reliable projections.
 
@@ -402,7 +412,7 @@ Coins must have at least **1 year of price history** (`MIN_COIN_AGE_DAYS` = 365 
 
 **Note**: When a symbol replacement is detected (see [Symbol Replacement Detection](#data-approach-full-price-history)), the price data is truncated to post-replacement only. This resets the effective `first_price_date` to the replacement date, so the coin age filter applies to the **new token's** history, not the old one's.
 
-**6. Price Liquidity Filter:**
+**7. Price Liquidity Filter:**
 
 Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30) within a **90-day window** (`UNIQUE_PRICES_WINDOW_DAYS` = 90). This filters out illiquid coins with "staircase" patterns (e.g., ZBCN, HTX) where price stays constant for extended periods, indicating very low trading activity.
 

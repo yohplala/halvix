@@ -409,6 +409,12 @@ TRENDLINE_RECENCY_DECAY = 0.7
 MIN_LOWER_SLOPE_ANNUAL_PCT = 4  # Require at least 4% annual floor appreciation
 MIN_LOWER_SLOPE = math.log10(1 + MIN_LOWER_SLOPE_ANNUAL_PCT / 100) / 365
 
+# Minimum upper trendline projection percentage
+# Coins whose upper trendline projects a decline steeper than this are filtered out.
+# A mild negative projection (e.g., -10%) indicates a compression pattern and is allowed,
+# but a steep decline (e.g., -40%) signals structural weakness in cycle peaks.
+MIN_UPPER_TRENDLINE_TARGET_PCT = -30  # Allow up to -30%; filter below
+
 # Minimum coin age for pattern analysis (filters out very new coins)
 # Coins with first price date less than this many days ago are excluded from top coins
 # This helps avoid unreliable projections from coins with very limited price history

@@ -1757,8 +1757,8 @@ class TestGetTopCoins:
         assert top[0].coin_id == "sol"  # composite=180
         assert top[1].coin_id == "eth"  # composite=120
 
-    def test_get_top_coins_no_trendline_filter(self, analyzer):
-        """Test that coins with negative or None trendline are NOT filtered out."""
+    def test_get_top_coins_upper_trendline_filter(self, analyzer):
+        """Test that coins with trendline projection below -30% are filtered out."""
         # unique_price_count must be >= MIN_UNIQUE_PRICES (30) to pass liquidity filter
         pts = self._make_points_with_intermediate()
         results = {
@@ -1772,7 +1772,7 @@ class TestGetTopCoins:
             "sol": CoinPatternResult(
                 coin_id="sol",
                 points=pts,
-                trendline_target_pct=50.0,
+                trendline_target_pct=-20.0,
                 composite_target_pct=200.0,
                 unique_price_count=100,
             ),
@@ -1794,13 +1794,13 @@ class TestGetTopCoins:
 
         top = analyzer.get_top_coins(results, n=5)
 
-        # All 4 coins pass — trendline sign is not a filter
-        assert len(top) == 4
-        # Sorted by composite: sol (200) > ada (180) > btc (150) > eth (100)
+        # btc filtered out (trendline -50% < -30% threshold)
+        # sol passes (trendline -20% >= -30%), ada passes (None bypasses)
+        assert len(top) == 3
+        # Sorted by composite: sol (200) > ada (180) > eth (100)
         assert top[0].coin_id == "sol"
         assert top[1].coin_id == "ada"
-        assert top[2].coin_id == "btc"
-        assert top[3].coin_id == "eth"
+        assert top[2].coin_id == "eth"
 
     def test_get_top_coins_filters_no_intermediate_extrema(self, analyzer):
         """Test that coins with only max2 + min1 (no max1/min2) are filtered out."""

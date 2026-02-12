@@ -57,6 +57,7 @@ from config import (
     MIN_LOWER_SLOPE,
     MIN_RETRACEMENT_LEVEL,
     MIN_UNIQUE_PRICES,
+    MIN_UPPER_TRENDLINE_TARGET_PCT,
     MINOR_POINT_WEIGHT,
     PROCESSED_DIR,
     RETRACEMENT_PENALTY_AT_MAX,
@@ -2082,7 +2083,16 @@ class CyclePatternAnalyzer:
         ]
         after_floor = len(candidates)
 
-        # Filter 4: Excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL)
+        # Filter 4: Trendline projection too negative (below MIN_UPPER_TRENDLINE_TARGET_PCT)
+        candidates = [
+            r
+            for r in candidates
+            if r.trendline_target_pct is None
+            or r.trendline_target_pct >= MIN_UPPER_TRENDLINE_TARGET_PCT
+        ]
+        after_trendline = len(candidates)
+
+        # Filter 5: Excessive Fibonacci retracement (> MAX_RETRACEMENT_LEVEL)
         candidates = [
             r
             for r in candidates
@@ -2090,7 +2100,7 @@ class CyclePatternAnalyzer:
         ]
         after_retracement = len(candidates)
 
-        # Filter 5: Too new (first_price_date < MIN_COIN_AGE_DAYS ago)
+        # Filter 6: Too new (first_price_date < MIN_COIN_AGE_DAYS ago)
         candidates = [
             r
             for r in candidates
@@ -2098,7 +2108,7 @@ class CyclePatternAnalyzer:
         ]
         after_age = len(candidates)
 
-        # Filter 6: Too few unique prices (staircase/illiquid patterns)
+        # Filter 7: Too few unique prices (staircase/illiquid patterns)
         candidates = [r for r in candidates if r.unique_price_count >= MIN_UNIQUE_PRICES]
         after_unique = len(candidates)
 
@@ -2143,9 +2153,16 @@ class CyclePatternAnalyzer:
         )
         lines.append(
             _step(
+                f"Trendline projection >= {MIN_UPPER_TRENDLINE_TARGET_PCT}%",
+                after_trendline,
+                after_floor - after_trendline,
+            )
+        )
+        lines.append(
+            _step(
                 f"Retracement <= {MAX_RETRACEMENT_LEVEL * 100:.1f}%",
                 after_retracement,
-                after_floor - after_retracement,
+                after_trendline - after_retracement,
             )
         )
         lines.append(
