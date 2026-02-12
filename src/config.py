@@ -443,10 +443,10 @@ MIN_UNIQUE_PRICES = 30
 # statistically unreliable, and scale = 0.1 to penalize for limited data.
 COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
     "high": {
-        "trendline": 0.40,
-        "fibonacci": 0.25,
-        "historical": 0.20,
-        "diminishing": 0.15,
+        "trendline": 0.55,
+        "fibonacci": 0.19,
+        "historical": 0.15,
+        "diminishing": 0.11,
         "scale": 1.0,
     },
     "medium": {

@@ -2261,7 +2261,7 @@ class TestWeightedComposite:
 
     def test_weighted_composite_all_methods(self):
         """Test weighted composite with all 4 methods available (high confidence)."""
-        # With all methods: trendline=40%, fib=25%, dim=15%, hist=20%, scale=1.0
+        # With all methods: trendline=55%, fib=19%, dim=11%, hist=15%, scale=1.0
         result = CyclePatternAnalyzer._calculate_weighted_composite(
             trendline_pct=100.0,
             fib_pct=200.0,
@@ -2269,10 +2269,10 @@ class TestWeightedComposite:
             hist_peak_pct=150.0,
             confidence="high",
         )
-        # (100*0.40 + 200*0.25 + 50*0.15 + 150*0.20) / (0.40+0.25+0.15+0.20) * 1.0
-        # = (40 + 50 + 7.5 + 30) / 1.0 = 127.5
+        # (100*0.55 + 200*0.19 + 50*0.11 + 150*0.15) / 1.0 * 1.0
+        # = (55 + 38 + 5.5 + 22.5) / 1.0 = 121.0
         assert result is not None
-        assert pytest.approx(result, rel=0.01) == 127.5
+        assert pytest.approx(result, rel=0.01) == 121.0
 
     def test_weighted_composite_trendline_dominates(self):
         """Test that trendline has the highest influence on composite."""
@@ -2309,7 +2309,7 @@ class TestWeightedComposite:
         assert pytest.approx(result, rel=0.01) == expected
 
     def test_weighted_composite_medium_confidence_scaled(self):
-        """Test that medium confidence applies 0.9 scale vs high's 1.0."""
+        """Test medium confidence vs high: different weights + 0.9 scale."""
         result_high = CyclePatternAnalyzer._calculate_weighted_composite(
             trendline_pct=100.0,
             fib_pct=200.0,
@@ -2326,8 +2326,11 @@ class TestWeightedComposite:
         )
         assert result_high is not None
         assert result_medium is not None
-        # Medium scale = 0.9, high scale = 1.0
-        assert pytest.approx(result_medium / result_high, rel=0.01) == 0.9
+        # High: (100*0.55+200*0.19+50*0.11+150*0.15)*1.0 = 121.0
+        assert pytest.approx(result_high, rel=0.01) == 121.0
+        # Medium: (100*0.40+200*0.25+50*0.15+150*0.20)*0.9 = 114.75
+        assert pytest.approx(result_medium, rel=0.01) == 114.75
+        assert result_medium < result_high
 
     def test_weighted_composite_renormalization(self):
         """Test that weights renormalize when some methods are missing."""
@@ -2338,9 +2341,9 @@ class TestWeightedComposite:
             dim_return_pct=None,
             hist_peak_pct=None,
         )
-        # (100*0.40 + 200*0.25) / (0.40+0.25) * 1.0 = (40+50) / 0.65 = 138.46
+        # (100*0.55 + 200*0.19) / (0.55+0.19) * 1.0 = (55+38) / 0.74 = 125.68
         assert result is not None
-        expected = (100 * 0.40 + 200 * 0.25) / (0.40 + 0.25)
+        expected = (100 * 0.55 + 200 * 0.19) / (0.55 + 0.19)
         assert pytest.approx(result, rel=0.01) == expected
 
     def test_weighted_composite_no_methods(self):
@@ -2413,8 +2416,8 @@ class TestWeightedComposite:
         assert result_low is not None
         # Low should be ~10% of high due to scale and weight differences
         assert result_low < result_high * 0.1
-        # High: (200*0.25 + 100*0.15 + 150*0.20) / 0.60 * 1.0 = 158.33
-        assert pytest.approx(result_high, rel=0.01) == 158.33
+        # High: (200*0.19 + 100*0.11 + 150*0.15) / 0.45 * 1.0 = 158.89
+        assert pytest.approx(result_high, rel=0.01) == 158.89
         # Low: (200*0.02 + 100*0.02 + 150*0.20) / 0.24 * 0.1 = 15.00
         assert pytest.approx(result_low, rel=0.01) == 15.00
 

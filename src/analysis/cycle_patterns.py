@@ -1532,7 +1532,7 @@ class CyclePatternAnalyzer:
 
         Logic:
         - If previous cycle max2 is the absolute max across all cycles -> use that value
-        - Otherwise -> weighted average of all historical peaks (67% max2, 33% max1)
+        - Otherwise -> weighted average of peaks at or above last max2 (67% max2, 33% max1)
 
         Returns:
             Tuple of (target_price, is_absolute_max)
@@ -1559,25 +1559,29 @@ class CyclePatternAnalyzer:
             return latest_max2.price, True
 
         # Case B: Previous cycle max2 is NOT the absolute max
-        # Calculate weighted average of all historical peaks
-        all_peaks = max2_points + max1_points
+        # Weighted average of historical peaks at or above last max2
+        threshold = latest_max2.price
+        filtered_max2 = [p for p in max2_points if p.price >= threshold]
+        filtered_max1 = [p for p in max1_points if p.price >= threshold]
+
+        all_peaks = filtered_max2 + filtered_max1
         if not all_peaks:
-            return None, None
+            return latest_max2.price, False
 
         # Weighted sum: max2 gets 67%, max1 gets 33%
         weighted_sum = 0.0
         weight_total = 0.0
 
-        for p in max2_points:
+        for p in filtered_max2:
             weighted_sum += p.price * MAJOR_POINT_WEIGHT
             weight_total += MAJOR_POINT_WEIGHT
 
-        for p in max1_points:
+        for p in filtered_max1:
             weighted_sum += p.price * MINOR_POINT_WEIGHT
             weight_total += MINOR_POINT_WEIGHT
 
         if weight_total == 0:
-            return None, None
+            return latest_max2.price, False
 
         weighted_avg = weighted_sum / weight_total
         return weighted_avg, False
