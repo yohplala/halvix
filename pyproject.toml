@@ -15,14 +15,14 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.13"
+python = "^3.14"
 pandas = "^2.1"
 numpy = "^2.0"
 scipy = "^1.14"
 plotly = "^5.18"
 requests = "^2.31"
 tqdm = "^4.65"
-pyarrow = "^18.0"
+pyarrow = "^24.0"
 tenacity = "^8.2"
 jinja2 = "^3.1.6"
 
@@ -43,12 +43,12 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 100
-target-version = ['py313']
+target-version = ['py313']  # black doesn't yet recognise py314; py313 rules are forward-compatible
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py313"  # ruff doesn't yet recognise py314; py313 lint rules are forward-compatible
 
 [tool.ruff.lint]
 select = [

@@ -89,10 +89,10 @@ jobs:
           ls -la main/data/raw/prices/ 2>/dev/null | head -10 || echo "No price files"
           ls -la main/data/processed/ 2>/dev/null || echo "No processed files"
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install Poetry
         uses: snok/install-poetry@v1
@@ -106,7 +106,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: main/.venv
-          key: venv-pages-${{ runner.os }}-3.13-${{ hashFiles('main/**/pyproject.toml') }}
+          key: venv-pages-${{ runner.os }}-3.14-${{ hashFiles('main/**/pyproject.toml') }}
 
       - name: Install dependencies
         working-directory: main
