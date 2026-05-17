@@ -16,7 +16,7 @@ from pathlib import Path
 
 import plotly.graph_objects as go
 
-from analysis.cycle_patterns import CoinPatternResult
+from analysis.cycle_patterns import CoinPatternResult, CyclePatternAnalyzer
 from config import (
     BTC_PRICE_K_THRESHOLD,
     CHART_ANNOTATION_BASE_Y,
@@ -1320,14 +1320,11 @@ def generate_all_pattern_charts(
     Returns:
         Dictionary mapping chart name to file path
     """
-    # Import here to avoid circular import - CyclePatternAnalyzer uses PriceDataCache
-    from analysis.cycle_patterns import CyclePatternAnalyzer as Analyzer
-
     paths = {}
 
     # Initialize analyzer and cache
     price_cache = PriceDataCache()
-    analyzer = Analyzer(price_cache=price_cache, min_cycles=1)
+    analyzer = CyclePatternAnalyzer(price_cache=price_cache, min_cycles=1)
 
     # Analyze BTC
     btc_result = analyzer.analyze_btc()
