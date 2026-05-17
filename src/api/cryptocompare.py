@@ -71,19 +71,6 @@ class APIError(CryptoCompareError):
 
 
 @dataclass
-class HistoricalPrice:
-    """A single day's price data."""
-
-    date: date
-    open: float
-    high: float
-    low: float
-    close: float
-    volume_from: float
-    volume_to: float
-
-
-@dataclass
 class Coin:
     """Represents a coin from CryptoCompare."""
 
