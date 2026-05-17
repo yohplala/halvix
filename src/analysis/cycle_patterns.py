@@ -1964,7 +1964,7 @@ class CyclePatternAnalyzer:
         result = CoinPatternResult(coin_id=coin_id)
         result.first_in_total2 = first_total2
         result.last_in_total2 = last_total2
-        result.days_in_total2 = len(self._get_coin_total2_dates(coin_id))
+        result.days_in_total2 = len(total2_dates)
 
         # Find points using segment-based detection across all halvings
         result.points = self._identify_cycle_points(df)
