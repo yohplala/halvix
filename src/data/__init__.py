@@ -1,30 +1,9 @@
 """
-Data fetching and processing modules.
+Data fetching and processing subpackage.
+
+Callers should import from the specific submodules
+(``data.cache``, ``data.fetcher``, ``data.processor``,
+``data.price_filters``) rather than from the package root — that is the
+only style used throughout the codebase and tests. This file is kept
+intentionally empty so the package surface mirrors actual usage.
 """
-
-from .cache import CacheError, FileCache, PriceDataCache
-from .fetcher import DataFetcher, FetcherError, FetchResult
-from .processor import (
-    BaseTotal2Processor,
-    ProcessorError,
-    Total2bProcessor,
-    Total2Result,
-    get_processor,
-)
-
-__all__ = [
-    # Cache
-    "FileCache",
-    "PriceDataCache",
-    "CacheError",
-    # Fetcher
-    "DataFetcher",
-    "FetcherError",
-    "FetchResult",
-    # Processors
-    "BaseTotal2Processor",
-    "Total2bProcessor",
-    "Total2Result",
-    "ProcessorError",
-    "get_processor",
-]
