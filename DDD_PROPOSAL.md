@@ -1,10 +1,16 @@
-# DDD proposal — pending decisions
+# DDD proposal — status
 
-Two larger restructurings surfaced during the architectural review that I
-deliberately did **not** apply because each touches more than 15 files
-(mostly tests) and the cost/benefit isn't obvious without your call.
+Two larger restructurings surfaced during the architectural review.
 
-## 1. Split `src/analysis/cycle_patterns.py` (2329 LOC)
+**Status**:
+- Item #1 (cycle_patterns split): **partial** — helpers + dataclasses
+  extracted into `cycle_points.py` (commit `d43b36b`). Kernel and projection
+  extractions left for a dedicated follow-up PR; see "Why I didn't do it"
+  below.
+- Item #2 (processor collapse): **done** — commit `ddbb661`. Single
+  `Total2Processor` class in `processor.py`, on-disk metadata preserved.
+
+## 1. Split `src/analysis/cycle_patterns.py` (2329 LOC → 2229 LOC after first slice)
 
 The file has clean internal seams. Roughly half the lines belong to the
 identification kernel, half to the projection methods, and a thin orchestration
@@ -54,53 +60,53 @@ b. Keeping the class facade intact with delegation methods that just forward
 Option (a) is the right architectural answer but it's a single big rewrite
 of the test file; option (b) is reversible but earns less.
 
+### What was done
+
+First slice extracted in commit `d43b36b`:
+
+- `PointType`, `Confidence` type aliases
+- `CyclePoint`, `CoinPatternResult`, `SegmentData`, `_SegmentIterState` dataclasses
+- `_to_date`, `fib_retracement_ratio`, `_make_point`, `_project_min1` helpers
+
+All moved to `src/analysis/cycle_points.py` (208 LOC). `cycle_patterns.py`
+re-imports the names so existing tests keep working.
+
+### What remains
+
+The identification kernel (`_pass1_find_max2` etc.) and the projection
+methods (`_fit_log_trendlines` etc.) — roughly 1500 LOC. Audit of the
+test surface confirms the agent's original cost estimate:
+
+| method                          | test call sites |
+|---------------------------------|-----------------|
+| `_identify_cycle_points`        | 24              |
+| `_calculate_weighted_composite` | 13              |
+| `_fit_log_trendlines`           | 10              |
+| `_calculate_retracement_ratio`  | 9               |
+| `_calculate_fib_extension`      | 8               |
+| `_calculate_diminishing_return` | 8               |
+| `_classify_pattern`             | 6               |
+| ...                             | (~10 more)      |
+
+Total ~88 test sites. The most-called methods are instance methods that
+genuinely use analyzer state (`self.all_halvings`, `self.price_cache`),
+so a clean option-(a) refactor needs to either thread that state as
+explicit parameters or accept a thin orchestrator class delegating to
+module-level functions.
+
 ### Recommendation
 
 Defer until a real second projection variant or a second pattern analyzer
-lands. The seams are already documented inside the file via section
-comments, so the file size alone isn't currently hurting comprehension.
+lands. The first-slice extraction has documented the natural seams via
+imports, and the file size (2229 LOC) is comparable to the consolidated
+processor.py (1011 LOC) after item #2 landed — not unreasonable for a
+single domain concept.
 
-## 2. Rename `processor_total2b.py` → `processor.py` and inline `processor_base.py`
+## 2. Rename `processor_total2b.py` → `processor.py` and inline `processor_base.py` — **DONE**
 
-Right now we have:
-
-```
-data/
-├── processor.py            # thin facade, re-exports get_processor
-├── processor_base.py       # BaseTotal2Processor (ABC, 621 LOC)
-└── processor_total2b.py    # Total2bProcessor (concrete, 624 LOC)
-```
-
-`BaseTotal2Processor` has exactly one subclass and the ABC has no external
-consumers (verified after the facade narrowing commit). The
-"base + concrete" split exists to anticipate a future `Total2aProcessor`
-that may never arrive — and "total2b" reads as an implementation detail,
-not an intent, since the family currently has one member.
-
-### Concrete proposal
-
-Either:
-
-a. **Collapse**: merge `processor_base.py` and `processor_total2b.py` into
-   `processor.py`, drop the abstract method (it becomes the only method),
-   and rename `Total2bProcessor` to `Total2Processor`. Single concrete class,
-   single file (~1200 LOC, comparable to `cycle_patterns.py`).
-
-b. **Keep but rename**: rename `processor_total2b.py` to
-   `processor_freeze_scaling.py` (describes _how_, not _which letter
-   suffix_) and keep the ABC for the day a second variant lands.
-
-### Why I didn't do it
-
-The rename alone touches `main.py`, `tests/conftest.py`,
-`tests/test_processor.py`, `data/__init__.py`, and the three docs files
-that reference `processor_total2b.py` by name (CLAUDE.md, README,
-TOTAL2_CALCULATION.md). It's a class rename, so it also breaks any
-external pickle/parquet that stored the class name — not the case here,
-but worth flagging.
-
-### Recommendation
-
-Pick (a) if you trust there will never be a `Total2cProcessor`.
-Pick (b) if you want to preserve the extension point without the
-"version-letter-suffix" smell. I'd lean (a): YAGNI on the ABC.
+Resolved in commit `ddbb661` via option (a) "Collapse". `processor_base.py`
+and `processor_total2b.py` are gone; a single `Total2Processor` class lives
+in `processor.py`. The on-disk metadata still labels itself `total2b` (the
+`index_type` field in `Total2Result` defaults to `"total2b"`, and the
+`scaling_events` records still carry `prev_total2b`) so any existing JSON
+consumer continues to work unchanged.
