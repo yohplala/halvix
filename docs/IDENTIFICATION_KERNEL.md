@@ -76,8 +76,8 @@ If min2 is **valid**:
 - Emit min2 as a point for the previous cycle
 
 If min2 is **invalid**:
-- When the previous segment had a max1 AND min2 fails, the max1 and max2 are adjacent peaks without a separating dip → merge them via `_merge_adjacent_maxes()`. The merged point is always **max2** (major type).
-- When no min2 exists between the previous min1 and current max2, check if the price went lower in that gap. If so, replace min1 with the lower point (`_replace_min1_if_lower`)
+- When the previous segment had a max1 AND min2 fails, the max1 and max2 are adjacent peaks without a separating dip → merge them via `merge_adjacent_maxes()`. The merged point is always **max2** (major type).
+- When no min2 exists between the previous min1 and current max2, check if the price went lower in that gap. If so, replace min1 with the lower point (`replace_min1_if_lower`)
 
 #### Step 4: Find min1
 
@@ -125,16 +125,21 @@ This guarantees that a segment with only two extrema always has the two structur
 
 ## State Flow Between Segments
 
-Pass 3 maintains state across segments via instance attributes:
+Pass 3 maintains state across segments via a `_SegmentIterState` dataclass
+(defined in [`cycle_points.py`](../src/analysis/cycle_points.py)) carried
+through the loop:
 
-| State Variable | Purpose |
-|----------------|---------|
-| `prev_min1_price` | Last detected min1 price (for min2 Fib retracement validation) |
-| `prev_min1_point` | Last detected min1 CyclePoint (for min1 replacement) |
-| `prev_had_max1` | Whether the previous segment had a max1 (alternation rule) |
-| `prev_max1_date` | Date of the previous max1 (min2 search extension) |
+| Field | Purpose |
+|-------|---------|
+| `min1_price` | Last detected min1 price (for min2 Fib retracement validation) |
+| `min1_point` | Last detected min1 CyclePoint (for min1 replacement) |
+| `had_max1` | Whether the previous segment had a max1 (alternation rule) |
+| `max1_date` | Date of the previous max1 (min2 search extension) |
 
-These are stored as `self._prev_*` attributes to pass state from `_pass3_validate_and_detect` to `_detect_post_halving_points`.
+`pass3_validate_and_detect` returns the final state so
+`detect_post_halving_points` can read it when handling the current
+incomplete cycle. All kernel functions are pure — no analyzer attributes
+are read or mutated.
 
 ## Configuration Constants
 
@@ -163,24 +168,25 @@ Downstream, `_build_points_index()` converts this list into a `dict[tuple[int, P
 
 ## Method Decomposition
 
-The kernel is split into focused helpers:
+The kernel is split into focused helpers (all module-level in
+[`point_detection.py`](../src/analysis/point_detection.py)):
 
-| Method | Role |
-|--------|------|
-| `_identify_cycle_points()` | Orchestrator |
-| `_build_segments()` | Constructs `list[SegmentData]` from halvings |
-| `_pass1_find_max2()` | Pass 1: finds max2 per segment |
-| `_pass2_find_min2_candidates()` | Pass 2: finds min2 candidates |
-| `_pass3_validate_and_detect()` | Pass 3: sequential validation loop |
-| `_extend_min2_search()` | Extends min2 search to prev max1 |
-| `_validate_min2()` | Checks alternation, Fib retracement, launch guard |
-| `_merge_adjacent_maxes()` | Merges max1 + max2 when no min2 separates them |
-| `_replace_min1_if_lower()` | Replaces min1 when bear continues past it |
-| `_find_min1()` | Finds min1 with retracement check |
-| `_find_max1()` | Finds max1 with extended search |
-| `_find_max1_before_min2()` | Finds max1 for short-history tokens with no prior max1 |
-| `_correct_min1_with_max1()` | Corrects min1 using max1 boundary |
-| `_detect_post_halving_points()` | Handles current/incomplete cycle |
+| Function | Role |
+|----------|------|
+| `identify_cycle_points()` | Orchestrator |
+| `build_segments()` | Constructs `list[SegmentData]` from halvings |
+| `pass1_find_max2()` | Pass 1: finds max2 per segment |
+| `pass2_find_min2_candidates()` | Pass 2: finds min2 candidates |
+| `pass3_validate_and_detect()` | Pass 3: sequential validation loop |
+| `extend_min2_search()` | Extends min2 search to prev max1 |
+| `validate_min2()` | Checks alternation, Fib retracement, launch guard |
+| `merge_adjacent_maxes()` | Merges max1 + max2 when no min2 separates them |
+| `replace_min1_if_lower()` | Replaces min1 when bear continues past it |
+| `find_min1()` | Finds min1 with retracement check |
+| `find_max1()` | Finds max1 with extended search |
+| `find_max1_before_min2()` | Finds max1 for short-history tokens with no prior max1 |
+| `correct_min1_with_max1()` | Corrects min1 using max1 boundary |
+| `detect_post_halving_points()` | Handles current/incomplete cycle |
 
 ---
 
