@@ -65,6 +65,7 @@ halvix/
 │   │   └── logging.py
 │   └── visualization/
 │       ├── __init__.py         # Module exports
+│       ├── _layout.py          # Shared HTML/CSS layout primitives (header/footer/base CSS)
 │       ├── charts.py           # Halving cycle chart generation
 │       ├── html_generator.py   # HTML page generation
 │       └── pattern_charts.py   # Pattern analysis charts
