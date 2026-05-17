@@ -571,44 +571,6 @@ class DataFetcher:
 
         return results
 
-    def fetch_all_prices_single_currency(
-        self,
-        coins: list[dict] | None = None,
-        vs_currency: str = "BTC",
-        use_cache: bool = True,
-        incremental: bool = True,
-        show_progress: bool = True,
-    ) -> dict[str, pd.DataFrame]:
-        """
-        Fetch price data for all accepted coins against a single quote currency.
-
-        This is a convenience method that returns a flat dictionary.
-
-        Args:
-            coins: List of coin dicts (default: load from accepted_coins.json)
-            vs_currency: Quote currency (default: "BTC")
-            use_cache: Whether to use cache
-            incremental: If True, only fetch new data since last cache
-            show_progress: Show progress bar
-
-        Returns:
-            Dictionary mapping coin_id to price DataFrame
-        """
-        nested = self.fetch_all_prices(
-            coins=coins,
-            vs_currencies=[vs_currency],
-            use_cache=use_cache,
-            incremental=incremental,
-            show_progress=show_progress,
-        )
-
-        # Flatten the nested dictionary
-        return {
-            coin_id: currency_data.get(vs_currency)
-            for coin_id, currency_data in nested.items()
-            if vs_currency in currency_data
-        }
-
     def get_filter_summary(self) -> dict[str, Any]:
         """Get a summary of the last filtering operation (USD coins)."""
         return {
