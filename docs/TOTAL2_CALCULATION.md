@@ -56,6 +56,14 @@ TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has thi
 # 4x+ daily gain against BTC is virtually impossible without a symbol swap.
 SYMBOL_REPLACEMENT_INCREASE_THRESHOLD = 4.42  # ratio > 4.42x flags replacement
 SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacement
+
+# Round-trip Detection: catches single-day price spikes that revert within a short
+# window (e.g. SIREN 2026-04-16: 2.49x then back to 0.98x the next day). These are
+# transient glitches/pump-dumps, not permanent symbol swaps, so the right fix is
+# to smooth the spike day rather than eject the coin from the index.
+PRICE_ROUND_TRIP_JUMP_THRESHOLD = 2.0      # candidate when |ratio - 1| > this
+PRICE_ROUND_TRIP_REVERT_THRESHOLD = 1.5    # confirmed when revert is within ±50%
+PRICE_ROUND_TRIP_WINDOW_DAYS = 2           # how many days after the jump to look
 ```
 
 ## Calculation Algorithm
@@ -160,7 +168,22 @@ CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthle
 - Freeze period: 2024-12-02 to 2024-12-23
 - Entry eligible: 2024-12-23 (with fresh price scaling)
 
-### 3. Price Scaling
+### 3. Round-trip Price Correction
+
+Some coins exhibit single-day spikes that revert within a couple of days — typically low-liquidity pump-and-dump events or bad daily closes (e.g. SIREN on 2026-04-16: 2.49x then back to 0.98x the next day). These look like extreme jumps but are transient, not permanent symbol swaps.
+
+The round-trip detector runs on the close-price matrix **before** SMA volume smoothing and TOTAL2b calculation. A day is flagged when:
+
+1. The single-day ratio `price(D)/price(D-1)` exceeds `PRICE_ROUND_TRIP_JUMP_THRESHOLD` (default: 2.0), in either direction.
+2. The price returns close to its pre-jump value within `PRICE_ROUND_TRIP_WINDOW_DAYS` (default: 2 days), i.e. `price(D+k)/price(D-1)` is back inside `[1/REVERT, REVERT]` (default REVERT: 1.5).
+
+When confirmed, `close[D]` is replaced with `close[D-1]`. The coin **stays in the index** — only the spike day's price is neutralised. This is the key distinction from symbol-replacement detection, which assumes the new price is permanent and ejects the coin for a fresh 21-day freeze period.
+
+> **Note**: The same `detect_round_trips()` function (from `data/price_filters.py`) is also used by the [pattern analysis](PATTERN_ANALYSIS.md) module to neutralise spike days on each coin's close series before cycle min/max detection. This keeps the two pipelines consistent on close-price guards.
+
+Corrections are recorded in the `round_trip_corrections` list inside `total2_max_weight_change.json`.
+
+### 4. Price Scaling
 
 When a coin enters TOTAL2b (after passing the freeze period and reaching TOP30 by volume):
 
@@ -376,8 +399,8 @@ class Total2Result:
     max_weight_change_coin: str | None
     max_weight_change_date: date | None
     volume_outliers_corrected: list[dict] | None
-    scaling_events: list[dict] | None
-    round_trip_corrections: list[dict] | None
+    scaling_events: list[dict] | None            # Entry-day price scaling factors
+    round_trip_corrections: list[dict] | None    # Spike-and-revert smoothing events
     index_type: str                  # "total2b"
 ```
 

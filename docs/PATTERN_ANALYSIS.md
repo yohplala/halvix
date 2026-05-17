@@ -45,6 +45,8 @@ For each selected coin, the pattern analyzer uses **full price history** (not ju
 
 **Symbol Replacement Detection**: CryptoCompare sometimes reuses ticker symbols for different tokens (e.g., old "MOVE" token replaced by Movement Labs "MOVE"). The analyzer detects these replacements and uses only post-replacement data. See `detect_symbol_replacement` in `src/data/price_filters.py`.
 
+**Round-trip Spike Smoothing**: Single-day spike-and-revert events (low-liquidity pump-and-dumps or glitchy daily closes, e.g. SIREN on 2026-04-16: 2.49x then back to 0.98x the next day) can produce a false `max1`/`max2` point or skew the log-linear trendline. Before cycle point detection, the analyzer runs the same `detect_round_trips` helper used by the TOTAL2b pipeline (see [TOTAL2_CALCULATION.md § Round-trip Price Correction](TOTAL2_CALCULATION.md#3-round-trip-price-correction)) and replaces the spike-day close with the prior day's value. This keeps the close-series guards in sync between the two pipelines.
+
 ## Cycle Points
 
 For each completed halving cycle, the analyzer identifies up to **4 characteristic points**:
