@@ -361,6 +361,44 @@ class TestDetectRoundTrips:
             2 not in flagged_indices
         ), f"Revert day of prior event must not be re-flagged. Got indices: {flagged_indices}"
 
+    def test_catches_multi_day_pump_and_dump(self):
+        # RAVE-shape: 3-day climb where each day-over-day is sub-threshold
+        # (1.57x, 1.27x), cumulative max 2.75x, then a single-day crash to
+        # 0.375x baseline. None of the daily ratios alone trigger; only the
+        # window-max check catches this pattern.
+        # Series: baseline 8, 8, 8, then 11, 17, 22, then crash to 3.
+        s = self._series([8.0, 8.0, 8.0, 11.0, 17.0, 22.0, 3.0, 3.0])
+        events = detect_round_trips(s, window_days=5)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["direction"] == "up"
+        # Spike starts at index 3 (first day above baseline), peaks at index 5,
+        # reverts at index 6. days_to_revert measures revert minus spike-start.
+        assert s.index.get_loc(ev["date"]) == 3
+        assert ev["jump_price"] == 22.0
+        assert ev["pre_price"] == 8.0
+        assert ev["days_to_revert"] == 3
+        # All three elevated days (3, 4, 5) are smoothed; the revert day (6) is not.
+        smoothed_positions = [s.index.get_loc(d) for d in ev["smoothed_dates"]]
+        assert smoothed_positions == [3, 4, 5]
+
+    def test_leaves_durable_bull_move_alone(self):
+        # 3x climb that *stays* elevated (no revert within window) — exactly the
+        # legitimate bull move the multi-day detector must not touch.
+        s = self._series([10.0, 11.0, 17.0, 22.0, 25.0, 30.0, 28.0, 32.0])
+        events = detect_round_trips(s, window_days=7)
+        assert events == []
+
+    def test_picks_earlier_extremum_when_pump_then_crash(self):
+        # When both a window-max and a window-min satisfy their thresholds (pump
+        # then crash, RAVE-shape), prefer the one whose extremum comes first.
+        # The up-pump must be the primary event so the elevated days are smoothed,
+        # not the crash day.
+        s = self._series([10.0, 25.0, 30.0, 5.0, 8.0, 10.0])
+        events = detect_round_trips(s, window_days=5)
+        assert len(events) == 1
+        assert events[0]["direction"] == "up"
+
 
 class TestApplyRoundTripCorrectionsToDataFrame:
     """Tests for DataFrame-level round-trip smoothing."""
@@ -421,3 +459,27 @@ class TestApplyRoundTripCorrectionsToDataFrame:
         # Bigger jump first.
         assert events[0]["coin"] == "B"
         assert events[1]["coin"] == "A"
+
+    def test_multi_day_pump_smooths_full_span(self):
+        # RAVE-shape multi-day pump: every elevated day should be smoothed to
+        # the pre-spike baseline (8), not just the peak day. The revert day
+        # itself remains untouched.
+        dates = pd.date_range("2024-01-01", periods=8, freq="D")
+        df = pd.DataFrame(
+            {"rave": [8.0, 8.0, 8.0, 11.0, 17.0, 22.0, 3.0, 3.0]},
+            index=dates,
+        )
+        corrected, events = apply_round_trip_corrections_to_dataframe(df, window_days=5)
+        # All three elevated days collapse to baseline 8.0.
+        assert corrected.loc[dates[3], "rave"] == 8.0
+        assert corrected.loc[dates[4], "rave"] == 8.0
+        assert corrected.loc[dates[5], "rave"] == 8.0
+        # Revert day (3.0) and trailing baseline untouched.
+        assert corrected.loc[dates[6], "rave"] == 3.0
+        assert corrected.loc[dates[7], "rave"] == 3.0
+        # Three smoothing records, one per elevated day, all from the same event.
+        assert len(events) == 3
+        assert all(ev["coin"] == "RAVE" for ev in events)
+        assert all(ev["corrected"] == 8.0 for ev in events)
+        assert all(ev["direction"] == "up" for ev in events)
+        assert all(ev["days_to_revert"] == 3 for ev in events)

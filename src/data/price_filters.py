@@ -12,6 +12,8 @@ Provides:
 - Round-trip spike-and-revert detection
 """
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -286,31 +288,42 @@ def detect_round_trips(
     window_days: int = PRICE_ROUND_TRIP_WINDOW_DAYS,
 ) -> list[dict]:
     """
-    Detect single-day price spikes that revert within a short window.
+    Detect spike-and-revert patterns (single-day or multi-day) in a close series.
 
     Distinct from symbol-replacement detection: symbol replacement assumes the
     new price is permanent and resets first_seen (ejecting the coin). Round-trip
     detection assumes the spike is transient (low-liquidity pump-and-dump or a
-    glitchy daily close) and the proper remedy is to smooth the spike day, not
-    to eject the coin from the index.
+    glitchy daily close) and the proper remedy is to smooth every elevated day
+    in the pattern back to the pre-spike baseline, keeping the coin in the index.
 
-    A day D is flagged when BOTH:
-    1. The single-day ratio price(D)/price(D-1) exceeds jump_threshold (up-spike)
-       OR falls below 1/jump_threshold (down-spike).
-    2. The price returns close to its pre-jump value within `window_days`:
-       price(D+k)/price(D-1) is back inside [1/revert_threshold, revert_threshold]
-       for some k in [1, window_days].
+    At each position i, the detector scans the forward window [i, i+window_days]
+    for an extremum:
+      - up-candidate:   max(close in window) / close[i-1] > jump_threshold
+      - down-candidate: min(close in window) / close[i-1] < 1/jump_threshold
+    If a candidate is found AND the price returns to baseline within the same
+    window AFTER the extremum (revert_ratio inside [1/revert_threshold,
+    revert_threshold]), an event is recorded covering every day from i through
+    the extremum (the elevated/depressed span). The revert day itself is NOT
+    smoothed.
+
+    Examples this catches:
+      - Single-day spike: [10, 25, 10] — peak at i, revert at i+1.
+      - Multi-day pump-and-dump (RAVE 2026-04-15..18): [10, 11, 17, 22, 3] —
+        cumulative 2.2x climb that no single day-over-day reaches, then a 0.13x
+        crash. With a wide enough window, the extremum-vs-baseline test fires.
 
     Args:
         price_series: Series of close prices for a coin with DatetimeIndex
-        jump_threshold: Single-day ratio that triggers a candidate jump (>1)
-        revert_threshold: Tolerance band around the pre-jump price for declaring
-            a revert (>1; e.g. 1.5 means within ±50% of pre-jump)
-        window_days: How many days after the jump to look for a revert
+        jump_threshold: Window-extremum ratio that triggers a candidate (>1)
+        revert_threshold: Tolerance band around the pre-spike price for
+            declaring a revert (>1; e.g. 1.5 means within ±50% of pre-spike)
+        window_days: Forward window size in days
 
     Returns:
-        List of event dictionaries with keys: date, direction, days_to_revert,
-        pre_price, jump_price, revert_price, jump_ratio, revert_ratio.
+        List of event dictionaries with keys: date (first elevated day),
+        direction, days_to_revert (revert_idx - i), pre_price, jump_price (the
+        extremum value), revert_price, jump_ratio, revert_ratio, smoothed_dates
+        (every date in the elevated span — empty for none).
     """
     events: list[dict] = []
 
@@ -323,61 +336,108 @@ def detect_round_trips(
     inv_jump = 1.0 / jump_threshold
     inv_revert = 1.0 / revert_threshold
 
-    # Iterate by integer position so we can look ahead `window_days` safely.
     n = len(price_series)
     values = price_series.to_numpy()
     index = price_series.index
 
-    # Track indices that already belong to a recorded event's
-    # [jump_day, revert_day] window. Re-flagging a revert day as a fresh
-    # "down spike" would corrupt the correction: its pre_price is the prior
-    # spike value, so replacing the legitimate trough with that would inject
-    # the spike value back into the series. Skip such indices entirely.
+    # Track indices that already belong to a recorded event's span (from spike
+    # start through the revert day). Re-flagging a day inside that range as a
+    # fresh event would smooth a legitimate baseline back to the spike value.
     skip_until: int = -1
 
     for i in range(1, n - 1):
         if i <= skip_until:
             continue
         p_pre = values[i - 1]
-        p_jump = values[i]
-        if not (p_pre > DEFAULT_ZERO_THRESHOLD and p_jump > DEFAULT_ZERO_THRESHOLD):
+        if not (p_pre > DEFAULT_ZERO_THRESHOLD):
             continue
 
-        ratio = p_jump / p_pre
-        if ratio > jump_threshold:
-            direction = "up"
-        elif ratio < inv_jump:
-            direction = "down"
+        end = min(i + window_days, n - 1)
+        if end <= i:
+            continue
+
+        # Scan window for both extrema in one pass.
+        max_idx, max_val = -1, -1.0
+        min_idx, min_val = -1, math.inf
+        for j in range(i, end + 1):
+            v = values[j]
+            if v <= DEFAULT_ZERO_THRESHOLD:
+                continue
+            if v > max_val:
+                max_idx, max_val = j, v
+            if v < min_val:
+                min_idx, min_val = j, v
+
+        if max_idx < 0:
+            continue  # no valid prices in window
+
+        up_candidate = max_val / p_pre > jump_threshold
+        down_candidate = min_val < math.inf and min_val / p_pre < inv_jump
+
+        # If both fire (a pump that crashes — see RAVE), prefer the one whose
+        # extremum comes first in time: that's where the round-trip *starts*.
+        if up_candidate and (not down_candidate or max_idx <= min_idx):
+            direction, extremum_idx, extremum_val = "up", max_idx, max_val
+        elif down_candidate:
+            direction, extremum_idx, extremum_val = "down", min_idx, min_val
         else:
             continue
 
-        # Look ahead for revert
-        max_k = min(window_days, n - 1 - i)
-        for k in range(1, max_k + 1):
-            p_after = values[i + k]
-            if not (p_after > DEFAULT_ZERO_THRESHOLD):
+        # Look for revert AFTER the extremum, within the same window.
+        revert_k_idx = -1
+        revert_val = 0.0
+        for k_idx in range(extremum_idx + 1, end + 1):
+            v = values[k_idx]
+            if v <= DEFAULT_ZERO_THRESHOLD:
                 continue
-            revert_ratio = p_after / p_pre
+            revert_ratio = v / p_pre
             reverted = (direction == "up" and revert_ratio < revert_threshold) or (
                 direction == "down" and revert_ratio > inv_revert
             )
             if reverted:
-                events.append(
-                    {
-                        "date": index[i],
-                        "direction": direction,
-                        "days_to_revert": k,
-                        "pre_price": float(p_pre),
-                        "jump_price": float(p_jump),
-                        "revert_price": float(p_after),
-                        "jump_ratio": float(ratio),
-                        "revert_ratio": float(revert_ratio),
-                    }
-                )
-                # Suppress any indices inside [i+1 .. i+k] from being treated
-                # as new events: those are the revert days of this event.
-                skip_until = i + k
+                revert_k_idx = k_idx
+                revert_val = v
                 break
+        if revert_k_idx < 0:
+            continue
+
+        # The candidate window may start with baseline days (close[i] == close[i-1]
+        # or only fractionally moved). Locate the actual spike start: the first
+        # day in [i, extremum_idx] that deviates from p_pre in the spike direction.
+        # Without this, [11, 11, 11, 27, ...] iterated from i=1 would attribute
+        # the event to day i=1 instead of the actual jump day i=3.
+        spike_start_idx = i
+        for j in range(i, extremum_idx + 1):
+            v = values[j]
+            if v <= DEFAULT_ZERO_THRESHOLD:
+                continue
+            if direction == "up" and v > p_pre:
+                spike_start_idx = j
+                break
+            if direction == "down" and v < p_pre:
+                spike_start_idx = j
+                break
+
+        events.append(
+            {
+                "date": index[spike_start_idx],
+                "direction": direction,
+                "days_to_revert": revert_k_idx - spike_start_idx,
+                "pre_price": float(p_pre),
+                "jump_price": float(extremum_val),
+                "revert_price": float(revert_val),
+                "jump_ratio": float(extremum_val / p_pre),
+                "revert_ratio": float(revert_val / p_pre),
+                # Smooth every elevated day from spike start through the day
+                # before revert. The revert day itself is the genuine return
+                # to baseline and is NOT smoothed.
+                "smoothed_dates": [index[j] for j in range(spike_start_idx, revert_k_idx)],
+            }
+        )
+        # Skip the entire span (start through revert) so an interior day can't
+        # be re-flagged as a fresh event of the opposite direction (e.g. the
+        # revert day looking like a down-spike of the prior peak).
+        skip_until = revert_k_idx
 
     return events
 
@@ -390,12 +450,13 @@ def apply_round_trip_corrections_to_dataframe(
     show_progress: bool = False,
 ) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Smooth round-trip spike days across a multi-coin close-price DataFrame.
+    Smooth round-trip spike spans across a multi-coin close-price DataFrame.
 
-    For each detected event, the spike day's close is replaced with the prior
-    day's close. This neutralises the glitch for TOTAL2 calculation while
-    keeping the coin in the index (unlike symbol-replacement detection, which
-    ejects the coin for 21 days).
+    For each detected event, every day in the elevated/depressed span (from
+    spike start through the extremum) is replaced with the pre-spike baseline.
+    The revert day itself is left untouched. This neutralises the glitch for
+    TOTAL2 calculation while keeping the coin in the index (unlike symbol-
+    replacement detection, which ejects the coin for 21 days).
 
     Args:
         close_df: DataFrame of close prices (dates × coins)
@@ -405,9 +466,10 @@ def apply_round_trip_corrections_to_dataframe(
         show_progress: Log a summary of corrections applied
 
     Returns:
-        Tuple of (corrected_df, all_corrections). Each correction is a dict
-        with coin, date, original, corrected, jump_ratio, revert_ratio,
-        days_to_revert, direction.
+        Tuple of (corrected_df, all_corrections). One correction record per
+        smoothed day, carrying the spike-pattern metadata (jump_ratio,
+        revert_ratio, days_to_revert, direction). A multi-day event produces
+        one record per smoothed day, all sharing the same metadata.
     """
     corrected_df = close_df.copy()
     all_corrections: list[dict] = []
@@ -420,22 +482,23 @@ def apply_round_trip_corrections_to_dataframe(
             window_days=window_days,
         )
         for ev in events:
-            dt = ev["date"]
-            original = ev["jump_price"]
             corrected = ev["pre_price"]
-            corrected_df.at[dt, coin_id] = corrected
-            all_corrections.append(
-                {
-                    "coin": coin_id.upper() if isinstance(coin_id, str) else str(coin_id),
-                    "date": str(dt.date()) if hasattr(dt, "date") else str(dt),
-                    "original": float(original),
-                    "corrected": float(corrected),
-                    "jump_ratio": ev["jump_ratio"],
-                    "revert_ratio": ev["revert_ratio"],
-                    "days_to_revert": ev["days_to_revert"],
-                    "direction": ev["direction"],
-                }
-            )
+            coin_label = coin_id.upper() if isinstance(coin_id, str) else str(coin_id)
+            for dt in ev["smoothed_dates"]:
+                original = float(corrected_df.at[dt, coin_id])
+                corrected_df.at[dt, coin_id] = corrected
+                all_corrections.append(
+                    {
+                        "coin": coin_label,
+                        "date": str(dt.date()) if hasattr(dt, "date") else str(dt),
+                        "original": original,
+                        "corrected": float(corrected),
+                        "jump_ratio": ev["jump_ratio"],
+                        "revert_ratio": ev["revert_ratio"],
+                        "days_to_revert": ev["days_to_revert"],
+                        "direction": ev["direction"],
+                    }
+                )
 
     all_corrections.sort(
         key=lambda c: abs(c["jump_ratio"] - 1.0) if c["jump_ratio"] >= 1 else 1.0 / c["jump_ratio"],

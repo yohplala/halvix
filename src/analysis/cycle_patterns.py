@@ -1892,12 +1892,18 @@ class CyclePatternAnalyzer:
             return df
         df = df.copy()
         for ev in events:
-            df.at[ev["date"], "close"] = ev["pre_price"]
+            for dt in ev["smoothed_dates"]:
+                df.at[dt, "close"] = ev["pre_price"]
+            span_str = (
+                f"{ev['smoothed_dates'][0].date()}"
+                if len(ev["smoothed_dates"]) == 1
+                else f"{ev['smoothed_dates'][0].date()}..{ev['smoothed_dates'][-1].date()}"
+            )
             logger.info(
-                "%s: round-trip glitch on %s smoothed: %.3e → %.3e (jump %.2fx, "
+                "%s: round-trip glitch on %s smoothed: peak %.3e → %.3e (jump %.2fx, "
                 "revert %.2fx after %dd, %s)",
                 label,
-                ev["date"].date(),
+                span_str,
                 ev["jump_price"],
                 ev["pre_price"],
                 ev["jump_ratio"],

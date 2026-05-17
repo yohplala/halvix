@@ -632,7 +632,8 @@ def _create_pattern_chart(
         if events:
             price_df = price_df.copy()
             for ev in events:
-                price_df.at[ev["date"], "close"] = ev["pre_price"]
+                for dt in ev["smoothed_dates"]:
+                    price_df.at[dt, "close"] = ev["pre_price"]
 
     # Filter to time range
     start_date, end_date = _get_time_range()

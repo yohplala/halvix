@@ -57,7 +57,7 @@ TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has thi
 SYMBOL_REPLACEMENT_INCREASE_THRESHOLD = 4.42  # ratio > 4.42x flags replacement
 SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacement
 
-# Round-trip Detection: catches single-day price spikes that revert within a short
+# Round-trip Detection: catches spike-and-revert patterns (single-day or multi-day)
 # window (e.g. SIREN 2026-04-16: 2.49x then back to 0.98x the next day). These are
 # transient glitches/pump-dumps, not permanent symbol swaps, so the right fix is
 # to smooth the spike day rather than eject the coin from the index.
@@ -123,7 +123,7 @@ CryptoCompare occasionally has bad data points with impossible volume spikes. Th
 
 ### Round-Trip Price Correction
 
-Some single-day price spikes revert within a couple of days (low-liquidity pump-and-dumps, glitchy daily closes). Unlike symbol replacement (which ejects the coin for the freeze period), the right remedy is to neutralise just the spike day so the glitch does not propagate into TOTAL2b.
+Some price spikes revert within a few days (low-liquidity pump-and-dumps that may span 1 day or several, glitchy daily closes). Unlike symbol replacement (which ejects the coin for the freeze period), the right remedy is to neutralise just the elevated span so the glitch does not propagate into TOTAL2b.
 
 **Detection criteria** (from `data/price_filters.py`):
 - Single-day ratio `price(D)/price(D-1)` is above `PRICE_ROUND_TRIP_JUMP_THRESHOLD` (or below its reciprocal)
@@ -170,14 +170,17 @@ CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthle
 
 ### 3. Round-trip Price Correction
 
-Some coins exhibit single-day spikes that revert within a couple of days — typically low-liquidity pump-and-dump events or bad daily closes (e.g. SIREN on 2026-04-16: 2.49x then back to 0.98x the next day). These look like extreme jumps but are transient, not permanent symbol swaps.
+Some coins exhibit spike-and-revert patterns — single-day glitches (SIREN 2026-04-16: 2.49x then back the next day) or multi-day pump-and-dumps (RAVE 2026-04-15..18: 1.57x → 1.27x → 1.27x → 0.13x crash, cumulative 2.7x peak). These look like sustained moves day-over-day but the price round-trips to baseline; they are transient, not permanent symbol swaps.
 
-The round-trip detector runs on the close-price matrix **before** SMA volume smoothing and TOTAL2b calculation. A day is flagged when:
+The round-trip detector runs on the close-price matrix **before** SMA volume smoothing and TOTAL2b calculation. At each position `D` it scans the forward window `[D, D+window_days]` for an extremum and tests:
 
-1. The single-day ratio `price(D)/price(D-1)` exceeds `PRICE_ROUND_TRIP_JUMP_THRESHOLD` (default: 2.0), in either direction.
-2. The price returns close to its pre-jump value within `PRICE_ROUND_TRIP_WINDOW_DAYS` (default: 2 days), i.e. `price(D+k)/price(D-1)` is back inside `[1/REVERT, REVERT]` (default REVERT: 1.5).
+1. `max(close in window) / close[D-1]` > `PRICE_ROUND_TRIP_JUMP_THRESHOLD` (default 2.0) — an up-pump candidate, OR
+   `min(close in window) / close[D-1]` < `1/JUMP_THRESHOLD` — a down-spike candidate.
+2. The price returns to baseline within the same window AFTER the extremum: `close[D+k]/close[D-1]` is inside `[1/REVERT, REVERT]` (default REVERT 1.5) for some `k`.
 
-When confirmed, `close[D]` is replaced with `close[D-1]`. The coin **stays in the index** — only the spike day's price is neutralised. This is the key distinction from symbol-replacement detection, which assumes the new price is permanent and ejects the coin for a fresh 21-day freeze period.
+`PRICE_ROUND_TRIP_WINDOW_DAYS` defaults to 7, wide enough to catch RAVE-style multi-day pumps where no single day-over-day ratio crosses 2.0 but the cumulative climb does. Durable bull moves (a 3x rally that stays elevated) never round-trip and are correctly left alone.
+
+When confirmed, every day from the actual spike start through the day before the revert is replaced with `close[D-1]`. The coin **stays in the index** — only the elevated/depressed span is neutralised. This is the key distinction from symbol-replacement detection, which assumes the new price is permanent and ejects the coin for a fresh 21-day freeze period.
 
 > **Note**: The same `detect_round_trips()` function (from `data/price_filters.py`) is also used by the [pattern analysis](PATTERN_ANALYSIS.md) module to neutralise spike days on each coin's close series before cycle min/max detection. This keeps the two pipelines consistent on close-price guards.
 
@@ -208,7 +211,7 @@ Where:
 ```python
 # Pre-processing (vectorized, once per run):
 #   - Apply volume outlier corrections to volume DataFrame
-#   - Smooth single-day price round-trips (spike-and-revert) in close prices
+#   - Smooth round-trip price spikes (single-day or multi-day) in close prices
 #   - Apply 120-day SMA to volume with zero-padding for new coins
 
 for each day:
@@ -364,7 +367,7 @@ This ensures consistent data quality across all analysis modules.
 | `apply_volume_corrections_to_dataframe()` | Cap volume outliers across a multi-coin DataFrame |
 | `apply_volume_sma_smoothing_to_dataframe()` | Apply SMA smoothing with optional zero-padding |
 | `detect_symbol_replacement()` | Flag CryptoCompare ticker recycling via extreme price jumps |
-| `detect_round_trips()` / `apply_round_trip_corrections_to_dataframe()` | Detect and neutralise single-day spike-and-revert glitches |
+| `detect_round_trips()` / `apply_round_trip_corrections_to_dataframe()` | Detect and neutralise spike-and-revert glitches (single-day or multi-day windows) |
 
 ### Using the Processor
 
