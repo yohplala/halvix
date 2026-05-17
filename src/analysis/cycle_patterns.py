@@ -449,13 +449,31 @@ class CyclePatternAnalyzer:
         halvings: list[date],
         last_price_date: date,
     ) -> list[SegmentData | None]:
-        """Build segment metadata between consecutive halvings."""
+        """Build segment metadata between consecutive halvings.
+
+        Segment intervals follow the half-open convention ``[seg_start, seg_end)``
+        on halving boundaries: a price exactly on halving ``H[n]`` belongs to
+        segment ``[H[n], H[n+1])`` only, never to ``[H[n-1], H[n])``. This
+        prevents the halving-date sample from being scanned by two segments
+        at once. ``effective_end`` keeps its prior semantics of an *inclusive*
+        upper bound used by downstream passes, so for non-clipped segments
+        we set it to ``seg_end - 1 day`` (the latest day strictly before the
+        next halving). The post-halving detector
+        (``_detect_post_halving_points``) uses ``>= halvings[-1]`` to take
+        ownership of the projected-halving day under this same convention.
+        """
         segments: list[SegmentData | None] = []
+        one_day = timedelta(days=1)
         for s in range(len(halvings) - 1):
             seg_start = halvings[s]
             seg_end = halvings[s + 1]
             is_last = s == len(halvings) - 2
-            effective_end = min(seg_end, last_price_date) if is_last else seg_end
+            # effective_end is INCLUSIVE; choose the latest day belonging to
+            # this segment under the [seg_start, seg_end) convention.
+            if is_last and last_price_date < seg_end:
+                effective_end = last_price_date
+            else:
+                effective_end = seg_end - one_day
             prev_cycle = s + 2
             curr_cycle = s + 3
 
@@ -987,12 +1005,17 @@ class CyclePatternAnalyzer:
         """Handle last/current segment beyond the final halving.
 
         Detects max2, min2, and min1 in post-halving data (current cycle).
+
+        Uses an inclusive ``>= last_halving`` bound so the halving date itself
+        is owned by the post-halving segment — consistent with the half-open
+        ``[seg_start, seg_end)`` convention used by ``_build_segments`` (which
+        excludes ``halvings[-1]`` from the prior segment).
         """
         last_halving = halvings[-1]
-        if last_price_date <= last_halving:
+        if last_price_date < last_halving:
             return
 
-        post_mask = (df.index.date > last_halving) & (df["close"] > 0)
+        post_mask = (df.index.date >= last_halving) & (df["close"] > 0)
         post_data = df[post_mask]
         if post_data.empty:
             return

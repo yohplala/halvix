@@ -1614,6 +1614,57 @@ class TestIdentifyCyclePoints:
         assert result == pytest.approx(expected, rel=0.001)
 
 
+class TestSegmentBoundaries:
+    """Regression tests for half-open [seg_start, seg_end) segment boundaries.
+
+    Without the half-open convention, a price exactly on a halving date would
+    be scanned by two adjacent segments (the prior one's inclusive end and the
+    next one's inclusive start). The half-open convention assigns such a
+    price uniquely to the segment that starts on that halving.
+    """
+
+    @pytest.fixture
+    def analyzer(self, mock_price_cache):
+        return CyclePatternAnalyzer(price_cache=mock_price_cache)
+
+    def test_halving_date_belongs_to_next_segment_only(self, analyzer):
+        """A price on H[n] is included in segment[n,n+1] but not segment[n-1,n]."""
+        # H2 = 2016-07-09, H3 = 2020-05-11
+        h2 = HALVING_DATES[1]
+        h3 = HALVING_DATES[2]
+        dates = pd.date_range(h2, h3, freq="D")
+        # Spike the price on H3; everything else flat
+        df = pd.DataFrame({"close": [100.0] * len(dates)}, index=dates)
+        df.loc[pd.Timestamp(h3), "close"] = 1.0e9  # huge spike on the halving
+
+        segments = analyzer._build_segments(df, HALVING_DATES, h3)
+        # We expect segments for [H1,H2], [H2,H3], [H3,H4], [H4,H5]
+        # Index 1 is [H2, H3): should NOT include the H3 spike.
+        seg_h2_h3 = segments[1]
+        assert seg_h2_h3 is not None
+        # The maximum in [H2, H3) must be 100 (flat), not the H3 spike.
+        assert seg_h2_h3.valid_data["close"].max() == pytest.approx(100.0)
+        # And the segment data must not include H3 itself.
+        assert pd.Timestamp(h3) not in seg_h2_h3.valid_data.index
+
+    def test_halving_date_included_in_starting_segment(self, analyzer):
+        """A price exactly on H[n] is reachable by segment[H[n], H[n+1])."""
+        h2 = HALVING_DATES[1]
+        h3 = HALVING_DATES[2]
+        h4 = HALVING_DATES[3]
+        # Make data span H2 .. H4 - 1 so the [H3, H4) segment is "complete".
+        dates = pd.date_range(h2, h4, freq="D")
+        df = pd.DataFrame({"close": [100.0] * len(dates)}, index=dates)
+        df.loc[pd.Timestamp(h3), "close"] = 1.0e9
+
+        segments = analyzer._build_segments(df, HALVING_DATES, h4)
+        # Segment [H3, H4) — index 2.
+        seg_h3_h4 = segments[2]
+        assert seg_h3_h4 is not None
+        assert pd.Timestamp(h3) in seg_h3_h4.valid_data.index
+        assert seg_h3_h4.valid_data.loc[pd.Timestamp(h3), "close"] == pytest.approx(1.0e9)
+
+
 # =============================================================================
 # Analyzer Integration Tests
 # =============================================================================
