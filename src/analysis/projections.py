@@ -24,8 +24,8 @@ from analysis.cycle_points import (
     CyclePoint,
     PointType,
     fib_retracement_ratio,
+    find_latest_min_point,
 )
-from analysis.point_detection import find_latest_min_point
 from config import (
     COMPOSITE_WEIGHT_PROFILES,
     CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,

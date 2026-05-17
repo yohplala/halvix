@@ -23,7 +23,6 @@ import pandas as pd
 
 from analysis.cycle_points import (
     CyclePoint,
-    PointType,
     SegmentData,
     _make_point,
     _project_min1,
@@ -707,40 +706,3 @@ def detect_post_halving_points(
         elif min1_price < max2_price:
             # No reference price — still require min1 below max2
             points.append(_make_point(min1_date, min1_price, last_cycle + 1, "min1", last_halving))
-
-
-def find_latest_min_point(
-    idx: dict[tuple[int, PointType], list[CyclePoint]],
-) -> CyclePoint | None:
-    """Find the most recent min point (min1 or min2) by date using the index."""
-    latest: CyclePoint | None = None
-    for (_, pt), pts in idx.items():
-        if "min" in pt:
-            for p in pts:
-                if latest is None or p.date > latest.date:
-                    latest = p
-    return latest
-
-
-def build_points_index(
-    points: list[CyclePoint],
-) -> dict[tuple[int, PointType], list[CyclePoint]]:
-    """Build index of points by (cycle_num, point_type) for O(1) lookup."""
-    index: dict[tuple[int, PointType], list[CyclePoint]] = {}
-    for p in points:
-        key = (p.cycle_num, p.point_type)
-        if key not in index:
-            index[key] = []
-        index[key].append(p)
-    return index
-
-
-def count_min1_cycles(points: list[CyclePoint]) -> int:
-    """Count distinct cycles that have an *actual* (non-projected) min1.
-
-    A projected min1 represents a 23.6%-retracement assumption for the
-    in-progress cycle when the bear hasn't unfolded. It is not evidence
-    that the coin has lived through a completed cycle, so it must not
-    bump the cycle count (and therefore the confidence level).
-    """
-    return len({p.cycle_num for p in points if p.point_type == "min1" and not p.projected})

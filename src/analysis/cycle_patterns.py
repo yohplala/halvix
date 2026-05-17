@@ -42,6 +42,8 @@ from analysis.cycle_points import (
     CoinPatternResult,
     CyclePoint,
     _to_date,
+    build_points_index,
+    count_min1_cycles,
     fib_retracement_ratio,  # noqa: F401  (re-exported for tests)
 )
 from config import (
@@ -219,8 +221,13 @@ class CyclePatternAnalyzer:
         return point_detection.identify_cycle_points(df, self.all_halvings)
 
     _build_segments = staticmethod(point_detection.build_segments)
-    _build_points_index = staticmethod(point_detection.build_points_index)
-    _count_min1_cycles = staticmethod(point_detection.count_min1_cycles)
+    # Pure point-list helpers live in ``analysis.cycle_points`` — they
+    # operate on already-detected CyclePoint lists, not on the
+    # segment-scan kernel. The 17 other wrappers that previously forwarded
+    # to ``point_detection.*`` were dropped in commit 7160f70 (unreferenced
+    # by tests and production callers).
+    _build_points_index = staticmethod(build_points_index)
+    _count_min1_cycles = staticmethod(count_min1_cycles)
 
     _fit_log_trendlines = staticmethod(projections.fit_log_trendlines)
     _project_trendline_target = staticmethod(projections.project_trendline_target)

@@ -9,7 +9,10 @@ and ``cycle_patterns``. Three groups:
   ``CoinPatternResult`` (full per-coin analysis), ``SegmentData`` and
   ``_SegmentIterState`` (internal state for the multi-pass segment scan).
 - **Functions**: ``_to_date``, ``fib_retracement_ratio``, ``_make_point``,
-  ``_project_min1`` — pure helpers with no analyzer state.
+  ``_project_min1`` — pure helpers with no analyzer state, plus
+  ``build_points_index``, ``find_latest_min_point``,
+  ``count_min1_cycles`` — pure operations on already-detected
+  ``CyclePoint`` lists.
 """
 
 import math
@@ -206,3 +209,50 @@ def _project_min1(
         )
     except ValueError:
         return None
+
+
+# ── Operations on already-detected cycle points ──────────────────────
+# These three helpers consume CyclePoint lists / the by-(cycle, type)
+# index and are independent of the segment-detection kernel — both
+# ``point_detection`` and ``projections`` use them. They live here (the
+# dataclass + helper module) rather than in ``point_detection`` to keep
+# the dependency graph one-directional: ``point_detection`` and
+# ``projections`` each depend on ``cycle_points``, not on each other.
+# ────────────────────────────────────────────────────────────────────
+
+
+def build_points_index(
+    points: list[CyclePoint],
+) -> dict[tuple[int, PointType], list[CyclePoint]]:
+    """Build index of points by (cycle_num, point_type) for O(1) lookup."""
+    index: dict[tuple[int, PointType], list[CyclePoint]] = {}
+    for p in points:
+        key = (p.cycle_num, p.point_type)
+        if key not in index:
+            index[key] = []
+        index[key].append(p)
+    return index
+
+
+def find_latest_min_point(
+    idx: dict[tuple[int, PointType], list[CyclePoint]],
+) -> CyclePoint | None:
+    """Find the most recent min point (min1 or min2) by date using the index."""
+    latest: CyclePoint | None = None
+    for (_, pt), pts in idx.items():
+        if "min" in pt:
+            for p in pts:
+                if latest is None or p.date > latest.date:
+                    latest = p
+    return latest
+
+
+def count_min1_cycles(points: list[CyclePoint]) -> int:
+    """Count distinct cycles that have an *actual* (non-projected) min1.
+
+    A projected min1 represents a 23.6%-retracement assumption for the
+    in-progress cycle when the bear hasn't unfolded. It is not evidence
+    that the coin has lived through a completed cycle, so it must not
+    bump the cycle count (and therefore the confidence level).
+    """
+    return len({p.cycle_num for p in points if p.point_type == "min1" and not p.projected})
