@@ -16,8 +16,10 @@ from data.price_filters import (
     DEFAULT_OUTLIER_WINDOW_DAYS,
     DEFAULT_VOLUME_OUTLIER_THRESHOLD,
     DEFAULT_VOLUME_SMA_WINDOW,
+    apply_round_trip_corrections_to_dataframe,
     apply_volume_corrections_to_dataframe,
     apply_volume_sma_smoothing_to_dataframe,
+    detect_round_trips,
 )
 
 
@@ -255,3 +257,146 @@ class TestEdgeCases:
 
         assert "sol" in corrected.columns
         assert "sol" in smoothed.columns
+
+
+# =============================================================================
+# Round-Trip Detection Tests
+# =============================================================================
+
+
+class TestDetectRoundTrips:
+    """Tests for single-day spike-and-revert detection."""
+
+    @staticmethod
+    def _series(values):
+        dates = pd.date_range("2024-01-01", periods=len(values), freq="D")
+        return pd.Series(values, index=dates)
+
+    def test_catches_up_spike_that_reverts_next_day(self):
+        # SIREN-like pattern: 0.000011 -> 0.000027 (2.45x) -> 0.000010 (back).
+        s = self._series([11.0, 11.0, 11.0, 27.0, 10.0, 10.0])
+        events = detect_round_trips(s)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["direction"] == "up"
+        assert ev["days_to_revert"] == 1
+        assert ev["jump_ratio"] == pytest.approx(27 / 11, rel=1e-9)
+        assert ev["pre_price"] == 11.0
+        assert ev["jump_price"] == 27.0
+        assert ev["revert_price"] == 10.0
+
+    def test_catches_down_spike_that_reverts(self):
+        s = self._series([100.0, 100.0, 30.0, 95.0, 100.0])
+        events = detect_round_trips(s)
+        assert len(events) == 1
+        assert events[0]["direction"] == "down"
+        assert events[0]["jump_ratio"] == pytest.approx(0.3, rel=1e-9)
+
+    def test_ignores_jump_that_does_not_revert(self):
+        # 1.0 -> 5.0 (5x jump) but stays at 5.0 — legitimate move, not a glitch.
+        s = self._series([1.0, 1.0, 1.0, 5.0, 5.0, 5.0])
+        events = detect_round_trips(s)
+        assert events == []
+
+    def test_ignores_small_move_within_threshold(self):
+        s = self._series([100.0, 110.0, 120.0, 130.0, 120.0])  # ratios all < 2.0
+        events = detect_round_trips(s)
+        assert events == []
+
+    def test_detects_revert_two_days_later(self):
+        # Revert one day late: needs window_days >= 2 to be caught.
+        s = self._series([10.0, 10.0, 25.0, 25.0, 11.0, 10.0])
+        events = detect_round_trips(s, window_days=2)
+        assert len(events) == 1
+        assert events[0]["days_to_revert"] == 2
+
+        # With window=1, the same data should not be flagged because day+1 still high.
+        events_short = detect_round_trips(s, window_days=1)
+        assert events_short == []
+
+    def test_skips_zero_or_negative_prices(self):
+        # Resurrection from zero is handled by symbol-replacement, not here.
+        s = self._series([0.0, 0.0, 10.0, 30.0, 10.0])
+        events = detect_round_trips(s)
+        # Only the 10 -> 30 -> 10 transition is a valid candidate.
+        assert all(ev["pre_price"] > 0 for ev in events)
+        assert len(events) == 1
+
+    def test_empty_or_short_series_returns_empty(self):
+        assert detect_round_trips(pd.Series(dtype=float)) == []
+        assert detect_round_trips(self._series([1.0, 2.0])) == []
+
+    def test_invalid_thresholds_raise(self):
+        s = self._series([1.0, 2.0, 1.0])
+        with pytest.raises(ValueError):
+            detect_round_trips(s, jump_threshold=1.0)
+        with pytest.raises(ValueError):
+            detect_round_trips(s, revert_threshold=0.9)
+
+    def test_breaks_on_first_revert_within_window(self):
+        # Should record the FIRST k where revert holds, not iterate further.
+        s = self._series([10.0, 10.0, 30.0, 10.0, 10.0, 10.0])
+        events = detect_round_trips(s, window_days=3)
+        assert len(events) == 1
+        assert events[0]["days_to_revert"] == 1
+
+
+class TestApplyRoundTripCorrectionsToDataFrame:
+    """Tests for DataFrame-level round-trip smoothing."""
+
+    def test_smooths_spike_day_to_prior_close(self):
+        dates = pd.date_range("2024-01-01", periods=6, freq="D")
+        df = pd.DataFrame(
+            {
+                "siren": [11.0, 11.0, 11.0, 27.0, 10.0, 10.0],
+                "eth": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+            },
+            index=dates,
+        )
+        corrected, events = apply_round_trip_corrections_to_dataframe(df)
+
+        # SIREN spike day should be replaced with prior close.
+        assert corrected.loc[dates[3], "siren"] == 11.0
+        # ETH untouched.
+        assert (corrected["eth"] == df["eth"]).all()
+        # Event recorded for SIREN only.
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["coin"] == "SIREN"
+        assert ev["original"] == 27.0
+        assert ev["corrected"] == 11.0
+
+    def test_no_corrections_on_clean_data(self):
+        dates = pd.date_range("2024-01-01", periods=10, freq="D")
+        df = pd.DataFrame(
+            {"eth": np.linspace(100, 110, 10), "sol": np.linspace(20, 22, 10)},
+            index=dates,
+        )
+        corrected, events = apply_round_trip_corrections_to_dataframe(df)
+        assert events == []
+        pd.testing.assert_frame_equal(corrected, df)
+
+    def test_original_dataframe_unchanged(self):
+        dates = pd.date_range("2024-01-01", periods=6, freq="D")
+        df = pd.DataFrame(
+            {"siren": [11.0, 11.0, 11.0, 27.0, 10.0, 10.0]},
+            index=dates,
+        )
+        original = df.copy()
+        apply_round_trip_corrections_to_dataframe(df)
+        pd.testing.assert_frame_equal(df, original)
+
+    def test_corrections_sorted_by_jump_magnitude(self):
+        dates = pd.date_range("2024-01-01", periods=8, freq="D")
+        df = pd.DataFrame(
+            {
+                "a": [10.0, 10.0, 10.0, 25.0, 10.0, 10.0, 10.0, 10.0],  # 2.5x
+                "b": [10.0, 10.0, 10.0, 100.0, 10.0, 10.0, 10.0, 10.0],  # 10x
+            },
+            index=dates,
+        )
+        _, events = apply_round_trip_corrections_to_dataframe(df)
+        assert len(events) == 2
+        # Bigger jump first.
+        assert events[0]["coin"] == "B"
+        assert events[1]["coin"] == "A"

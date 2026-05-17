@@ -17,7 +17,13 @@ all analysis modules.
 import numpy as np
 import pandas as pd
 
-from config import SYMBOL_REPLACEMENT_DECREASE_THRESHOLD, SYMBOL_REPLACEMENT_INCREASE_THRESHOLD
+from config import (
+    PRICE_ROUND_TRIP_JUMP_THRESHOLD,
+    PRICE_ROUND_TRIP_REVERT_THRESHOLD,
+    PRICE_ROUND_TRIP_WINDOW_DAYS,
+    SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
+    SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
+)
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -268,3 +274,181 @@ def detect_symbol_replacement(
         return None
 
     return last_jump_date
+
+
+# =============================================================================
+# Round-Trip Detection (single-day spike-and-revert)
+# =============================================================================
+
+
+def detect_round_trips(
+    price_series: pd.Series,
+    jump_threshold: float = PRICE_ROUND_TRIP_JUMP_THRESHOLD,
+    revert_threshold: float = PRICE_ROUND_TRIP_REVERT_THRESHOLD,
+    window_days: int = PRICE_ROUND_TRIP_WINDOW_DAYS,
+) -> list[dict]:
+    """
+    Detect single-day price spikes that revert within a short window.
+
+    Distinct from symbol-replacement detection: symbol replacement assumes the
+    new price is permanent and resets first_seen (ejecting the coin). Round-trip
+    detection assumes the spike is transient (low-liquidity pump-and-dump or a
+    glitchy daily close) and the proper remedy is to smooth the spike day, not
+    to eject the coin from the index.
+
+    A day D is flagged when BOTH:
+    1. The single-day ratio price(D)/price(D-1) exceeds jump_threshold (up-spike)
+       OR falls below 1/jump_threshold (down-spike).
+    2. The price returns close to its pre-jump value within `window_days`:
+       price(D+k)/price(D-1) is back inside [1/revert_threshold, revert_threshold]
+       for some k in [1, window_days].
+
+    Args:
+        price_series: Series of close prices for a coin with DatetimeIndex
+        jump_threshold: Single-day ratio that triggers a candidate jump (>1)
+        revert_threshold: Tolerance band around the pre-jump price for declaring
+            a revert (>1; e.g. 1.5 means within ±50% of pre-jump)
+        window_days: How many days after the jump to look for a revert
+
+    Returns:
+        List of event dictionaries with keys: date, direction, days_to_revert,
+        pre_price, jump_price, revert_price, jump_ratio, revert_ratio.
+    """
+    events: list[dict] = []
+
+    if price_series.empty or len(price_series) < 3:
+        return events
+
+    if jump_threshold <= 1 or revert_threshold <= 1:
+        raise ValueError("jump_threshold and revert_threshold must be > 1")
+
+    inv_jump = 1.0 / jump_threshold
+    inv_revert = 1.0 / revert_threshold
+
+    # Iterate by integer position so we can look ahead `window_days` safely.
+    n = len(price_series)
+    values = price_series.to_numpy()
+    index = price_series.index
+
+    for i in range(1, n - 1):
+        p_pre = values[i - 1]
+        p_jump = values[i]
+        if not (p_pre > DEFAULT_ZERO_THRESHOLD and p_jump > DEFAULT_ZERO_THRESHOLD):
+            continue
+
+        ratio = p_jump / p_pre
+        if ratio > jump_threshold:
+            direction = "up"
+        elif ratio < inv_jump:
+            direction = "down"
+        else:
+            continue
+
+        # Look ahead for revert
+        max_k = min(window_days, n - 1 - i)
+        for k in range(1, max_k + 1):
+            p_after = values[i + k]
+            if not (p_after > DEFAULT_ZERO_THRESHOLD):
+                continue
+            revert_ratio = p_after / p_pre
+            reverted = (direction == "up" and revert_ratio < revert_threshold) or (
+                direction == "down" and revert_ratio > inv_revert
+            )
+            if reverted:
+                events.append(
+                    {
+                        "date": index[i],
+                        "direction": direction,
+                        "days_to_revert": k,
+                        "pre_price": float(p_pre),
+                        "jump_price": float(p_jump),
+                        "revert_price": float(p_after),
+                        "jump_ratio": float(ratio),
+                        "revert_ratio": float(revert_ratio),
+                    }
+                )
+                break
+
+    return events
+
+
+def apply_round_trip_corrections_to_dataframe(
+    close_df: pd.DataFrame,
+    jump_threshold: float = PRICE_ROUND_TRIP_JUMP_THRESHOLD,
+    revert_threshold: float = PRICE_ROUND_TRIP_REVERT_THRESHOLD,
+    window_days: int = PRICE_ROUND_TRIP_WINDOW_DAYS,
+    show_progress: bool = False,
+) -> tuple[pd.DataFrame, list[dict]]:
+    """
+    Smooth round-trip spike days across a multi-coin close-price DataFrame.
+
+    For each detected event, the spike day's close is replaced with the prior
+    day's close. This neutralises the glitch for TOTAL2 calculation while
+    keeping the coin in the index (unlike symbol-replacement detection, which
+    ejects the coin for 21 days).
+
+    Args:
+        close_df: DataFrame of close prices (dates × coins)
+        jump_threshold: See detect_round_trips
+        revert_threshold: See detect_round_trips
+        window_days: See detect_round_trips
+        show_progress: Log a summary of corrections applied
+
+    Returns:
+        Tuple of (corrected_df, all_corrections). Each correction is a dict
+        with coin, date, original, corrected, jump_ratio, revert_ratio,
+        days_to_revert, direction.
+    """
+    corrected_df = close_df.copy()
+    all_corrections: list[dict] = []
+
+    for coin_id in corrected_df.columns:
+        events = detect_round_trips(
+            corrected_df[coin_id],
+            jump_threshold=jump_threshold,
+            revert_threshold=revert_threshold,
+            window_days=window_days,
+        )
+        for ev in events:
+            dt = ev["date"]
+            original = ev["jump_price"]
+            corrected = ev["pre_price"]
+            corrected_df.at[dt, coin_id] = corrected
+            all_corrections.append(
+                {
+                    "coin": coin_id.upper() if isinstance(coin_id, str) else str(coin_id),
+                    "date": str(dt.date()) if hasattr(dt, "date") else str(dt),
+                    "original": float(original),
+                    "corrected": float(corrected),
+                    "jump_ratio": ev["jump_ratio"],
+                    "revert_ratio": ev["revert_ratio"],
+                    "days_to_revert": ev["days_to_revert"],
+                    "direction": ev["direction"],
+                }
+            )
+
+    all_corrections.sort(
+        key=lambda c: abs(c["jump_ratio"] - 1.0) if c["jump_ratio"] >= 1 else 1.0 / c["jump_ratio"],
+        reverse=True,
+    )
+
+    if show_progress and all_corrections:
+        logger.info("Round-trip price corrections (%d total):", len(all_corrections))
+        for c in all_corrections[:20]:
+            original_str = f"{c['original']:.2e}"
+            corrected_str = f"{c['corrected']:.2e}"
+            logger.info(
+                "  %6s %s: %s → %s (jump %.2fx, revert %.2fx after %dd, %s)",
+                c["coin"],
+                c["date"],
+                original_str,
+                corrected_str,
+                c["jump_ratio"],
+                c["revert_ratio"],
+                c["days_to_revert"],
+                c["direction"],
+            )
+        if len(all_corrections) > 20:
+            logger.info("  ... and %d more", len(all_corrections) - 20)
+
+    return corrected_df, all_corrections

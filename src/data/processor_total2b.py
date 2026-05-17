@@ -26,7 +26,10 @@ from config import (
     VOLUME_SMA_WINDOW,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_symbol_replacement
+from data.price_filters import (
+    apply_round_trip_corrections_to_dataframe,
+    detect_symbol_replacement,
+)
 from data.processor_base import (
     BaseTotal2Processor,
     ProcessorError,
@@ -163,6 +166,18 @@ class Total2bProcessor(BaseTotal2Processor):
             price_data, show_progress=show_progress
         )
 
+        # Smooth single-day price round-trips (spike-and-revert) before any
+        # downstream calculation. This complements symbol-replacement detection:
+        # round-trips are transient glitches/pump-dumps (price returns to
+        # baseline within a couple of days) and the right remedy is to neutralise
+        # the spike day, not to eject the coin from the index.
+        if show_progress:
+            logger.info("Applying round-trip price corrections...")
+
+        close_df, round_trip_corrections = apply_round_trip_corrections_to_dataframe(
+            close_df, show_progress=show_progress
+        )
+
         # Apply volume SMA smoothing
         if show_progress:
             logger.info("Applying volume SMA smoothing...")
@@ -230,6 +245,7 @@ class Total2bProcessor(BaseTotal2Processor):
             max_weight_change_date=max_date,
             volume_outliers_corrected=volume_outliers,
             price_outliers_corrected=scaling_events,  # Repurpose for scaling events
+            round_trip_corrections=round_trip_corrections,
             index_type="total2b",
         )
 

@@ -109,6 +109,18 @@ TOTAL2_MIN_COINS_FOR_INDEX = 3  # Minimum coins required to calculate index for 
 SYMBOL_REPLACEMENT_INCREASE_THRESHOLD = 4.42  # ratio > 4.42x flags replacement
 SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacement
 
+# Round-trip Detection: catches single-day price spikes that revert within a short window
+# (e.g. low-liquidity pump-and-dumps on micro-cap tokens like SIREN 2026-04-16: 2.49x then
+# back to 0.98x the next day). Symbol-replacement detection cannot catch these because
+# the new price is transient, not permanent. Remedy: smooth the spike day's close to the
+# prior day's value so the glitch doesn't propagate into TOTAL2 — coin stays in the index.
+# A jump triggers if price(D)/price(D-1) is above PRICE_ROUND_TRIP_JUMP_THRESHOLD (or below
+# its reciprocal). A "revert" is confirmed if price(D+k)/price(D-1) falls back below
+# PRICE_ROUND_TRIP_REVERT_THRESHOLD (or above its reciprocal) for some k in [1, window].
+PRICE_ROUND_TRIP_JUMP_THRESHOLD = 2.0
+PRICE_ROUND_TRIP_REVERT_THRESHOLD = 1.5
+PRICE_ROUND_TRIP_WINDOW_DAYS = 2
+
 # Quote currencies for price data
 # Prices are fetched against each of these currencies
 QUOTE_CURRENCIES = ["BTC", "USD"]

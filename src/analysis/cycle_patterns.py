@@ -69,7 +69,7 @@ from config import (
     UNIQUE_PRICES_WINDOW_DAYS,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_symbol_replacement
+from data.price_filters import detect_round_trips, detect_symbol_replacement
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -1822,6 +1822,44 @@ class CyclePatternAnalyzer:
             penalty = 1.0 - t * (1.0 - RETRACEMENT_PENALTY_AT_MAX)
             result.composite_target_pct *= penalty
 
+    @staticmethod
+    def _smooth_round_trips(df: pd.DataFrame, label: str) -> pd.DataFrame:
+        """
+        Smooth single-day spike-and-revert glitches in df['close'].
+
+        Cycle min/max detection (idxmax/idxmin over halving segments) and the
+        log-linear trendline regression both read close prices directly, so a
+        one-day pump-dump (e.g. SIREN 2026-04-16 at 2.49x reverting next day)
+        can produce a false max1/max2 or skew the trendline. Mirrors the
+        round-trip correction applied in the TOTAL2b processor, keeping the
+        close-series guards in sync between the two pipelines.
+
+        Returns the input df with df['close'] mutated on spike days
+        (set to the prior day's close). df itself is copied to avoid
+        mutating the cache layer.
+        """
+        if df.empty or "close" not in df.columns:
+            return df
+        events = detect_round_trips(df["close"])
+        if not events:
+            return df
+        df = df.copy()
+        for ev in events:
+            df.at[ev["date"], "close"] = ev["pre_price"]
+            logger.info(
+                "%s: round-trip glitch on %s smoothed: %.3e → %.3e (jump %.2fx, "
+                "revert %.2fx after %dd, %s)",
+                label,
+                ev["date"].date(),
+                ev["jump_price"],
+                ev["pre_price"],
+                ev["jump_ratio"],
+                ev["revert_ratio"],
+                ev["days_to_revert"],
+                ev["direction"],
+            )
+        return df
+
     def analyze_btc(self) -> CoinPatternResult | None:
         """
         Analyze BTC/USD pattern using the same cycle point detection as altcoins.
@@ -1834,6 +1872,8 @@ class CyclePatternAnalyzer:
         if btc_df is None or btc_df.empty:
             logger.warning("BTC-USD data not available")
             return None
+
+        btc_df = self._smooth_round_trips(btc_df, "BTC")
 
         result = CoinPatternResult(coin_id="btc")
         result.points = self._identify_cycle_points(btc_df)
@@ -1886,6 +1926,11 @@ class CyclePatternAnalyzer:
                 if df.empty:
                     logger.debug("%s: No data after symbol replacement date", coin_id.upper())
                     return None
+
+        # Smooth single-day spike-and-revert glitches on the close series so
+        # they cannot become false max1/max2/min1/min2 points or distort the
+        # log-linear trendline.
+        df = self._smooth_round_trips(df, coin_id.upper())
 
         # Get TOTAL2 membership info (for reference, not filtering)
         total2_dates = self._get_coin_total2_dates(coin_id)
