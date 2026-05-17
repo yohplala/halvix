@@ -4,11 +4,8 @@ TOTAL2b processor implementation.
 Extends BaseTotal2Processor with:
 - 3-week freeze period for new coins before index inclusion
 - Price scaling for new coin entries (V / TOTAL2b_d-1)
-- No price outlier detection (removed vs TOTAL2)
-- Simpler, more predictable entry mechanics
 """
 
-from dataclasses import dataclass
 from datetime import date
 
 import pandas as pd
@@ -40,30 +37,13 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-@dataclass
-class Total2bConfig:
-    """Configuration for TOTAL2b-specific processing parameters.
-
-    Groups the three knobs that distinguish TOTAL2b from the base processor:
-    freeze period timing, scaling threshold, and symbol replacement sensitivity.
-    """
-
-    freeze_period_days: int = TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS
-    min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING
-    symbol_replacement_increase_threshold: float = SYMBOL_REPLACEMENT_INCREASE_THRESHOLD
-    symbol_replacement_decrease_threshold: float = SYMBOL_REPLACEMENT_DECREASE_THRESHOLD
-
-
 class Total2bProcessor(BaseTotal2Processor):
     """
     Processor for TOTAL2b index calculation.
 
-    Key differences from TOTAL2:
-    - 3-week freeze period for new coins before they can join the index
+    - 3-week freeze period before new coins can join the index
     - Price scaling for new entries: scaled by TOTAL2b_d-1/COIN_PRICE_d to preserve
       price change factors without causing large offsets
-    - No price outlier detection or iterative corrections
-    - Simpler, more transparent methodology
     """
 
     INDEX_TYPE = "total2b"
@@ -101,14 +81,10 @@ class Total2bProcessor(BaseTotal2Processor):
             volume_sma_window=volume_sma_window,
             quote_currency=quote_currency,
         )
-        self.config = Total2bConfig(
-            freeze_period_days=freeze_period_days,
-            min_coins_for_scaling=min_coins_for_scaling,
-            symbol_replacement_increase_threshold=symbol_replacement_increase_threshold,
-            symbol_replacement_decrease_threshold=symbol_replacement_decrease_threshold,
-        )
-        self.freeze_period_days = self.config.freeze_period_days
-        self.min_coins_for_scaling = self.config.min_coins_for_scaling
+        self.freeze_period_days = freeze_period_days
+        self.min_coins_for_scaling = min_coins_for_scaling
+        self.symbol_replacement_increase_threshold = symbol_replacement_increase_threshold
+        self.symbol_replacement_decrease_threshold = symbol_replacement_decrease_threshold
 
     def calculate_total2(
         self,
@@ -299,8 +275,8 @@ class Total2bProcessor(BaseTotal2Processor):
             # Check for symbol replacement (extreme price jumps)
             replacement_date = detect_symbol_replacement(
                 close_df[coin_id],
-                increase_threshold=self.config.symbol_replacement_increase_threshold,
-                decrease_threshold=self.config.symbol_replacement_decrease_threshold,
+                increase_threshold=self.symbol_replacement_increase_threshold,
+                decrease_threshold=self.symbol_replacement_decrease_threshold,
                 first_seen=initial_first_seen,
             )
 
