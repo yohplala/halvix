@@ -401,22 +401,29 @@ def detect_round_trips(
         if revert_k_idx < 0:
             continue
 
-        # The candidate window may start with baseline days (close[i] == close[i-1]
-        # or only fractionally moved). Locate the actual spike start: the first
-        # day in [i, extremum_idx] that deviates from p_pre in the spike direction.
-        # Without this, [11, 11, 11, 27, ...] iterated from i=1 would attribute
-        # the event to day i=1 instead of the actual jump day i=3.
-        spike_start_idx = i
-        for j in range(i, extremum_idx + 1):
+        # Locate the actual spike start: walk backwards from extremum_idx and
+        # include a CONTIGUOUS run of days that are strictly on the spike side
+        # of p_pre (above for "up", below for "down"). Stop at the first day
+        # that is NOT on the spike side — those days are baseline (or worse,
+        # noise on the opposite side) and must not be smoothed.
+        #
+        # Without this guard, e.g. [10, 12, 11, 9, 14, 50, 8, ...] iterated
+        # from i=1 would pick spike_start=1 (12 > 10 satisfies the bare
+        # v > p_pre check) and smooth idx 1..5 — including idx 3 (9, BELOW
+        # p_pre, clearly not part of an upward spike).
+        spike_start_idx = extremum_idx
+        for j in range(extremum_idx - 1, i - 1, -1):
             v = values[j]
             if v <= DEFAULT_ZERO_THRESHOLD:
-                continue
+                break  # opaque gap; treat as baseline
             if direction == "up" and v > p_pre:
                 spike_start_idx = j
-                break
+                continue
             if direction == "down" and v < p_pre:
                 spike_start_idx = j
-                break
+                continue
+            # v is at or on the non-spike side of p_pre: spike ends here.
+            break
 
         events.append(
             {

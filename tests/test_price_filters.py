@@ -399,6 +399,41 @@ class TestDetectRoundTrips:
         assert len(events) == 1
         assert events[0]["direction"] == "up"
 
+    def test_spike_start_skips_below_baseline_noise(self):
+        # Regression: when iterating at i=1 with a multi-day window, the
+        # spike-start search must not latch onto a noisy baseline day that
+        # falls on the OPPOSITE side of p_pre from the spike direction.
+        #
+        # Series: noisy baseline near 10 (12, 11, 9, 14) with idx 3 *below*
+        # p_pre, then a true spike to 50 at idx 5, then revert to 8 at idx 6.
+        # With the buggy spike-start (any v > p_pre triggers), iterating at
+        # i=1 picks spike_start=1 (12 > 10) and smooths idx 1..5 — including
+        # idx 3 (9, BELOW p_pre, clearly not part of an UP spike). The fix
+        # walks backwards from the extremum and stops at the first day NOT
+        # on the spike side of p_pre, so idx 3 (and the days before it) are
+        # excluded from the smoothing span.
+        s = self._series([10.0, 12.0, 11.0, 9.0, 14.0, 50.0, 8.0, 10.0])
+        events = detect_round_trips(s, window_days=7)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["direction"] == "up"
+        smoothed_positions = sorted(s.index.get_loc(d) for d in ev["smoothed_dates"])
+        # idx 3 (value 9) is below p_pre and must not be smoothed — smoothing
+        # it would overwrite a legitimate slightly-below-baseline value with
+        # p_pre, corrupting the close series.
+        assert 3 not in smoothed_positions, (
+            "Days on the opposite side of p_pre cannot be part of an 'up' "
+            f"spike span. Got smoothed positions: {smoothed_positions}"
+        )
+        # Days 1 and 2 (also separated from the extremum by the day-3 dip)
+        # must also be excluded — the spike span has to be contiguous.
+        assert 1 not in smoothed_positions
+        assert 2 not in smoothed_positions
+        # Spike start is the first day in the contiguous run leading up to
+        # the extremum that's strictly above p_pre. Here idx 4 (14 > 10) is
+        # contiguous with idx 5 (50), so the smoothed span is [4, 5].
+        assert smoothed_positions == [4, 5]
+
 
 class TestApplyRoundTripCorrectionsToDataFrame:
     """Tests for DataFrame-level round-trip smoothing."""
