@@ -205,11 +205,13 @@ class CyclePatternAnalyzer:
         # Convert to set of dates
         return {_to_date(ts) for ts in coin_data["date"]}
 
-    # ── Identification kernel ─────────────────────────────────────────
-    # The kernel itself lives in ``analysis.point_detection``. The thin
-    # wrappers below forward to module-level functions there so callers
-    # (and tests) that use ``analyzer._foo(...)`` /
-    # ``CyclePatternAnalyzer._foo(...)`` continue to work unchanged.
+    # ── Kernel + projection wrappers ──────────────────────────────────
+    # The identification kernel lives in ``analysis.point_detection`` and
+    # the four projection models in ``analysis.projections``. The thin
+    # wrappers below forward to those module-level functions so callers
+    # (production code here + tests using ``analyzer._foo(...)`` /
+    # ``CyclePatternAnalyzer._foo(...)``) keep their original surface.
+    # Only wrappers actually referenced externally are kept.
     # ────────────────────────────────────────────────────────────────
 
     def _identify_cycle_points(self, df: pd.DataFrame) -> list[CyclePoint]:
@@ -217,35 +219,9 @@ class CyclePatternAnalyzer:
         return point_detection.identify_cycle_points(df, self.all_halvings)
 
     _build_segments = staticmethod(point_detection.build_segments)
-    _pass1_find_max2 = staticmethod(point_detection.pass1_find_max2)
-    _pass2_find_min2_candidates = staticmethod(point_detection.pass2_find_min2_candidates)
-    _merge_adjacent_maxes = staticmethod(point_detection.merge_adjacent_maxes)
-    _pass3_validate_and_detect = staticmethod(point_detection.pass3_validate_and_detect)
-    _process_segment = staticmethod(point_detection.process_segment)
-    _extend_min2_search = staticmethod(point_detection.extend_min2_search)
-    _adjust_launch_min2 = staticmethod(point_detection.adjust_launch_min2)
-    _find_max1_before_min2 = staticmethod(point_detection.find_max1_before_min2)
-    _check_min2_retracement = staticmethod(point_detection.check_min2_retracement)
-    _validate_min2 = staticmethod(point_detection.validate_min2)
-    _replace_min1_if_lower = staticmethod(point_detection.replace_min1_if_lower)
-    _find_min1 = staticmethod(point_detection.find_min1)
-    _find_max1 = staticmethod(point_detection.find_max1)
-    _correct_min1_with_max1 = staticmethod(point_detection.correct_min1_with_max1)
-    _detect_post_halving_points = staticmethod(point_detection.detect_post_halving_points)
-    _find_latest_min_point = staticmethod(point_detection.find_latest_min_point)
     _build_points_index = staticmethod(point_detection.build_points_index)
     _count_min1_cycles = staticmethod(point_detection.count_min1_cycles)
 
-    # ── Projection methods ────────────────────────────────────────────
-    # The four projection models (trendline, fibonacci extension,
-    # diminishing returns, historical peak) plus the composite /
-    # retracement / pattern-classification helpers live in
-    # ``analysis.projections``. The thin wrappers below forward to that
-    # module so existing call sites (analyzer._foo /
-    # CyclePatternAnalyzer._foo) continue to work unchanged.
-    # ────────────────────────────────────────────────────────────────
-
-    _get_regression_date = staticmethod(projections.get_regression_date)
     _fit_log_trendlines = staticmethod(projections.fit_log_trendlines)
     _project_trendline_target = staticmethod(projections.project_trendline_target)
     _calculate_fib_extension = staticmethod(projections.calculate_fib_extension)
