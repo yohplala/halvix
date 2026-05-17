@@ -162,7 +162,7 @@ class Total2bProcessor(BaseTotal2Processor):
 
         # Calculate first-seen dates for each coin (requires both price and volume)
         # Also detects symbol replacements and resets first_seen accordingly
-        first_seen_dates, symbol_replacements = self._calculate_first_seen_dates(
+        first_seen_dates = self._calculate_first_seen_dates(
             close_df, volume_df, show_progress=show_progress
         )
 
@@ -232,7 +232,7 @@ class Total2bProcessor(BaseTotal2Processor):
         close_df: pd.DataFrame,
         volume_df: pd.DataFrame,
         show_progress: bool = True,
-    ) -> tuple[dict[str, pd.Timestamp], list[dict]]:
+    ) -> dict[str, pd.Timestamp]:
         """
         Calculate the first date each coin appears in CryptoCompare data.
 
@@ -247,13 +247,15 @@ class Total2bProcessor(BaseTotal2Processor):
         This is used to enforce the freeze period - coins cannot
         join the index until freeze_period_days after their first appearance.
 
+        Symbol replacement events are logged when show_progress=True.
+
         Args:
             close_df: DataFrame of close prices (dates × coins)
             volume_df: DataFrame of raw volumes (dates × coins)
             show_progress: Whether to print symbol replacement detections
 
         Returns:
-            Tuple of (first_seen dict, symbol_replacement_events list)
+            Mapping of coin_id to first-seen timestamp (post-replacement when applicable).
         """
         first_seen = {}
         symbol_replacements = []
@@ -309,7 +311,7 @@ class Total2bProcessor(BaseTotal2Processor):
                     event["price_after"],
                 )
 
-        return first_seen, symbol_replacements
+        return first_seen
 
     def _build_eligibility_mask(
         self,
