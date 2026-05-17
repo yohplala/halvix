@@ -227,7 +227,7 @@ def _add_trendlines(
     if lower_slope is None or lower_intercept is None:
         return
 
-    # Reference date for x-axis (same as in cycle_patterns.py)
+    # Reference date for x-axis (matches projections.fit_log_trendlines)
     reference_date = HALVING_DATES[1]  # 2016-07-09
 
     # Calculate x values (days from reference)

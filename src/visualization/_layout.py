@@ -1,18 +1,10 @@
 """
 Shared HTML/CSS layout primitives for Halvix visualization pages.
 
-These helpers were previously defined in ``visualization.charts`` and consumed
-across the package by ``charts.py``, ``html_generator.py`` and
-``pattern_charts.py`` via underscore-prefixed cross-module imports. Hosting
-them in a dedicated layout module makes the package-internal contract
-explicit — chart-rendering logic and HTML page scaffolding are now distinct
-responsibilities, and ``charts.py`` no longer doubles as the visualization
-layout vocabulary.
-
-The leading underscore in each helper name is preserved to keep these as
-package-private symbols: external callers should compose pages via the
-higher-level renderers in ``charts``, ``pattern_charts`` and
-``html_generator`` rather than reach for these primitives directly.
+Consumed by ``charts.py``, ``html_generator.py`` and ``pattern_charts.py``.
+The leading underscore on each helper marks them as package-private:
+external callers should compose pages via the higher-level renderers in
+those modules rather than reach for these primitives directly.
 """
 
 from datetime import UTC, datetime
