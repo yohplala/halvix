@@ -31,7 +31,7 @@ from config import (
     PATTERN_ANALYSIS_TOP_N,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_round_trips, detect_symbol_replacement
+from data.price_filters import detect_symbol_replacement, smooth_round_trips_on_series
 from utils.logging import get_logger
 from visualization._layout import (
     _get_base_css,
@@ -627,13 +627,14 @@ def _create_pattern_chart(
     # Smooth single-day round-trip glitches on the close series so the chart
     # matches what the projections were computed on (analyze_btc and
     # analyze_coin both apply this), instead of showing un-corrected raw spikes.
+    # No logging here — the analyzer already logged these events when it ran
+    # the same smoothing on the same series; re-logging at chart-render time
+    # would just duplicate the same line per coin.
     if "close" in price_df.columns:
-        events = detect_round_trips(price_df["close"])
+        corrected, events = smooth_round_trips_on_series(price_df["close"])
         if events:
             price_df = price_df.copy()
-            for ev in events:
-                for dt in ev["smoothed_dates"]:
-                    price_df.at[dt, "close"] = ev["pre_price"]
+            price_df["close"] = corrected
 
     # Filter to time range
     start_date, end_date = _get_time_range()

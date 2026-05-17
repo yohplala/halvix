@@ -449,6 +449,52 @@ def detect_round_trips(
     return events
 
 
+def smooth_round_trips_on_series(
+    close_series: pd.Series,
+    jump_threshold: float = PRICE_ROUND_TRIP_JUMP_THRESHOLD,
+    revert_threshold: float = PRICE_ROUND_TRIP_REVERT_THRESHOLD,
+    window_days: int = PRICE_ROUND_TRIP_WINDOW_DAYS,
+) -> tuple[pd.Series, list[dict]]:
+    """
+    Smooth round-trip spike spans on a single close-price Series.
+
+    Series-level counterpart of ``apply_round_trip_corrections_to_dataframe``
+    used by the per-coin analysis and visualization paths. Each detected event
+    replaces every day in the elevated/depressed span with the pre-spike
+    baseline; the revert day itself is left untouched. The input Series is
+    not mutated — a copy is returned only when at least one event fires.
+
+    Args:
+        close_series: Series of close prices (DatetimeIndex)
+        jump_threshold: See detect_round_trips
+        revert_threshold: See detect_round_trips
+        window_days: See detect_round_trips
+
+    Returns:
+        Tuple of (corrected_series, events). ``events`` is the raw list from
+        ``detect_round_trips`` (with ``smoothed_dates``, ``pre_price``,
+        ``jump_ratio``, etc.) so callers can format their own log messages
+        without needing the dict-of-corrections form used by the matrix
+        version. ``corrected_series is close_series`` when no events fire,
+        otherwise it is a freshly-copied series.
+    """
+    if close_series.empty:
+        return close_series, []
+    events = detect_round_trips(
+        close_series,
+        jump_threshold=jump_threshold,
+        revert_threshold=revert_threshold,
+        window_days=window_days,
+    )
+    if not events:
+        return close_series, events
+    corrected = close_series.copy()
+    for ev in events:
+        for dt in ev["smoothed_dates"]:
+            corrected.at[dt] = ev["pre_price"]
+    return corrected, events
+
+
 def apply_round_trip_corrections_to_dataframe(
     close_df: pd.DataFrame,
     jump_threshold: float = PRICE_ROUND_TRIP_JUMP_THRESHOLD,

@@ -60,7 +60,7 @@ from config import (
     UNIQUE_PRICES_WINDOW_DAYS,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_round_trips, detect_symbol_replacement
+from data.price_filters import detect_symbol_replacement, smooth_round_trips_on_series
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -325,17 +325,17 @@ class CyclePatternAnalyzer:
 
         Returns the input df with df['close'] mutated on every elevated day in
         each detected span (set to the pre-spike close). df is copied first to
-        avoid mutating the cache layer.
+        avoid mutating the cache layer. Logs one line per event in the same
+        format used by the analyzer pipeline.
         """
         if df.empty or "close" not in df.columns:
             return df
-        events = detect_round_trips(df["close"])
+        corrected, events = smooth_round_trips_on_series(df["close"])
         if not events:
             return df
         df = df.copy()
+        df["close"] = corrected
         for ev in events:
-            for dt in ev["smoothed_dates"]:
-                df.at[dt, "close"] = ev["pre_price"]
             span_str = (
                 f"{ev['smoothed_dates'][0].date()}"
                 if len(ev["smoothed_dates"]) == 1
