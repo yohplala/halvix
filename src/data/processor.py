@@ -16,9 +16,7 @@ Calculates a volume-weighted altcoin index (BTC-denominated) using:
 
 The on-disk metadata still labels itself ``total2b`` (the algorithm variant
 name from earlier versions) — preserved so saved parquet/JSON consumers don't
-break. The public class name was collapsed from the older
-``BaseTotal2Processor`` + ``Total2bProcessor`` split when it became clear no
-second variant was coming.
+break.
 
 Module exports:
 

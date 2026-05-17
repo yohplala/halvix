@@ -468,8 +468,10 @@ class CyclePatternAnalyzer:
                 logger.debug("No TOTAL2 data for %s", coin_id)
                 return None
 
-            # Check that coin was in TOTAL2 within the lookback period
-            # This is now handled by _get_total2_coins, but double-check here
+            # Check that coin was in TOTAL2 within the lookback period.
+            # _get_total2_coins() already enforces this when filter_total2 is
+            # True, but analyze_coin can be called standalone (e.g. from
+            # tests / CLI inspection) so we re-check defensively.
             if last_total2 is not None:
                 lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
                 if last_total2 < lookback_cutoff:

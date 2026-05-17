@@ -829,9 +829,6 @@ def create_composition_viewer_html(
 
         display_month = get_month_display(month_key)
 
-        # Render template with context
-        # NOTE: The inline HTML template (~470 lines) has been moved to
-        # src/visualization/templates/composition_viewer.html
         html_content = render_template(
             "composition_viewer.html",
             display_month=display_month,
