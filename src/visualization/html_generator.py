@@ -332,11 +332,9 @@ class HtmlGenerator:
         volume_outliers = (
             max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
         )
-        price_events = (
-            max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
-        )
+        scaling_events = max_weight_info.get("scaling_events", []) if max_weight_info else []
         coin_statistics = max_weight_info.get("coin_statistics", []) if max_weight_info else []
-        total_corrections = len(volume_outliers) + len(price_events)
+        total_corrections = len(volume_outliers) + len(scaling_events)
         total_coins = len(coin_statistics)
 
         return render_template(
@@ -350,36 +348,22 @@ class HtmlGenerator:
     def _generate_total2_statistics_html(
         self,
         volume_outliers: list[dict],
-        price_events: list[dict],
+        scaling_events: list[dict],
         coin_statistics: list[dict],
         max_weight_change: float | None = None,
         max_weight_change_coin: str | None = None,
         max_weight_change_date: str | None = None,
-        index_type: str = "total2b",
     ) -> str:
         """Generate the TOTAL2 statistics HTML page via Jinja2 template."""
-        # Set section content based on index type
-        if index_type == "total2b":
-            price_section_title = "Price Scaling Events"
-            price_section_description = (
-                "<strong>TOTAL2b price scaling:</strong> When a coin first enters the index "
-                "(after the 21-day freeze period), its price is scaled by "
-                "<code>TOTAL2b_d-1 / COIN_PRICE_d</code> to prevent large absolute price offsets. "
-                "This preserves day-over-day price change factors while ensuring smooth index entry.<br><br>"
-                f"<strong>{len(price_events)} scaling events</strong> were applied."
-            )
-            price_corrected_header = "Scaled Price (BTC)"
-        else:
-            price_section_title = "Entry Warmup Capping"
-            price_section_description = (
-                "<strong>TOTAL2 entry warmup:</strong> When a coin first enters TOTAL2, its price is capped "
-                "to max +70% gain or -50% loss per day during a 21-day warmup period, starting from market level "
-                "(TOTAL2 value). This prevents artificial spikes from coins with extreme prices.<br>"
-                "<strong>TOTAL2 series smoothing:</strong> Extreme day-over-day movements in the aggregate index "
-                "are capped at 3x increase or 0.35x decrease.<br><br>"
-                f"<strong>{len(price_events)} capping events</strong> were applied."
-            )
-            price_corrected_header = "Capped Price (BTC)"
+        price_section_title = "Price Scaling Events"
+        price_section_description = (
+            "<strong>TOTAL2b price scaling:</strong> When a coin first enters the index "
+            "(after the 21-day freeze period), its price is scaled by "
+            "<code>TOTAL2b_d-1 / COIN_PRICE_d</code> to prevent large absolute price offsets. "
+            "This preserves day-over-day price change factors while ensuring smooth index entry.<br><br>"
+            f"<strong>{len(scaling_events)} scaling events</strong> were applied."
+        )
+        price_corrected_header = "Scaled Price (BTC)"
 
         # Build quality analysis box context
         quality_box = None
@@ -403,7 +387,7 @@ class HtmlGenerator:
             back_link="index.html",
             coin_statistics=coin_statistics,
             volume_outliers=volume_outliers,
-            price_events=price_events,
+            price_events=scaling_events,
             price_section_title=price_section_title,
             price_section_description=price_section_description,
             price_corrected_header=price_corrected_header,
@@ -482,25 +466,20 @@ class HtmlGenerator:
         volume_outliers = (
             max_weight_info.get("volume_outliers_corrected", []) if max_weight_info else []
         )
-        price_events = (
-            max_weight_info.get("price_outliers_corrected", []) if max_weight_info else []
-        )
+        scaling_events = max_weight_info.get("scaling_events", []) if max_weight_info else []
         coin_statistics = max_weight_info.get("coin_statistics", []) if max_weight_info else []
 
-        if not volume_outliers and not price_events and not coin_statistics:
+        if not volume_outliers and not scaling_events and not coin_statistics:
             logger.info("No TOTAL2 statistics data available, skipping page generation")
             return None
 
         stats_html = self._generate_total2_statistics_html(
             volume_outliers,
-            price_events,
+            scaling_events,
             coin_statistics,
             max_weight_change=max_weight_info.get("max_weight_change") if max_weight_info else None,
             max_weight_change_coin=max_weight_info.get("coin") if max_weight_info else None,
             max_weight_change_date=max_weight_info.get("date") if max_weight_info else None,
-            index_type=(
-                max_weight_info.get("index_type", "total2b") if max_weight_info else "total2b"
-            ),
         )
         stats_file = self.output_dir / "total2_statistics.html"
 

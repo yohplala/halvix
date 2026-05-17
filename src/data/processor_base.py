@@ -75,7 +75,7 @@ class Total2Result:
     max_weight_change_coin: str | None = None
     max_weight_change_date: date | None = None
     volume_outliers_corrected: list[dict] | None = None
-    price_outliers_corrected: list[dict] | None = None
+    scaling_events: list[dict] | None = None
     round_trip_corrections: list[dict] | None = None
 
 
@@ -609,7 +609,7 @@ class BaseTotal2Processor(ABC):
             ),
             "date": str(result.max_weight_change_date) if result.max_weight_change_date else None,
             "volume_outliers_corrected": result.volume_outliers_corrected or [],
-            "price_outliers_corrected": result.price_outliers_corrected or [],
+            "scaling_events": result.scaling_events or [],
             "round_trip_corrections": result.round_trip_corrections or [],
             "coin_statistics": coin_statistics,
             "index_type": result.index_type,

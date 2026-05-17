@@ -244,7 +244,7 @@ class Total2bProcessor(BaseTotal2Processor):
             max_weight_change_coin=max_coin,
             max_weight_change_date=max_date,
             volume_outliers_corrected=volume_outliers,
-            price_outliers_corrected=scaling_events,  # Repurpose for scaling events
+            scaling_events=scaling_events,
             round_trip_corrections=round_trip_corrections,
             index_type="total2b",
         )

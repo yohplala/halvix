@@ -359,7 +359,8 @@ class Total2Result:
     max_weight_change_coin: str | None
     max_weight_change_date: date | None
     volume_outliers_corrected: list[dict] | None
-    price_outliers_corrected: list[dict] | None  # Scaling events
+    scaling_events: list[dict] | None
+    round_trip_corrections: list[dict] | None
     index_type: str                  # "total2b"
 ```
 

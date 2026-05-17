@@ -356,8 +356,7 @@ class TestTotal2bScalingOptimization:
         result = processor.calculate_total2(show_progress=False)
 
         # AVAX should have a scaling event (it enters after the index is established)
-        # price_outliers_corrected is repurposed for scaling events in Total2bProcessor
-        scaling_events = result.price_outliers_corrected
+        scaling_events = result.scaling_events
 
         # Find AVAX scaling event
         avax_events = [e for e in scaling_events if e["coin"] == "AVAX"]
