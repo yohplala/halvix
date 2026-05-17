@@ -368,27 +368,6 @@ class PriceDataCache:
 
         return sorted(coins)
 
-    def list_cached_pairs(self) -> list[tuple[str, str]]:
-        """
-        List all cached coin-pairs.
-
-        Returns:
-            List of (coin_id, quote_currency) tuples
-        """
-        pairs = []
-        for filepath in self.prices_dir.glob("*.parquet"):
-            filename = filepath.stem
-            if "-" in filename:
-                parts = filename.rsplit("-", 1)
-                if len(parts) == 2:
-                    coin_id, quote = parts
-                    pairs.append((coin_id, quote.upper()))
-            else:
-                # Legacy format - assume BTC quote
-                pairs.append((filename, "BTC"))
-
-        return sorted(pairs)
-
     def delete_prices(self, coin_id: str, quote_currency: str = "BTC") -> bool:
         """
         Delete cached price data for a coin-pair.
