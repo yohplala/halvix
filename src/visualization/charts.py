@@ -196,7 +196,7 @@ def _add_cycle_extremes_lines(
             days_from_halving = (peak_date - halving_date).days
             fig.add_vline(
                 x=days_from_halving,
-                line={"dash": "solid", "color": "rgba(63, 185, 80, 0.5)", "width": 2},
+                line={"dash": "solid", "color": "rgba(63, 185, 80, 0.5)", "width": 1},
                 row=row,
                 col=col,
             )
@@ -207,7 +207,7 @@ def _add_cycle_extremes_lines(
             days_from_halving = (bottom_date - halving_date).days
             fig.add_vline(
                 x=days_from_halving,
-                line={"dash": "solid", "color": "rgba(248, 81, 73, 0.5)", "width": 2},
+                line={"dash": "solid", "color": "rgba(248, 81, 73, 0.5)", "width": 1},
                 row=row,
                 col=col,
             )
@@ -417,10 +417,10 @@ def create_btc_combined_chart(
 
     # Add vertical lines at halving for both charts (subplot-scoped)
     fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 2}, row=1, col=1
+        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=1, col=1
     )
     fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 2}, row=2, col=1
+        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=2, col=1
     )
 
     # Add horizontal line at 1.0 for normalized chart
@@ -600,10 +600,10 @@ def create_total2_combined_chart(
 
     # Add vertical lines at halving for both charts (subplot-scoped)
     fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 2}, row=1, col=1
+        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=1, col=1
     )
     fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 2}, row=2, col=1
+        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=2, col=1
     )
 
     # Add horizontal line at 1.0 for normalized chart (row 1 only)
