@@ -33,7 +33,7 @@ from config import (
 from data.cache import PriceDataCache
 from data.price_filters import detect_round_trips, detect_symbol_replacement
 from utils.logging import get_logger
-from visualization.charts import (
+from visualization._layout import (
     _get_base_css,
     _get_footer_css,
     _get_footer_html,

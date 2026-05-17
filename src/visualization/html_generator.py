@@ -26,7 +26,7 @@ from config import (
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
 )
 from utils.logging import get_logger
-from visualization.charts import _get_footer_css, _get_footer_html
+from visualization._layout import _get_footer_css, _get_footer_html
 from visualization.templates import render_template
 
 logger = get_logger(__name__)
