@@ -14,13 +14,13 @@ jobs:
 
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: main
 
       - name: Checkout raw-data branch
         id: checkout-raw-data
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: raw-data
           path: raw-data-branch
@@ -35,7 +35,7 @@ jobs:
 
       - name: Checkout processed-data branch
         id: checkout-processed-data
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: processed-data
           path: processed-data-branch
@@ -86,7 +86,7 @@ jobs:
           ls -la main/data/raw/prices/ 2>/dev/null | head -20 || echo "No price files"
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -99,7 +99,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-poetry-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: main/.venv
           key: venv-total2-${{ runner.os }}-3.13-${{ hashFiles('main/**/pyproject.toml') }}

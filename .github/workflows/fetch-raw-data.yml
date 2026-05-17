@@ -19,13 +19,13 @@ jobs:
 
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: main
 
       - name: Checkout raw-data branch
         id: checkout-raw-data
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: raw-data
           path: raw-data-branch
@@ -75,7 +75,7 @@ jobs:
           fi
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -88,7 +88,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-poetry-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: main/.venv
           key: venv-data-${{ runner.os }}-3.13-${{ hashFiles('main/**/pyproject.toml') }}

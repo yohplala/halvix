@@ -23,13 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: main
 
       - name: Checkout raw-data branch
         id: checkout-raw-data
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: raw-data
           path: raw-data-branch
@@ -43,7 +43,7 @@ jobs:
 
       - name: Checkout processed-data branch
         id: checkout-processed-data
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: processed-data
           path: processed-data-branch
@@ -90,7 +90,7 @@ jobs:
           ls -la main/data/processed/ 2>/dev/null || echo "No processed files"
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -103,7 +103,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-poetry-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: main/.venv
           key: venv-pages-${{ runner.os }}-3.13-${{ hashFiles('main/**/pyproject.toml') }}
@@ -126,10 +126,10 @@ jobs:
           echo "Pattern analysis generated"
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           # Upload generated site directory
           path: "main/site"
@@ -144,4 +144,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
