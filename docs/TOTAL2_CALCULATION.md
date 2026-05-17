@@ -113,6 +113,16 @@ CryptoCompare occasionally has bad data points with impossible volume spikes. Th
 1. Cap the outlier value at `20 × past_median`
 2. Compute capped average: `(previous_day + cap) / 2`
 
+### Round-Trip Price Correction
+
+Some single-day price spikes revert within a couple of days (low-liquidity pump-and-dumps, glitchy daily closes). Unlike symbol replacement (which ejects the coin for the freeze period), the right remedy is to neutralise just the spike day so the glitch does not propagate into TOTAL2b.
+
+**Detection criteria** (from `data/price_filters.py`):
+- Single-day ratio `price(D)/price(D-1)` is above `PRICE_ROUND_TRIP_JUMP_THRESHOLD` (or below its reciprocal)
+- Price returns within `±PRICE_ROUND_TRIP_REVERT_THRESHOLD` of `price(D-1)` within `PRICE_ROUND_TRIP_WINDOW_DAYS`
+
+**Correction:** the spike day's close is replaced by the prior day's close. The coin stays in the index.
+
 ---
 
 ## TOTAL2b Algorithm
@@ -173,6 +183,11 @@ Where:
 ### Algorithm Summary
 
 ```python
+# Pre-processing (vectorized, once per run):
+#   - Apply volume outlier corrections to volume DataFrame
+#   - Smooth single-day price round-trips (spike-and-revert) in close prices
+#   - Apply 120-day SMA to volume with zero-padding for new coins
+
 for each day:
     1. Calculate first-seen dates for all coins
        - Detect symbol replacements (>4.42x increase or <0.101x decrease)
@@ -323,8 +338,10 @@ This ensures consistent data quality across all analysis modules.
 
 | Function | Description |
 |----------|-------------|
-| `apply_volume_corrections_to_dataframe()` | Apply corrections to a DataFrame of multiple coins |
-| `apply_volume_sma_smoothing_to_dataframe()` | Apply smoothing to a DataFrame of multiple coins |
+| `apply_volume_corrections_to_dataframe()` | Cap volume outliers across a multi-coin DataFrame |
+| `apply_volume_sma_smoothing_to_dataframe()` | Apply SMA smoothing with optional zero-padding |
+| `detect_symbol_replacement()` | Flag CryptoCompare ticker recycling via extreme price jumps |
+| `detect_round_trips()` / `apply_round_trip_corrections_to_dataframe()` | Detect and neutralise single-day spike-and-revert glitches |
 
 ### Using the Processor
 
