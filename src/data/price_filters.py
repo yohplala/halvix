@@ -2,7 +2,7 @@
 Common price data filtering tools for Halvix.
 
 These filters are shared between:
-- TOTAL2b calculation (processor_base.py, processor_total2b.py)
+- TOTAL2 calculation (processor.py)
 - Pattern analysis (cycle_patterns.py)
 
 Provides:

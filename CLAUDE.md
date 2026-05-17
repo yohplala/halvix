@@ -53,10 +53,8 @@ halvix/
 │   ├── data/
 │   │   ├── cache.py            # File-based caching
 │   │   ├── fetcher.py          # Data retrieval
-│   │   ├── price_filters.py    # Volume outlier detection, SMA smoothing
-│   │   ├── processor.py        # Re-exports and factory function
-│   │   ├── processor_base.py   # BaseTotal2Processor (shared algorithms)
-│   │   └── processor_total2b.py # Total2bProcessor
+│   │   ├── price_filters.py    # Volume outlier detection, SMA, round-trip & symbol-replacement smoothing
+│   │   └── processor.py        # Total2Processor + factory + result dataclass
 │   ├── analysis/
 │   │   ├── filters.py          # Token filtering
 │   │   └── cycle_patterns.py   # Cycle pattern analysis
@@ -80,17 +78,19 @@ halvix/
 
 ## 3. Key Architecture
 
-### TOTAL2b Processor (see [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md))
+### TOTAL2 Processor (see [docs/TOTAL2_CALCULATION.md](docs/TOTAL2_CALCULATION.md))
 
 ```python
 from data.processor import get_processor
 
-# Factory function - returns Total2bProcessor
+# Factory function - returns Total2Processor
 processor = get_processor()
 result = processor.calculate_total2()
 ```
 
-`Total2bProcessor`: 21-day freeze period + price scaling at entry.
+`Total2Processor`: 21-day freeze period + entry-day price scaling. The on-disk
+metadata still labels itself `total2b` (preserved across the collapse for
+existing JSON consumers).
 
 
 ### Token Filtering
@@ -128,7 +128,7 @@ Modules are in `src/`, added to PYTHONPATH via `pyproject.toml`:
 from config import TOP_N_BY_VOLUME_FOR_TOTAL2
 
 # In tests/
-from data.processor import Total2bProcessor
+from data.processor import Total2Processor
 ```
 
 ### Key Config Values (from `src/config.py`)

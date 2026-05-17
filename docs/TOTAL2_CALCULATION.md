@@ -345,9 +345,7 @@ The processor code is organized into modules:
 
 ```
 src/data/
-├── processor.py           # Re-exports and factory function
-├── processor_base.py      # BaseTotal2Processor (shared algorithms)
-├── processor_total2b.py   # Total2bProcessor
+├── processor.py           # Total2Processor (single concrete class)
 └── price_filters.py       # Common filtering tools (shared with pattern analysis)
 ```
 
@@ -355,7 +353,7 @@ src/data/
 
 The volume outlier detection and SMA smoothing algorithms are implemented as standalone functions in `src/data/price_filters.py`. These are used by:
 
-- **TOTAL2b calculation**: via `processor_base.py`
+- **TOTAL2 calculation**: via `processor.py`
 - **Pattern analysis**: via `cycle_patterns.py`
 
 This ensures consistent data quality across all analysis modules.
@@ -372,14 +370,14 @@ This ensures consistent data quality across all analysis modules.
 ### Using the Processor
 
 ```python
-from data.processor import get_processor, Total2bProcessor
+from data.processor import get_processor, Total2Processor
 
 # Use factory function (recommended)
 processor = get_processor()
 result = processor.calculate_total2()
 
 # Direct instantiation
-processor = Total2bProcessor(
+processor = Total2Processor(
     top_n=30,
     volume_sma_window=120,
     freeze_period_days=21,

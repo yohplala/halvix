@@ -1,11 +1,11 @@
 """
-Tests for TOTAL2b processor.
+Tests for the TOTAL2 processor.
 
 Tests cover:
-- Volume-weighted TOTAL2b calculation logic
+- Volume-weighted TOTAL2 calculation logic
 - Daily composition tracking
 - Filtering for TOTAL2 eligibility
-- TOTAL2b freeze period and price scaling
+- Freeze period and entry-day price scaling
 - Edge cases
 
 Note: Common fixtures (temp_dir, sample_price_data, sample_price_data_with_freeze,
@@ -22,7 +22,7 @@ from data.cache import PriceDataCache
 from data.price_filters import detect_symbol_replacement
 from data.processor import (
     ProcessorError,
-    Total2bProcessor,
+    Total2Processor,
     Total2Result,
     get_processor,
 )
@@ -32,13 +32,13 @@ class TestProcessorFactory:
     """Tests for the get_processor factory function."""
 
     def test_get_processor_returns_total2b(self):
-        """Test factory returns Total2bProcessor."""
+        """Test factory returns Total2Processor."""
         processor = get_processor()
-        assert isinstance(processor, Total2bProcessor)
+        assert isinstance(processor, Total2Processor)
 
 
-class TestTotal2bProcessorInit:
-    """Tests for Total2bProcessor initialization."""
+class TestTotal2ProcessorInit:
+    """Tests for Total2Processor initialization."""
 
     def test_default_initialization(self):
         """Test processor initializes with defaults."""
@@ -48,7 +48,7 @@ class TestTotal2bProcessorInit:
             TOTAL2B_MIN_COINS_FOR_SCALING,
         )
 
-        processor = Total2bProcessor()
+        processor = Total2Processor()
 
         assert processor.price_cache is not None
         assert processor.coin_filter is not None
@@ -58,17 +58,27 @@ class TestTotal2bProcessorInit:
 
     def test_custom_freeze_period(self):
         """Test processor with custom freeze period."""
-        processor = Total2bProcessor(freeze_period_days=14)
+        processor = Total2Processor(freeze_period_days=14)
         assert processor.freeze_period_days == 14
 
-    def test_index_type(self):
-        """Test processor has correct index type."""
-        processor = Total2bProcessor()
-        assert processor.INDEX_TYPE == "total2b"
+    def test_index_type_marker_on_result(self):
+        """Result carries the algorithm-variant marker for on-disk metadata."""
+        from data.processor import Total2Result
+
+        result = Total2Result(
+            index_df=pd.DataFrame(),
+            composition_df=pd.DataFrame(),
+            coins_processed=0,
+            date_range=(date(2020, 1, 1), date(2020, 1, 1)),
+            avg_coins_per_day=0.0,
+        )
+        # Default carries the "total2b" tag, preserved for compatibility with
+        # any consumer that reads the JSON metadata field.
+        assert result.index_type == "total2b"
 
 
 class TestTotal2bCalculation:
-    """Tests for TOTAL2b calculation with freeze period and scaling.
+    """Tests for TOTAL2 calculation with freeze period and scaling.
 
     Uses shared fixtures from conftest.py: temp_dir, sample_price_data_with_freeze.
     """
@@ -80,7 +90,7 @@ class TestTotal2bCalculation:
             cache.set_prices(coin_id, df)
 
         # Use short freeze period for testing
-        processor = Total2bProcessor(
+        processor = Total2Processor(
             price_cache=cache,
             top_n=3,
             volume_sma_window=2,
@@ -100,7 +110,7 @@ class TestTotal2bCalculation:
         for coin_id, df in sample_price_data_with_freeze.items():
             cache.set_prices(coin_id, df)
 
-        processor = Total2bProcessor(
+        processor = Total2Processor(
             price_cache=cache,
             top_n=3,
             volume_sma_window=2,
@@ -124,7 +134,7 @@ class TestTotal2bCalculation:
         for coin_id, df in sample_price_data_with_freeze.items():
             cache.set_prices(coin_id, df)
 
-        processor = Total2bProcessor(
+        processor = Total2Processor(
             price_cache=cache,
             freeze_period_days=21,
         )
@@ -151,15 +161,15 @@ class TestTotal2SaveLoad:
 
     def test_save_and_load_index(self, temp_dir, sample_result):
         """Test saving and loading TOTAL2b index."""
-        processor = Total2bProcessor()
+        processor = Total2Processor()
 
         index_path = temp_dir / "total2_index.parquet"
         comp_path = temp_dir / "total2_composition.parquet"
 
         with (
-            patch("data.processor_base.PROCESSED_DIR", temp_dir),
-            patch("data.processor_base.TOTAL2_INDEX_FILE", index_path),
-            patch("data.processor_base.TOTAL2_COMPOSITION_FILE", comp_path),
+            patch("data.processor.PROCESSED_DIR", temp_dir),
+            patch("data.processor.TOTAL2_INDEX_FILE", index_path),
+            patch("data.processor.TOTAL2_COMPOSITION_FILE", comp_path),
         ):
             processor.save_results(sample_result, index_path, comp_path)
 
@@ -181,7 +191,7 @@ class TestTotal2bEdgeCases:
     def test_no_cached_data_raises_error(self, temp_dir):
         """Test that empty cache raises appropriate error."""
         cache = PriceDataCache(prices_dir=temp_dir)
-        processor = Total2bProcessor(price_cache=cache)
+        processor = Total2Processor(price_cache=cache)
 
         with pytest.raises(ProcessorError, match="No price data available"):
             processor.calculate_total2(show_progress=False)
@@ -200,7 +210,7 @@ class TestTotal2bEdgeCases:
         )
         cache.set_prices("wbtc", wbtc_data)
 
-        processor = Total2bProcessor(price_cache=cache, freeze_period_days=5)
+        processor = Total2Processor(price_cache=cache, freeze_period_days=5)
 
         with pytest.raises(ProcessorError, match="No eligible coins"):
             processor.calculate_total2(show_progress=False)
@@ -236,7 +246,7 @@ class TestTotal2bEdgeCases:
         cache.set_prices("sol", sol_data)
         cache.set_prices("ada", ada_data)
 
-        processor = Total2bProcessor(
+        processor = Total2Processor(
             price_cache=cache, top_n=50, volume_sma_window=2, freeze_period_days=5
         )
         result = processor.calculate_total2(show_progress=False)
@@ -314,7 +324,7 @@ class TestTotal2bScalingOptimization:
         for coin_id, df in sample_data_with_late_entry.items():
             cache.set_prices(coin_id, df)
 
-        processor = Total2bProcessor(
+        processor = Total2Processor(
             price_cache=cache,
             top_n=4,
             volume_sma_window=2,
@@ -345,7 +355,7 @@ class TestTotal2bScalingOptimization:
         for coin_id, df in sample_data_with_late_entry.items():
             cache.set_prices(coin_id, df)
 
-        processor = Total2bProcessor(
+        processor = Total2Processor(
             price_cache=cache,
             top_n=4,
             volume_sma_window=2,
