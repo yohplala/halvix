@@ -31,7 +31,7 @@ from config import (
     PATTERN_ANALYSIS_TOP_N,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_symbol_replacement
+from data.price_filters import detect_round_trips, detect_symbol_replacement
 from utils.logging import get_logger
 from visualization.charts import (
     _get_base_css,
@@ -623,6 +623,16 @@ def _create_pattern_chart(
                     replacement_date,
                 )
                 price_df = price_df[price_df.index >= replacement_date]
+
+    # Smooth single-day round-trip glitches on the close series so the chart
+    # matches what the projections were computed on (analyze_btc and
+    # analyze_coin both apply this), instead of showing un-corrected raw spikes.
+    if "close" in price_df.columns:
+        events = detect_round_trips(price_df["close"])
+        if events:
+            price_df = price_df.copy()
+            for ev in events:
+                price_df.at[ev["date"], "close"] = ev["pre_price"]
 
     # Filter to time range
     start_date, end_date = _get_time_range()
