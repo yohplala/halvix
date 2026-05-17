@@ -1148,6 +1148,17 @@ class CyclePatternAnalyzer:
         the last halving), matching the chart display position. This ensures
         the trendline visually passes through the displayed point.
 
+        Maintainer note:
+            The projected-min1 x-coordinate is anchored to ``HALVING_DATES[-1]``
+            (currently 2028-03-31, a static config value — not auto-updated by
+            any CI workflow). Bumping ``HALVING_DATES[-1]`` to a different
+            projected date will shift the regression x-coord for every coin
+            with a projected min1, subtly re-positioning every trendline and
+            its derived target. If/when block-time projections move the date,
+            expect target percentages to drift; consider re-baselining or
+            switching to a more stable anchor (e.g. "today + remaining days
+            to the next halving") if drift becomes material.
+
         Args:
             point: The cycle point
 
