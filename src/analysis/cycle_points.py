@@ -1,8 +1,8 @@
 """
 Dataclasses and helper functions for cycle pattern analysis.
 
-Split out from cycle_patterns.py so the helpers can be imported without
-pulling in the full analyzer or the projection methods. Three groups:
+Shared building blocks consumed by ``point_detection``, ``projections``
+and ``cycle_patterns``. Three groups:
 
 - **Type aliases**: ``PointType``, ``Confidence``.
 - **Dataclasses**: ``CyclePoint`` (a single min/max in a cycle),

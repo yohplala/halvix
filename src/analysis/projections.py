@@ -1,16 +1,17 @@
 """
 Projection methods for cycle pattern analysis.
 
-Split out from ``cycle_patterns.py`` so the four projection models — log-linear
-trendline, Fibonacci extension, diminishing returns, historical peak — plus
-the composite/retracement helpers can be imported without pulling in the full
-``CyclePatternAnalyzer``. All functions are pure: they take cycle points
-(and pre-built indexes) as explicit arguments and return numeric targets or
-``None``.
+The four projection models (log-linear trendline, Fibonacci extension,
+diminishing returns, historical peak) plus the composite/retracement
+helpers live here as pure module-level functions: they take cycle points
+(and pre-built indexes) as explicit arguments and return numeric targets
+or ``None``.
 
-``CyclePatternAnalyzer`` keeps thin wrapper methods (under their original
-``_foo`` names) that forward to the functions here so existing tests using
-``analyzer._foo(...)`` / ``CyclePatternAnalyzer._foo(...)`` continue to work.
+``CyclePatternAnalyzer`` exposes thin staticmethod wrappers under the
+``_calculate_*`` / ``_classify_*`` / ``_fit_log_trendlines`` /
+``_project_trendline_target`` names so the analyzer's own internal calls
+and the existing test surface (``analyzer._foo(...)`` /
+``CyclePatternAnalyzer._foo(...)``) keep working.
 """
 
 import math

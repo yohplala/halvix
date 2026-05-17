@@ -1,21 +1,20 @@
 """
 Cycle min/max identification kernel.
 
-Split out from ``cycle_patterns.py`` so the multi-pass segment scan can be
-imported (and exercised) without pulling in the full ``CyclePatternAnalyzer``
-or the projection methods. All functions here are pure: they take prices,
-halvings and segment metadata as explicit arguments and return data
-structures (``CyclePoint`` lists / ``SegmentData`` lists) — no analyzer
-state is read or mutated globally.
+The multi-pass segment scan lives here as pure module-level functions: they
+take prices, halvings and segment metadata as explicit arguments and return
+data structures (``CyclePoint`` lists / ``SegmentData`` lists) — no analyzer
+state is read or mutated.
 
 The kernel detects four structural points per halving-delimited segment
 (``max2``, ``min2``, ``min1``, ``max1``) using a three-pass algorithm; see
-``identify_cycle_points`` for the high-level orchestration and the
-``docs/IDENTIFICATION_KERNEL.md`` document for the algorithm rationale.
+``identify_cycle_points`` for the high-level orchestration and
+``docs/IDENTIFICATION_KERNEL.md`` for the algorithm rationale.
 
-``CyclePatternAnalyzer`` keeps thin wrapper methods (under their original
-``_foo`` names) that forward to the functions here so existing tests using
-``analyzer._foo(...)`` / ``CyclePatternAnalyzer._foo(...)`` continue to work.
+``CyclePatternAnalyzer`` exposes a handful of staticmethod wrappers
+(``_build_segments``, ``_build_points_index``, ``_count_min1_cycles``) that
+forward to functions here, preserving the surface a few external test
+helpers rely on.
 """
 
 from datetime import date, timedelta
