@@ -307,38 +307,6 @@ class CoinFilter:
 
         return to_download
 
-    def filter_coins_for_total2(
-        self,
-        coins: list[dict],
-    ) -> list[dict]:
-        """
-        Filter coins for TOTAL2 calculation.
-
-        Excludes: BTC, stablecoins, wrapped/staked/bridged, BTC derivatives
-        Includes: Recent coins (for index immutability)
-
-        Does NOT record filtered tokens (use filter_coins_for_download for that).
-
-        Args:
-            coins: List of coin dictionaries with 'id', 'name', 'symbol' keys
-
-        Returns:
-            Filtered list of coins (excludes BTC)
-        """
-        filtered = []
-
-        for coin in coins:
-            coin_id = coin.get("id", "")
-            name = coin.get("name", "")
-            symbol = coin.get("symbol", "")
-
-            should_exclude, _ = self.should_exclude_from_total2(coin_id, name, symbol)
-
-            if not should_exclude:
-                filtered.append(coin)
-
-        return filtered
-
     def export_skipped_coins_csv(self, filepath: Path | None = None) -> Path:
         """
         Export skipped coins to CSV for review.
