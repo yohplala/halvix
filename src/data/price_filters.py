@@ -2,16 +2,14 @@
 Common price data filtering tools for Halvix.
 
 These filters are shared between:
-- TOTAL2/TOTAL2b calculation (processor_base.py, processor_total2b.py)
+- TOTAL2b calculation (processor_base.py, processor_total2b.py)
 - Pattern analysis (cycle_patterns.py)
 
 Provides:
 - Volume outlier detection and correction
 - Volume SMA smoothing with zero padding
-- Price outlier detection
-
-Using these common helpers ensures consistent data quality across
-all analysis modules.
+- Symbol replacement detection
+- Round-trip spike-and-revert detection
 """
 
 import numpy as np
