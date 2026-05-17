@@ -1737,6 +1737,34 @@ class TestAnalyzeCoin:
         # Should return None when not in TOTAL2
         assert result is None
 
+    def test_analyze_coin_zero_current_price_returns_none(self, analyzer, mock_price_cache):
+        """Coins with a zero latest close are skipped instead of ZeroDivisionError.
+
+        A delisted / feed-gap coin whose last available close is 0 would
+        otherwise blow up the projections inside ``_run_projections`` via
+        ``target / current_price``.
+        """
+        # Build a series that detects at least one cycle but whose final close
+        # is 0 (simulating delisting / feed gap).
+        dates = pd.date_range("2015-01-01", "2026-05-16", freq="D")
+        # Rough sinusoidal 4-year cycle so the kernel can identify points
+        cycle = 0.0005 * np.sin(2 * np.pi * np.arange(len(dates)) / 1460)
+        prices = 0.001 + cycle
+        prices = np.maximum(prices, 1e-6)
+        # Final close = 0 (delisting)
+        prices[-1] = 0.0
+        df = pd.DataFrame({"close": prices, "volume_to": [1000.0] * len(dates)}, index=dates)
+        mock_price_cache.get_prices.return_value = df
+
+        with patch.object(
+            analyzer,
+            "_get_coin_total2_dates",
+            return_value={dates[-200].date()},
+        ):
+            result = analyzer.analyze_coin("dead_coin", force=True)
+
+        assert result is None
+
 
 class TestGetTopCoins:
     """Tests for get_top_coins method."""
@@ -3219,6 +3247,17 @@ class TestAnalyzeBtc:
         assert result.coin_id == "btc"
         assert result.current_price is not None
         assert result.current_price > 0
+
+    def test_analyze_btc_zero_current_price_returns_none(self, analyzer, mock_price_cache):
+        """analyze_btc skips projections when the latest close is 0."""
+        dates = pd.date_range("2015-01-01", "2026-01-01", freq="D")
+        prices = 0.001 * (1 + np.arange(len(dates)) / 500) ** 2
+        prices[-1] = 0.0
+        df = pd.DataFrame({"close": prices}, index=dates)
+        mock_price_cache.get_prices.return_value = df
+
+        result = analyzer.analyze_btc()
+        assert result is None
 
 
 # =============================================================================

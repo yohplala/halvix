@@ -1933,6 +1933,13 @@ class CyclePatternAnalyzer:
         result.current_price = float(btc_df["close"].iloc[-1])
         result.current_date = btc_df.index[-1].date()
 
+        if result.current_price <= 0:
+            logger.warning(
+                "BTC: current_price is %.4g — skipping projections to avoid divide-by-zero",
+                result.current_price,
+            )
+            return None
+
         self._run_projections(result)
         return result
 
@@ -2032,6 +2039,19 @@ class CyclePatternAnalyzer:
         result.current_price = float(df["close"].iloc[-1])
         result.current_date = df.index[-1].date()
         result.first_price_date = df.index[0].date()
+
+        # Guard against a zero (or negative) latest close. This would only
+        # happen for a delisted coin or a feed gap that survived earlier
+        # filters; projections like (target / current_price - 1) would
+        # otherwise hit ZeroDivisionError. Skip the coin entirely.
+        if result.current_price <= 0:
+            logger.info(
+                "%s: current_price is %.4g — skipping projections to avoid divide-by-zero",
+                coin_id.upper(),
+                result.current_price,
+            )
+            return None
+
         unique_window_start = result.current_date - timedelta(days=UNIQUE_PRICES_WINDOW_DAYS)
         recent_prices = df[df.index.date >= unique_window_start]
         result.unique_price_count = (
