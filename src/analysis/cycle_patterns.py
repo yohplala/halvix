@@ -35,6 +35,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+from tqdm import tqdm
 
 from analysis import point_detection, projections
 from analysis.cycle_points import (
@@ -111,7 +112,6 @@ class CyclePatternAnalyzer:
         # Use cycles 2-5 (skip cycle 1 — too little altcoin data)
         # Cycles 2-4 are completed halvings, cycle 5 is projected (2028)
         self.all_halvings = HALVING_DATES[1:]
-        self.current_cycle_num = len(HALVING_DATES)
         self.projected_halving = HALVING_DATES[-1]
 
         # Load TOTAL2 composition for filtering
@@ -588,15 +588,9 @@ class CyclePatternAnalyzer:
 
         results = {}
 
-        if show_progress:
-            try:
-                from tqdm import tqdm
-
-                coins_iter = tqdm(coins_to_analyze, desc="Analyzing patterns")
-            except ImportError:
-                coins_iter = coins_to_analyze
-        else:
-            coins_iter = coins_to_analyze
+        coins_iter = (
+            tqdm(coins_to_analyze, desc="Analyzing patterns") if show_progress else coins_to_analyze
+        )
 
         include_set = include or set()
         for coin_id in coins_iter:
