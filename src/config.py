@@ -175,10 +175,16 @@ EXCLUDED_STABLECOINS = {
     "eurq",  # Quantoz EURQ
     "eurr",  # Euro stablecoin
     "ageur",
+    "aeur",  # Anchored Coins EUR (empirically tracks EUR: ~€1, 0.4% USD-implied std)
+    "europ",  # EUR-pegged stablecoin (empirically: ~€1, 2.4% std, recently launched)
     # Other stablecoins
     "mim",
     "dola",
     "ausd",  # Acala USD (Polkadot stablecoin)
+    "usat",  # USD-pegged stablecoin (empirically: $1.00, 0.04% USD-implied std)
+    "usdcv",  # USD CoinVertible (Societe Generale-FORGE; $1.00, 0.04% std)
+    "usdr",  # USD-pegged stablecoin (empirically: $1.00, 0.3% std)
+    "usdq",  # USD-pegged stablecoin (empirically: $1.00, 0.8% std)
     # Algorithmic stablecoins (depegged but originally USD-pegged)
     "ust",  # TerraUSD (collapsed May 2022)
     "ustc",  # TerraUSD Classic (post-collapse renamed UST)

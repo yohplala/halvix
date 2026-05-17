@@ -177,6 +177,13 @@ class TestStablecoinFiltering:
             ("frax", "Frax", "FRAX"),
             ("gho", "GHO", "GHO"),
             ("usdd", "USDD", "USDD"),
+            # Empirically-confirmed stablecoins (see config.EXCLUDED_STABLECOINS)
+            ("usat", "USAT", "USAT"),
+            ("usdcv", "USD CoinVertible", "USDCV"),
+            ("usdr", "USDR", "USDR"),
+            ("usdq", "USDQ", "USDQ"),
+            ("aeur", "Anchored EUR", "AEUR"),
+            ("europ", "EUROP", "EUROP"),
         ],
     )
     def test_stablecoins_are_detected(self, coin_filter, coin_id, name, symbol):
