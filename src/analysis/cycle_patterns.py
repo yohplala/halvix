@@ -314,6 +314,13 @@ class CyclePatternAnalyzer:
         self._total2_composition: pd.DataFrame | None = None
         self._total2_coins: set[str] | None = None
 
+        # Early-pipeline counts populated by analyze_all_coins() and consumed
+        # by get_top_coins() when it prints the unified filter table. They
+        # remain None when get_top_coins() is called without analyze_all_coins()
+        # first (e.g. from a direct caller passing in custom results).
+        self._pipeline_cached_coins: int | None = None
+        self._pipeline_total2_coins: int | None = None
+
     def _load_total2_composition(self) -> pd.DataFrame | None:
         """Load TOTAL2 composition data."""
         if self._total2_composition is not None:
@@ -2163,9 +2170,12 @@ class CyclePatternAnalyzer:
         candidates = [r for r in candidates if r.unique_price_count >= MIN_UNIQUE_PRICES]
         after_unique = len(candidates)
 
-        # Build unified filter summary table including early pipeline stages
-        cached = getattr(self, "_pipeline_cached_coins", None)
-        total2 = getattr(self, "_pipeline_total2_coins", None)
+        # Build unified filter summary table including early pipeline stages.
+        # These counts are populated by analyze_all_coins(); when get_top_coins()
+        # is called standalone (custom results dict) they stay at None and the
+        # table simply omits those leading rows.
+        cached = self._pipeline_cached_coins
+        total2 = self._pipeline_total2_coins
 
         lines = ["Coin selection & filter summary:"]
         lines.append(f"  {'Step':<44s}  {'Remaining'}")
