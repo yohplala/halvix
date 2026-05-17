@@ -1099,8 +1099,14 @@ class CyclePatternAnalyzer:
 
     @staticmethod
     def _count_min1_cycles(points: list[CyclePoint]) -> int:
-        """Count distinct cycles that have a min1 point (pre-halving data)."""
-        return len({p.cycle_num for p in points if p.point_type == "min1"})
+        """Count distinct cycles that have an *actual* (non-projected) min1.
+
+        A projected min1 represents a 23.6%-retracement assumption for the
+        in-progress cycle when the bear hasn't unfolded. It is not evidence
+        that the coin has lived through a completed cycle, so it must not
+        bump the cycle count (and therefore the confidence level).
+        """
+        return len({p.cycle_num for p in points if p.point_type == "min1" and not p.projected})
 
     @staticmethod
     def _get_regression_date(point: CyclePoint) -> date:

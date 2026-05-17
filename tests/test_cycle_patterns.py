@@ -2182,6 +2182,50 @@ class TestEdgeCases:
         old_logic_num_cycles = len({p.cycle_num for p in points})
         assert old_logic_num_cycles == 2  # Would have been wrong
 
+    def test_num_cycles_excludes_projected_min1(self, analyzer):
+        """Projected min1 (current cycle assumption) must NOT count as a completed cycle.
+
+        A projected min1 represents a 23.6%-retracement assumption for the
+        in-progress cycle when the bear hasn't fully unfolded. Counting it as
+        a completed cycle inflates num_cycles and the resulting confidence
+        level, which then over-weights the trendline and removes the
+        confidence-scale penalty. Only confirmed (non-projected) min1 points
+        should count toward num_cycles.
+        """
+        from analysis.cycle_patterns import CyclePoint
+
+        # A coin like SUI (launched late 2023): one real completed cycle (cycle 4
+        # min1 = 2024 bottom), plus an in-progress cycle 5 with only a projected
+        # min1 (bear shallow).
+        points = [
+            CyclePoint(
+                date=date(2024, 8, 5),
+                price=0.0005,
+                cycle_num=4,
+                point_type="min1",
+                days_from_halving=108,
+                projected=False,
+            ),
+            CyclePoint(
+                date=date(2025, 12, 15),
+                price=0.003,
+                cycle_num=4,
+                point_type="max2",
+                days_from_halving=605,
+                projected=False,
+            ),
+            CyclePoint(
+                date=date(2026, 10, 28),
+                price=0.0018,
+                cycle_num=5,
+                point_type="min1",
+                days_from_halving=-520,
+                projected=True,
+            ),
+        ]
+        # Only the actual (non-projected) min1 should count
+        assert CyclePatternAnalyzer._count_min1_cycles(points) == 1
+
 
 # =============================================================================
 # Parameterized Tests
