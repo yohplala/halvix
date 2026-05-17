@@ -57,7 +57,10 @@ halvix/
 │   │   └── processor.py        # Total2Processor + factory + result dataclass
 │   ├── analysis/
 │   │   ├── filters.py          # Token filtering
-│   │   └── cycle_patterns.py   # Cycle pattern analysis
+│   │   ├── cycle_points.py     # Dataclasses + pure helpers (PointType, CyclePoint, …)
+│   │   ├── point_detection.py  # Min/max identification kernel (3-pass segment scan)
+│   │   ├── projections.py      # Trendline / fib / diminishing / historical-peak models
+│   │   └── cycle_patterns.py   # CyclePatternAnalyzer orchestrator (thin wrappers + IO)
 │   ├── utils/
 │   │   └── logging.py
 │   └── visualization/

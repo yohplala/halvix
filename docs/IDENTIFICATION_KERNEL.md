@@ -10,7 +10,7 @@ This document describes the **identification kernel**: the algorithm that detect
 
 The identification kernel (`_identify_cycle_points`) divides price history into **segments between consecutive halvings** and processes each segment with a 3-pass algorithm. This replaces the earlier fixed-window approach and handles edge cases like cross-halving dips (e.g., the COVID crash) and tokens with short price histories.
 
-**Entry point**: `CyclePatternAnalyzer._identify_cycle_points(df)` in [`src/analysis/cycle_patterns.py`](../src/analysis/cycle_patterns.py)
+**Entry point**: `CyclePatternAnalyzer._identify_cycle_points(df)` — thin wrapper over `point_detection.identify_cycle_points(df, halvings)` in [`src/analysis/point_detection.py`](../src/analysis/point_detection.py). The wrapper threads `self.all_halvings` through; the algorithm itself is module-level and pure.
 
 ## Point Types
 
