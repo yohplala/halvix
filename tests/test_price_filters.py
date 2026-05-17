@@ -340,6 +340,27 @@ class TestDetectRoundTrips:
         assert len(events) == 1
         assert events[0]["days_to_revert"] == 1
 
+    def test_does_not_flag_revert_day_as_a_new_event(self):
+        # Two consecutive spike-and-reverts on a zigzag pattern:
+        # day 1 (1.0) -> 2 (2.5 spike) -> 3 (1.0 revert) -> 4 (2.5 spike) -> 5 (1.0)
+        #
+        # The revert day (index 2) sees a "down" ratio of 1.0/2.5 = 0.4 (below
+        # the 0.5 inverse-jump threshold) and the next day is back at 2.5,
+        # which would make the revert-ratio (2.5/2.5 = 1.0) appear to satisfy
+        # the upward-revert tolerance. Without skipping, the algorithm would
+        # treat the trough at index 2 as a "down spike" and replace it with
+        # the previous SPIKE day's value (2.5), corrupting a legitimate
+        # baseline into a phantom spike. After fixing, the revert day of a
+        # prior event must not be re-flagged as a new jump-day.
+        s = self._series([1.0, 2.5, 1.0, 2.5, 1.0, 1.0])
+        events = detect_round_trips(s)
+        # Expect exactly two events: the real spike days at index 1 and 3.
+        # The trough at index 2 (revert of event 1) must NOT be flagged.
+        flagged_indices = [s.index.get_loc(ev["date"]) for ev in events]
+        assert (
+            2 not in flagged_indices
+        ), f"Revert day of prior event must not be re-flagged. Got indices: {flagged_indices}"
+
 
 class TestApplyRoundTripCorrectionsToDataFrame:
     """Tests for DataFrame-level round-trip smoothing."""

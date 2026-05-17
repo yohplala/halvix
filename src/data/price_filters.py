@@ -330,7 +330,16 @@ def detect_round_trips(
     values = price_series.to_numpy()
     index = price_series.index
 
+    # Track indices that already belong to a recorded event's
+    # [jump_day, revert_day] window. Re-flagging a revert day as a fresh
+    # "down spike" would corrupt the correction: its pre_price is the prior
+    # spike value, so replacing the legitimate trough with that would inject
+    # the spike value back into the series. Skip such indices entirely.
+    skip_until: int = -1
+
     for i in range(1, n - 1):
+        if i <= skip_until:
+            continue
         p_pre = values[i - 1]
         p_jump = values[i]
         if not (p_pre > DEFAULT_ZERO_THRESHOLD and p_jump > DEFAULT_ZERO_THRESHOLD):
@@ -367,6 +376,9 @@ def detect_round_trips(
                         "revert_ratio": float(revert_ratio),
                     }
                 )
+                # Suppress any indices inside [i+1 .. i+k] from being treated
+                # as new events: those are the revert days of this event.
+                skip_until = i + k
                 break
 
     return events
