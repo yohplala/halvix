@@ -277,7 +277,7 @@ def detect_symbol_replacement(
 
 
 # =============================================================================
-# Round-Trip Detection (single-day spike-and-revert)
+# Round-Trip Detection (single-day or multi-day spike-and-revert)
 # =============================================================================
 
 

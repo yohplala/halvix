@@ -338,18 +338,18 @@ class CyclePatternAnalyzer:
     @staticmethod
     def _smooth_round_trips(df: pd.DataFrame, label: str) -> pd.DataFrame:
         """
-        Smooth single-day spike-and-revert glitches in df['close'].
+        Smooth spike-and-revert glitches (single-day or multi-day) in df['close'].
 
         Cycle min/max detection (idxmax/idxmin over halving segments) and the
         log-linear trendline regression both read close prices directly, so a
-        one-day pump-dump (e.g. SIREN 2026-04-16 at 2.49x reverting next day)
+        transient pump-dump (e.g. SIREN 2026-04-16 at 2.49x reverting next day)
         can produce a false max1/max2 or skew the trendline. Mirrors the
-        round-trip correction applied in the TOTAL2b processor, keeping the
+        round-trip correction applied in the TOTAL2 processor, keeping the
         close-series guards in sync between the two pipelines.
 
-        Returns the input df with df['close'] mutated on spike days
-        (set to the prior day's close). df itself is copied to avoid
-        mutating the cache layer.
+        Returns the input df with df['close'] mutated on every elevated day in
+        each detected span (set to the pre-spike close). df is copied first to
+        avoid mutating the cache layer.
         """
         if df.empty or "close" not in df.columns:
             return df
@@ -453,9 +453,9 @@ class CyclePatternAnalyzer:
                     logger.debug("%s: No data after symbol replacement date", coin_id.upper())
                     return None
 
-        # Smooth single-day spike-and-revert glitches on the close series so
-        # they cannot become false max1/max2/min1/min2 points or distort the
-        # log-linear trendline.
+        # Smooth spike-and-revert glitches (single-day or multi-day) on the
+        # close series so they cannot become false max1/max2/min1/min2 points
+        # or distort the log-linear trendline.
         df = self._smooth_round_trips(df, coin_id.upper())
 
         # Get TOTAL2 membership info (for reference, not filtering)
