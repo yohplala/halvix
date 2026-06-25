@@ -8,11 +8,11 @@ Step-by-step guide to using Halvix for cryptocurrency halving cycle analysis.
 
 ## Prerequisites
 
-Ensure you have Python 3.13+ and Poetry installed:
+Ensure you have Python 3.14+ and Poetry installed:
 
 ```bash
 # Check Python version
-python --version  # Should be 3.13 or higher
+python --version  # Should be 3.14 or higher
 
 # Install Poetry (if not already installed)
 # Windows (PowerShell)
@@ -44,7 +44,7 @@ The analysis is run in stages via the command line.
 
 ### Step 1: Fetch and Filter Top Coins
 
-Fetch the top N coins by market cap from CryptoCompare and apply filtering to exclude wrapped, staked, bridged tokens and stablecoins:
+Fetch the top N coins by market cap from the configured provider and apply filtering to exclude wrapped, staked, bridged tokens and stablecoins:
 
 ```bash
 # Fetch top 1200 coins (default)
@@ -83,7 +83,7 @@ poetry run python -m main fetch-prices --limit 10
 - **Yesterday as end date**: Avoids incomplete intraday data
 - **Automatic trimming**: Leading rows with zero prices (before coin existed) are removed
 
-**Note:** This step uses CryptoCompare API for full historical data (~5000+ days). Rate limiting is applied automatically.
+**Note:** This step uses the configured provider for historical data (~5000+ days). Rate limiting is applied automatically.
 
 **Output:** Price data cached in `data/raw/prices/` as parquet files (one file per coin).
 

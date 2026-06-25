@@ -60,8 +60,7 @@ ipython_config.py
 # pyenv
 .python-version
 
-# Poetry
-poetry.lock
+# poetry.lock is intentionally committed for reproducible builds.
 
 # Environment
 .env

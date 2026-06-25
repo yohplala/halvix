@@ -268,7 +268,7 @@ class TestCSVExport:
 
             assert "wbtc" in content
             assert "steth" in content
-            assert "cryptocompare.com" in content
+            assert "coingecko.com" in content
 
     def test_csv_uses_semicolon_delimiter(self, coin_filter):
         """Test that CSV uses semicolon delimiter for Excel compatibility."""

@@ -115,8 +115,11 @@ class FileCache:
         """
         filepath = self._get_cache_path(key, "json")
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(value, f, indent=2, default=str)
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(value, f, indent=2, default=str)
+        except OSError as e:
+            raise CacheError(f"Failed to write cache {filepath}: {e}") from e
 
         return filepath
 
@@ -157,7 +160,10 @@ class FileCache:
             Path to the cache file
         """
         filepath = self._get_cache_path(key, "parquet")
-        df.to_parquet(filepath, index=True)
+        try:
+            df.to_parquet(filepath, index=True)
+        except (OSError, ValueError, TypeError) as e:
+            raise CacheError(f"Failed to write parquet {filepath}: {e}") from e
         return filepath
 
     def invalidate(self, key: str) -> bool:
@@ -310,15 +316,18 @@ class PriceDataCache:
             df.index = pd.to_datetime(df.index)
         df.index = df.index.normalize()
 
-        # Trim leading rows where close is 0 (dates before coin existed)
-        # CryptoCompare returns zeros for dates before a coin was listed
+        # Trim leading rows where close is 0 (dates before the coin existed;
+        # some providers backfill pre-listing dates with zero closes)
         if "close" in df.columns:
             has_positive = df["close"] > 0
             if has_positive.any():
                 first_valid_idx = has_positive.idxmax()
                 df = df.loc[first_valid_idx:]
 
-        df.to_parquet(filepath, index=True)
+        try:
+            df.to_parquet(filepath, index=True)
+        except (OSError, ValueError, TypeError) as e:
+            raise CacheError(f"Failed to write prices {filepath}: {e}") from e
         return filepath
 
     def get_last_date(self, coin_id: str, quote_currency: str = "BTC") -> pd.Timestamp | None:

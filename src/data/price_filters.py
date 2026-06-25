@@ -13,6 +13,7 @@ Provides:
 """
 
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -65,10 +66,10 @@ def apply_volume_corrections_to_dataframe(
         Tuple of (corrected_df, all_corrections)
     """
     corrected_df = volume_df.copy()
-    all_corrections = []
+    all_corrections: list[dict[str, Any]] = []
 
     for iteration in range(max_iterations):
-        corrections_made = []
+        corrections_made: list[dict[str, Any]] = []
 
         # Vectorized outlier detection across all columns
         rolling_median = corrected_df.rolling(window=window_days, min_periods=3).median()
@@ -201,7 +202,7 @@ def detect_symbol_replacement(
     """
     Detect if a coin's symbol was replaced by a different token.
 
-    CryptoCompare sometimes reuses symbols for different tokens (e.g.,
+    Providers sometimes reuse symbols for different tokens (e.g.,
     old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
     or LIT changed from Litentry to Lighter in Jan 2026).
 

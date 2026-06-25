@@ -45,7 +45,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from api.cryptocompare import CryptoCompareClient
+from api import get_price_provider
 from config import (
     COINS_TO_DOWNLOAD_JSON,
     CSV_DELIMITER,
@@ -183,12 +183,12 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
     logger.info("Fetching top %d coins by market cap...", n)
 
     # Check API connectivity
-    client = CryptoCompareClient()
+    client = get_price_provider()
 
     if not args.skip_ping:
-        logger.info("Checking CryptoCompare API connectivity...")
+        logger.info("Checking price provider connectivity...")
         if not client.ping():
-            logger.error("Could not connect to CryptoCompare API")
+            logger.error("Could not connect to the price provider API")
             return 1
         logger.info("API is reachable")
 
@@ -286,7 +286,7 @@ def cmd_list_coins(args: argparse.Namespace) -> int:
 
 
 def cmd_fetch_prices(args: argparse.Namespace) -> int:
-    """Fetch price data for filtered coins using CryptoCompare."""
+    """Fetch price data for filtered coins from the configured price provider."""
     from config import QUOTE_CURRENCIES
 
     logger.info("=" * 60)
@@ -332,7 +332,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         coins = coins[: args.limit]
         logger.info("Limiting to first %d coins", args.limit)
 
-    logger.info("Fetching historical price data from CryptoCompare...")
+    logger.info("Fetching historical price data...")
 
     # Separate BTC from altcoins - BTC needs USD pair, not BTC pair
     btc_coins = [c for c in coins if c.get("id", "").lower() == "btc"]
@@ -377,7 +377,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         if has_data:
             successful_coins.append(coin_id)
         else:
-            # Coin failed to fetch or returned empty data (no pair exists on CryptoCompare)
+            # Coin failed to fetch or returned empty data (no pair available from the provider)
             failed_coins.append(coin_id)
 
     logger.info("  Coins processed: %d (attempted: %d)", len(successful_coins), len(coins))
@@ -387,23 +387,26 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         logger.warning("  Failed/empty:    %d coins", len(failed_coins))
         # Check each failed coin to explain why it failed and save to CSV
         # IMPORTANT: Reuse the fetcher's client to maintain rate limit state
-        # Creating a new CryptoCompareClient() would reset _last_request_time
+        # Creating a fresh provider client would reset its throttling state
         # and potentially hit rate limits after the price fetching phase
-        failed_coins_data = []
+        failed_coins_data: list[dict] = []
         rate_limit_hit = False  # Stop making API calls once rate limit is hit
         for coin_id in tqdm(failed_coins, desc="Checking failed coins"):
             # Find the coin data
             coin_data = next((c for c in coins if c.get("id") == coin_id), {})
             coin_symbol = coin_data.get("symbol", coin_id.upper())
             coin_name = coin_data.get("name", coin_symbol)
-            url = coin_url(coin_symbol)
+            provider_id = coin_data.get("provider_id")
+            url = coin_url(coin_symbol, provider_id)
 
             if rate_limit_hit:
                 # Skip API calls once we've hit rate limit, use generic reason
                 reason = "Rate limit exceeded - skipped check"
             else:
-                # Check histoday availability to get the actual API error message
-                pair_info = fetcher.client.check_histoday_availability(coin_symbol, "BTC")
+                # Check availability to get the actual API error message
+                pair_info = fetcher.client.check_histoday_availability(
+                    coin_symbol, "BTC", provider_id=provider_id
+                )
                 reason = pair_info["reason"]
                 # Detect if we hit rate limit and stop further checks
                 if "rate limit" in reason.lower():
@@ -736,28 +739,38 @@ def cmd_clear_cache(args: argparse.Namespace) -> int:
 
 def main() -> int:
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        prog="halvix",
-        description="Cryptocurrency price analysis relative to Bitcoin halving cycles",
-    )
-
-    # Global arguments
-    parser.add_argument(
+    # Global arguments live on a shared parent parser so they are accepted both
+    # before and after the subcommand (e.g. `main --verbose status` and
+    # `main status --verbose` both work).
+    # default=SUPPRESS so a subcommand parse doesn't reset a flag that was given
+    # before the subcommand (argparse parent/subparser default gotcha). Defaults
+    # are reapplied once after parsing.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
         "--verbose",
         "-v",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Enable verbose logging (DEBUG level)",
     )
-    parser.add_argument(
+    common.add_argument(
         "--quiet",
         "-q",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Suppress progress bars",
     )
-    parser.add_argument(
+    common.add_argument(
         "--log-file",
         type=Path,
+        default=argparse.SUPPRESS,
         help="Log to file (in addition to console)",
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="halvix",
+        description="Cryptocurrency price analysis relative to Bitcoin halving cycles",
+        parents=[common],
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -766,6 +779,7 @@ def main() -> int:
     list_parser = subparsers.add_parser(
         "list-coins",
         help="Fetch and filter top N coins by market cap",
+        parents=[common],
     )
     list_parser.add_argument(
         "--top",
@@ -789,6 +803,7 @@ def main() -> int:
     fetch_parser = subparsers.add_parser(
         "fetch-prices",
         help="Fetch price data for filtered coins",
+        parents=[common],
     )
     fetch_parser.add_argument(
         "--limit",
@@ -815,7 +830,8 @@ def main() -> int:
     # calculate-total2 command
     total2_parser = subparsers.add_parser(
         "calculate-total2",
-        help="Calculate TOTAL2b market index from cached price data",
+        help="Calculate TOTAL2 market index from cached price data",
+        parents=[common],
     )
     total2_parser.add_argument(
         "--top-n",
@@ -846,6 +862,7 @@ def main() -> int:
     charts_parser = subparsers.add_parser(
         "generate-cycle-charts",
         help="Generate halving cycle comparison charts (BTC and TOTAL2)",
+        parents=[common],
     )
     charts_parser.add_argument(
         "--output-dir",
@@ -858,6 +875,7 @@ def main() -> int:
     patterns_parser = subparsers.add_parser(
         "analyze-patterns",
         help="Analyze cycle patterns and generate price target projections",
+        parents=[common],
     )
     patterns_parser.add_argument(
         "--output-dir",
@@ -883,12 +901,14 @@ def main() -> int:
     subparsers.add_parser(
         "status",
         help="Show current data status",
+        parents=[common],
     )
 
     # clear-cache command
     clear_parser = subparsers.add_parser(
         "clear-cache",
         help="Clear cached data",
+        parents=[common],
     )
     clear_parser.add_argument(
         "--prices",
@@ -903,6 +923,12 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    # Reapply defaults for the SUPPRESS-ed global flags (absent unless passed),
+    # so they are available regardless of position relative to the subcommand.
+    args.verbose = getattr(args, "verbose", False)
+    args.quiet = getattr(args, "quiet", False)
+    args.log_file = getattr(args, "log_file", None)
+
     # Setup logging based on global args
     log_level = logging.DEBUG if args.verbose else logging.INFO
     log_file = args.log_file or (OUTPUT_DIR / "halvix.log" if args.verbose else None)
@@ -911,10 +937,6 @@ def main() -> int:
     if args.command is None:
         parser.print_help()
         return 0
-
-    # Ensure quiet is available for all commands
-    if not hasattr(args, "quiet"):
-        args.quiet = False
 
     # Route to command handler
     commands = {

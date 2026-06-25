@@ -29,6 +29,7 @@ from config import (
     FIB_HINT_Y_SHIFT,
     HALVING_DATES,
     PATTERN_ANALYSIS_TOP_N,
+    coin_url,
 )
 from data.cache import PriceDataCache
 from data.price_filters import detect_symbol_replacement, smooth_round_trips_on_series
@@ -241,7 +242,7 @@ def _add_trendlines(
         upper_y_end = 10 ** (upper_slope * x_end_days + upper_intercept)
         lower_y_start = 10 ** (lower_slope * x_start_days + lower_intercept)
         lower_y_end = 10 ** (lower_slope * x_end_days + lower_intercept)
-    except (OverflowError, ValueError):
+    except OverflowError, ValueError:
         return
 
     # Draw upper trendline
@@ -830,26 +831,32 @@ def _create_pattern_chart(
     )
 
     # 4. Add target predictions (stars + text label)
-    targets = []
+    # Each pct is set whenever its target is set; `or 0.0` only narrows the type.
+    targets: list[tuple[str, float, float, str]] = []
     if result.trendline_target:
         targets.append(
             (
                 "Trendline",
                 result.trendline_target,
-                result.trendline_target_pct,
+                result.trendline_target_pct or 0.0,
                 TARGET_COLORS["trendline"],
             )
         )
     if result.fib_target:
         targets.append(
-            ("Fib 100%", result.fib_target, result.fib_target_pct, TARGET_COLORS["fibonacci"])
+            (
+                "Fib 100%",
+                result.fib_target,
+                result.fib_target_pct or 0.0,
+                TARGET_COLORS["fibonacci"],
+            )
         )
     if result.dim_return_target:
         targets.append(
             (
                 "Dim. Return",
                 result.dim_return_target,
-                result.dim_return_target_pct,
+                result.dim_return_target_pct or 0.0,
                 TARGET_COLORS["diminishing"],
             )
         )
@@ -858,7 +865,7 @@ def _create_pattern_chart(
             (
                 "Hist. Peak",
                 result.hist_peak_target,
-                result.hist_peak_target_pct,
+                result.hist_peak_target_pct or 0.0,
                 TARGET_COLORS["historical"],
             )
         )
@@ -1168,7 +1175,7 @@ def generate_pattern_analysis_page(
         btc_row = f"""
             <tr class="btc-row">
                 <td>0</td>
-                <td class="coin-name"><a href="https://www.cryptocompare.com/coins/BTC/overview" target="_blank">BTC</a> <span class="pair-type">(/USD)</span></td>
+                <td class="coin-name"><a href="{coin_url("BTC", "bitcoin")}" target="_blank">BTC</a> <span class="pair-type">(/USD)</span></td>
                 <td><span class="chart-badge badge-high">HIGH</span></td>
                 <td class="number">{btc_result.num_cycles}</td>
                 <td class="number target-value {composite_class}">{_format_pct(btc_composite, 1)}</td>
@@ -1189,10 +1196,10 @@ def generate_pattern_analysis_page(
         row = f"""
             <tr>
                 <td>{rank_display}</td>
-                <td class="coin-name"><a href="https://www.cryptocompare.com/coins/{coin.coin_id.upper()}/overview" target="_blank">{coin.coin_id.upper()}</a> <span class="pair-type">(/BTC)</span></td>
+                <td class="coin-name"><a href="{coin_url(coin.coin_id)}" target="_blank">{coin.coin_id.upper()}</a> <span class="pair-type">(/BTC)</span></td>
                 <td><span class="chart-badge {confidence_class}">{coin.confidence.upper()}</span></td>
                 <td class="number">{coin.num_cycles}</td>
-                <td class="number target-value {composite_class}">{_format_pct(coin.composite_target_pct, 1)}</td>
+                <td class="number target-value {composite_class}">{_format_pct(coin.composite_target_pct or 0.0, 1)}</td>
                 <td class="number">{_format_pct(coin.trendline_target_pct) if coin.trendline_target_pct is not None else 'N/A'}</td>
                 <td class="number">{_format_pct(coin.fib_target_pct) if coin.fib_target_pct is not None else 'N/A'}</td>
                 <td class="number">{_format_pct(coin.dim_return_target_pct) if coin.dim_return_target_pct is not None else 'N/A'}</td>

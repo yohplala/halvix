@@ -91,6 +91,7 @@ class Total2Result:
     volume_outliers_corrected: list[dict] | None = None
     scaling_events: list[dict] | None = None
     round_trip_corrections: list[dict] | None = None
+    symbol_replacements: list[dict] | None = None
 
 
 class Total2Processor:
@@ -312,7 +313,7 @@ class Total2Processor:
             logger.info("Applying volume SMA smoothing...")
         smoothed_volume_df = self.apply_volume_sma_smoothing(volume_df)
 
-        first_seen_dates = self._calculate_first_seen_dates(
+        first_seen_dates, symbol_replacements = self._calculate_first_seen_dates(
             close_df, volume_df, show_progress=show_progress
         )
         if show_progress:
@@ -360,6 +361,7 @@ class Total2Processor:
             volume_outliers_corrected=volume_outliers,
             scaling_events=scaling_events,
             round_trip_corrections=round_trip_corrections,
+            symbol_replacements=symbol_replacements,
             index_type="total2b",
         )
 
@@ -368,15 +370,16 @@ class Total2Processor:
         close_df: pd.DataFrame,
         volume_df: pd.DataFrame,
         show_progress: bool = True,
-    ) -> dict[str, pd.Timestamp]:
+    ) -> tuple[dict[str, pd.Timestamp], list[dict]]:
         """
         First date each coin appears with both close > 0 and volume > 0.
 
         Also runs the symbol-replacement detector and resets first_seen to the
-        post-replacement date when CryptoCompare reassigns a ticker (HYPE
-        2024-12, MOVE 2024, LIT 2026-01-08 are known examples).
+        post-replacement date when a provider reassigns a ticker (HYPE 2024-12,
+        MOVE 2024, LIT 2026-01-08 are known examples).
 
-        Symbol replacement events are logged when show_progress=True.
+        Returns the first-seen map and the list of detected replacement events
+        (also logged when show_progress=True).
         """
         first_seen: dict[str, pd.Timestamp] = {}
         symbol_replacements: list[dict] = []
@@ -424,7 +427,7 @@ class Total2Processor:
                     event["price_after"],
                 )
 
-        return first_seen
+        return first_seen, symbol_replacements
 
     def _build_eligibility_mask(
         self,
@@ -574,8 +577,7 @@ class Total2Processor:
         if not index_records:
             index_df = pd.DataFrame(columns=["total2_price", "total_volume", "coin_count"])
         else:
-            index_df = pd.DataFrame(index_records)
-            index_df.set_index("date", inplace=True)
+            index_df = pd.DataFrame(index_records).set_index("date")
 
         if show_progress and scaling_events:
             logger.info("  Applied scaling to %d new coin entries:", len(scaling_events))
@@ -763,6 +765,7 @@ class Total2Processor:
             "volume_outliers_corrected": result.volume_outliers_corrected or [],
             "scaling_events": result.scaling_events or [],
             "round_trip_corrections": result.round_trip_corrections or [],
+            "symbol_replacements": result.symbol_replacements or [],
             "coin_statistics": coin_statistics,
             "index_type": result.index_type,
         }

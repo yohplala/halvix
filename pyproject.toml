@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "halvix"
-version = "2026.02.2"
+version = "2026.06.0"
 description = "Cryptocurrency price analysis relative to Bitcoin halving cycles"
 authors = ["yohplala <yohplala@users.noreply.github.com>"]
 readme = "README.md"
@@ -16,23 +16,24 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.14"
-pandas = "^2.1"
-numpy = "^2.0"
-scipy = "^1.14"
-plotly = "^5.18"
-requests = "^2.31"
-tqdm = "^4.65"
+pandas = "^3.0"
+numpy = "^2.2"
+scipy = "^1.18"
+plotly = "^6.8"
+requests = "^2.32"
+tqdm = "^4.67"
 pyarrow = "^24.0"
-tenacity = "^8.2"
+tenacity = "^9.1"
 jinja2 = "^3.1.6"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4"
-pytest-cov = "^4.1"
-black = "^24.0"
-ruff = "^0.8"
-ipython = "^8.0"
-pre-commit = "^4.5.0"
+pytest = "^9.1"
+pytest-cov = "^7.1"
+black = "^26.5"
+ruff = "^0.15"
+mypy = "^2.1"
+ipython = "^9.14"
+pre-commit = "^4.6"
 
 [tool.poetry.scripts]
 halvix = "main:main"
@@ -43,12 +44,12 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 100
-target-version = ['py313']  # black doesn't yet recognise py314; py313 rules are forward-compatible
+target-version = ['py314']
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"  # ruff doesn't yet recognise py314; py313 lint rules are forward-compatible
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -66,7 +67,20 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["halvix"]
+# src/ is on the path, so first-party imports use the module names directly.
+known-first-party = ["analysis", "api", "config", "data", "main", "utils", "visualization"]
+
+[tool.mypy]
+python_version = "3.14"
+# src/ is on the path (not an installed package), so resolve modules from there.
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+# Third-party libs (pandas, plotly, scipy, …) ship partial or no stubs.
+ignore_missing_imports = true
+# Lenient by design: type the public surface, don't force annotations everywhere.
+warn_unused_ignores = true
+warn_redundant_casts = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

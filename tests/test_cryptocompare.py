@@ -53,6 +53,12 @@ class TestCryptoCompareClientInit:
         assert "authorization" in client.session.headers
         assert client.session.headers["authorization"] == "Apikey my-api-key"
 
+    def test_no_api_key_omits_auth_header(self):
+        """Without a key, no authorization header is sent (keyless 401 path)."""
+        client = CryptoCompareClient(api_key="")
+
+        assert "authorization" not in client.session.headers
+
 
 class TestCryptoCompareClientRateLimiting:
     """Tests for rate limiting behavior."""
@@ -150,6 +156,19 @@ class TestCryptoCompareClientRequests:
                     client._request.__wrapped__(client, "/test")
 
                 assert "Invalid symbol" in str(exc_info.value)
+
+    def test_401_raises_helpful_auth_error(self, client, mock_response):
+        """A 401 raises APIError naming the CRYPTOCOMPARE_API_KEY remedy."""
+        with patch.object(client, "_wait_for_rate_limit"):
+            with patch.object(client.session, "get") as mock_get:
+                mock_get.return_value = mock_response(401, {"message": "API key required"})
+
+                with pytest.raises(APIError) as exc_info:
+                    client._request.__wrapped__(client, "/test")
+
+                msg = str(exc_info.value)
+                assert "401" in msg
+                assert "CRYPTOCOMPARE_API_KEY" in msg
 
     def test_rate_limit_in_json_body_raises_rate_limit_error(self, client, mock_response):
         """Test that rate limit error in JSON body raises RateLimitError (not APIError).

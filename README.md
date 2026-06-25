@@ -15,6 +15,22 @@ Halvix analyzes cryptocurrency performance across BTC halving cycles (2nd throug
 - 🎨 Interactive Plotly charts with normalized values
 - 🧩 Composition viewer to explore TOTAL2 makeup on any date
 
+## Data provider
+
+Halvix sources prices through a small provider abstraction. **CoinGecko is the
+default** (full coin coverage + native market-cap ranking); CryptoCompare is
+available as an alternative.
+
+- CoinGecko works keyless, but a free [Demo API key](https://www.coingecko.com/en/api)
+  lifts the rate limit. Provide it via the `COINGECKO_API_KEY` environment
+  variable (a GitHub Actions secret in CI).
+- To switch backend, set `PRICE_PROVIDER=cryptocompare` and supply
+  `CRYPTOCOMPARE_API_KEY` (free key at https://developers.coindesk.com/).
+
+```bash
+export COINGECKO_API_KEY=your_demo_key   # optional but recommended
+```
+
 ## Quick Start
 
 ```bash
@@ -50,7 +66,7 @@ poetry run python -m main status
 
 ### 📋 References
 - **[AI Agent Context](CLAUDE.md)** - Full project specification for AI agents and developers
-- **[Data Sources](docs/DATA_SOURCES.md)** - CryptoCompare API details, rate limits, caching, data pipeline
+- **[Data Sources](docs/DATA_SOURCES.md)** - Provider abstraction (CoinGecko default, CryptoCompare alternative), rate limits, caching, data pipeline
 - **[TOTAL2 Calculation](docs/TOTAL2_CALCULATION.md)** - How the TOTAL2 market index is calculated
 - **[Identification Kernel](docs/IDENTIFICATION_KERNEL.md)** - Segment-based cycle point detection algorithm
 - **[Pattern Analysis](docs/PATTERN_ANALYSIS.md)** - Cycle pattern analysis and price target projections
@@ -63,7 +79,7 @@ poetry run python -m main status
 |--------|--------|
 | Configuration | ✅ Complete |
 | Coin Filtering | ✅ Complete |
-| CryptoCompare Client | ✅ Complete |
+| Price Providers (CoinGecko + CryptoCompare) | ✅ Complete |
 | Data Fetcher & Caching | ✅ Complete |
 | TOTAL2 Calculation | ✅ Complete |
 | Halving Cycle Charts | ✅ Complete |

@@ -10,6 +10,38 @@ format YYYY.MM.patch.
 - **Categories** indicate the type of changes (Tests, Code, Documentation, etc.).
 - Each version represents a significant milestone in development.
 
+## 2026.06
+
+### [2026.06.0] - 2026-06-25
+
+**Multi-provider data layer + dependency refresh**
+
+- **Added:** Price-provider abstraction (`api.base.PriceProvider`) with a factory
+  (`api.get_price_provider`, selected by `PRICE_PROVIDER`).
+- **Added:** `CoinGeckoClient` as the **default** provider — full coin coverage,
+  native market-cap ranking, and recent price+volume vs BTC/USD resampled to
+  daily OHLCV. Optional free Demo key via `COINGECKO_API_KEY`.
+  - Daily job scoped to the top ~300 coins by market cap to fit the free tier
+    (full history stays cached on the `raw-data` branch).
+- **Changed:** CryptoCompare is now the alternative provider
+  (`PRICE_PROVIDER=cryptocompare`); its Data API now requires
+  `CRYPTOCOMPARE_API_KEY` (keyless requests return HTTP 401). This key
+  requirement was the cause of the failing Daily Update workflow.
+- **Changed:** Bumped dependencies to current majors — pandas 3, numpy 2.2,
+  scipy 1.18, plotly 6, tenacity 9, pytest 9, black 26, ruff 0.15, ipython 9.
+  Updated GitHub Actions (`checkout@v7`, `cache@v6`) and `target-version` to
+  `py314`.
+- **Changed:** `poetry.lock` is now committed for reproducible builds.
+- **Added:** Tests for the CoinGecko client, the provider factory, and the
+  CryptoCompare 401 auth path.
+- **Fixed:** Global CLI flags (`--verbose/--quiet/--log-file`) now work both
+  before and after the subcommand.
+- **Fixed:** Documentation inconsistencies — provider references, Daily Update
+  schedule (4:00 AM UTC), Python 3.14, round-trip window, and stale filenames.
+- **Fixed:** Code hygiene — pandas-3 `set_index`, narrowed exception handlers,
+  cache write-error handling, and surfaced symbol-replacement metadata in the
+  TOTAL2 output JSON.
+
 ## 2026.02
 
 ### [2026.02.2] - 2026-02-11

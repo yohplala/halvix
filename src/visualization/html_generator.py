@@ -24,6 +24,7 @@ from config import (
     PROJECT_ROOT,
     TOP_N_BY_MARKETCAP_TO_FETCH,
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
+    coin_url,
 )
 from utils.logging import get_logger
 from visualization._layout import _get_footer_css, _get_footer_html
@@ -279,7 +280,7 @@ class HtmlGenerator:
                 {
                     "symbol": symbol,
                     "name": coin.get("name", "N/A"),
-                    "url": f"https://www.cryptocompare.com/coins/{symbol.upper()}/overview",
+                    "url": coin_url(symbol, coin.get("provider_id")),
                     "source_str": (
                         "USD"
                         if has_usd_data

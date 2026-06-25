@@ -1,10 +1,13 @@
-# Calculate TOTAL2 index and store in orphan 'processed-data' branch
-# This workflow is triggered manually from the GitHub Actions UI
+# Calculate TOTAL2 index and store in orphan 'processed-data' branch.
+# Runs manually, or is called by the Daily Update workflow (reusable).
+# Reads cached data only — no price-provider API calls.
 name: Calculate TOTAL2
 
 on:
   # Manual trigger
   workflow_dispatch:
+  # Reusable: called by the Daily Update orchestrator
+  workflow_call:
 
 jobs:
   calculate:
@@ -14,13 +17,13 @@ jobs:
 
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: main
 
       - name: Checkout raw-data branch
         id: checkout-raw-data
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: raw-data
           path: raw-data-branch
@@ -35,7 +38,7 @@ jobs:
 
       - name: Checkout processed-data branch
         id: checkout-processed-data
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: processed-data
           path: processed-data-branch
@@ -99,7 +102,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-poetry-dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: main/.venv
           key: venv-total2-${{ runner.os }}-3.14-${{ hashFiles('main/**/pyproject.toml') }}
@@ -182,10 +185,10 @@ jobs:
           # Create a single commit (squash history)
           if git rev-parse HEAD >/dev/null 2>&1; then
             echo "Amending existing commit to squash history..."
-            git commit --amend -m "Update TOTAL2b index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit --amend -m "Update TOTAL2 index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           else
             echo "Creating initial commit..."
-            git commit -m "Update TOTAL2b index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit -m "Update TOTAL2 index - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           fi
 
           # Force push to keep orphan branch with single commit

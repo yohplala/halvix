@@ -718,11 +718,6 @@ def create_composition_viewer_html(
     created_files = {}
 
     for month_key in months:
-        # Parse year and month from key
-        year, month = month_key.split("_")
-        year = int(year)
-        month = int(month)
-
         # Filter dates for this month
         month_dates = [d for d in dates if get_month_key(d) == month_key]
 

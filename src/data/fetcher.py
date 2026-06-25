@@ -1,11 +1,11 @@
 """
 Data fetching orchestration for Halvix.
 
-Coordinates API calls, caching, and filtering to build the coin dataset.
-
-Data source: CryptoCompare (single source of truth)
+Coordinates provider API calls, caching, and filtering to build the coin
+dataset. The price provider (CoinGecko by default) is injected via the
+``PriceProvider`` abstraction, so this module is provider-agnostic:
 - Top coins by market cap for coin discovery
-- Historical price data with full history
+- Historical price data
 - Volume data for TOTAL2 calculation
 
 Features:
@@ -17,13 +17,14 @@ import json
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast, overload
 
 import pandas as pd
 from tqdm import tqdm
 
 from analysis.filters import CoinFilter
-from api.cryptocompare import CryptoCompareClient, CryptoCompareError
+from api import get_price_provider
+from api.base import PriceProvider, PriceProviderError
 from config import (
     COINS_TO_DOWNLOAD_JSON,
     DAYS_AFTER_HALVING,
@@ -68,11 +69,11 @@ class FetchResult:
 
 class DataFetcher:
     """
-    Orchestrates data fetching from CryptoCompare API.
+    Orchestrates data fetching through the configured price provider.
 
-    Data source: CryptoCompare (single source)
+    Data source: a ``PriceProvider`` (CoinGecko by default)
     - Top coins by market cap
-    - Historical price data (full history, no time limit)
+    - Historical price data
     - Volume data for TOTAL2 calculation
 
     Workflow:
@@ -84,7 +85,7 @@ class DataFetcher:
 
     def __init__(
         self,
-        client: CryptoCompareClient | None = None,
+        client: PriceProvider | None = None,
         cache: FileCache | None = None,
         price_cache: PriceDataCache | None = None,
         coin_filter: CoinFilter | None = None,
@@ -93,12 +94,12 @@ class DataFetcher:
         Initialize the data fetcher.
 
         Args:
-            client: CryptoCompare API client (default: new instance)
+            client: Price provider (default: the configured provider, CoinGecko)
             cache: File cache for API responses (default: new instance)
             price_cache: Price data cache (default: new instance)
             coin_filter: Coin filter (default: new instance)
         """
-        self.client = client or CryptoCompareClient()
+        self.client = client or get_price_provider()
         self.cache = cache or FileCache()
         self.price_cache = price_cache or PriceDataCache()
         self.coin_filter = coin_filter or CoinFilter()
@@ -116,6 +117,25 @@ class DataFetcher:
         else:
             # For testing: use analysis end date
             self.history_end_date = HALVING_DATES[-1] + timedelta(days=DAYS_AFTER_HALVING)
+
+    @overload
+    def fetch_top_coins(
+        self,
+        n: int = ...,
+        use_cache: bool = ...,
+        cache_key: str = ...,
+        track_no_data: Literal[False] = False,
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def fetch_top_coins(
+        self,
+        n: int = ...,
+        use_cache: bool = ...,
+        cache_key: str = ...,
+        *,
+        track_no_data: Literal[True],
+    ) -> tuple[list[dict[str, Any]], list[dict]]: ...
 
     def fetch_top_coins(
         self,
@@ -145,12 +165,12 @@ class DataFetcher:
         result = self.client.get_top_coins_by_market_cap(n=n, track_no_data=track_no_data)
 
         if track_no_data:
-            coins, coins_without_data = result
+            coins, coins_without_data = cast("tuple[list[Any], list[dict]]", result)
             coin_dicts = [coin.to_dict() for coin in coins]
             self.cache.set_json(f"{cache_key}_{n}", coin_dicts)
             return coin_dicts, coins_without_data
         else:
-            coins = result
+            coins = cast("list[Any]", result)
             coin_dicts = [coin.to_dict() for coin in coins]
             self.cache.set_json(f"{cache_key}_{n}", coin_dicts)
             return coin_dicts
@@ -260,13 +280,15 @@ class DataFetcher:
                 coins_symbol_replaced=len(replacements),
             )
 
-        except CryptoCompareError as e:
+        except PriceProviderError as e:
             return FetchResult(
                 success=False,
                 message=f"API error: {e}",
                 errors=[str(e)],
             )
         except Exception as e:
+            # Unexpected error — log the full traceback so it is diagnosable.
+            logger.exception("Unexpected error in fetch_and_filter_coins")
             return FetchResult(
                 success=False,
                 message=f"Unexpected error: {e}",
@@ -327,7 +349,7 @@ class DataFetcher:
         """
         Detect symbol recycling by comparing coin names against previous metadata.
 
-        CryptoCompare sometimes reassigns a symbol to a different project (e.g.,
+        Providers sometimes reassign a symbol to a different project (e.g.,
         LIT changed from Litentry to Lighter). Price-ratio detection misses this
         when both tokens trade at similar price levels. Comparing names catches it.
 
@@ -388,6 +410,7 @@ class DataFetcher:
         vs_currency: str = "BTC",
         use_cache: bool = True,
         incremental: bool = True,
+        provider_id: str | None = None,
     ) -> pd.DataFrame:
         """
         Fetch historical price data for a single coin-pair.
@@ -401,15 +424,16 @@ class DataFetcher:
 
         Args:
             coin_id: Coin ID (lowercase symbol)
-            symbol: Coin symbol for CryptoCompare (e.g., "ETH")
+            symbol: Coin symbol (e.g., "ETH")
             vs_currency: Quote currency (default: "BTC")
             use_cache: Whether to check cache first
             incremental: If True and cache exists, only fetch new data
+            provider_id: Provider-native coin id (e.g. CoinGecko slug)
 
         Returns:
             DataFrame with date index and OHLCV columns
         """
-        # Use symbol for CryptoCompare (uppercase)
+        # Providers expect the uppercase symbol
         symbol = symbol.upper()
         vs_currency = vs_currency.upper()
 
@@ -446,6 +470,7 @@ class DataFetcher:
                         start_date=fetch_start,
                         end_date=effective_end_date,
                         show_progress=False,
+                        provider_id=provider_id,
                     )
 
                     if not new_data.empty:
@@ -458,7 +483,7 @@ class DataFetcher:
 
                     return cached
 
-                except CryptoCompareError:
+                except PriceProviderError:
                     # On error, return existing cache
                     return cached
 
@@ -470,6 +495,7 @@ class DataFetcher:
                 start_date=self.history_start_date,
                 end_date=effective_end_date,
                 show_progress=False,
+                provider_id=provider_id,
             )
 
             # Cache the result
@@ -478,7 +504,7 @@ class DataFetcher:
 
             return df
 
-        except CryptoCompareError:
+        except PriceProviderError:
             # Return empty DataFrame on error
             return pd.DataFrame()
 
@@ -502,7 +528,7 @@ class DataFetcher:
         Files are stored as {coin_id}-{vs_currency}.parquet (e.g., eth-btc.parquet).
 
         Args:
-            coins: List of coin dicts (default: load from accepted_coins.json)
+            coins: List of coin dicts (default: load from coins_to_download.json)
             vs_currencies: List of quote currencies (default: QUOTE_CURRENCIES from config)
             use_cache: Whether to use cache
             incremental: If True, only fetch new data since last cache
@@ -536,6 +562,7 @@ class DataFetcher:
         for coin in coins:
             coin_id = coin["id"]
             symbol = coin.get("symbol", coin_id)
+            provider_id = coin.get("provider_id")
             results[coin_id] = {}
 
             for vs_currency in vs_currencies:
@@ -546,14 +573,17 @@ class DataFetcher:
                         vs_currency=vs_currency,
                         use_cache=use_cache,
                         incremental=incremental,
+                        provider_id=provider_id,
                     )
 
                     if not df.empty:
                         results[coin_id][vs_currency] = df
 
-                except CryptoCompareError as e:
+                except PriceProviderError as e:
                     errors.append(f"{coin_id}-{vs_currency} ({symbol}): {e}")
                 except Exception as e:
+                    # Unexpected — log with traceback now (the loop keeps going).
+                    logger.exception("Unexpected error fetching %s-%s", coin_id, vs_currency)
                     errors.append(f"{coin_id}-{vs_currency} ({symbol}): Unexpected error - {e}")
 
                 if pbar:

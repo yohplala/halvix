@@ -28,9 +28,10 @@ def setup_logging(
     Configure logging for the application.
 
     Args:
-        level: Logging level (default: INFO)
-        log_file: Optional path to log file
-        verbose: If True, use DEBUG level and detailed format
+        level: Console logging level, used when ``verbose`` is False.
+        log_file: Optional path to log file (always captures DEBUG).
+        verbose: If True, takes precedence over ``level``: forces DEBUG and the
+            detailed format.
     """
     if verbose:
         level = logging.DEBUG

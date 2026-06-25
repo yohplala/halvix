@@ -1,10 +1,13 @@
 """
 CryptoCompare API client for cryptocurrency data.
 
-CryptoCompare (now part of CoinDesk) offers free access to:
+CryptoCompare (now CoinDesk Data) provides:
 - Full historical data (2000+ days per request) for halving cycle analysis
 - Top coins by market cap for coin discovery
 - No symbol mapping needed - single source of truth
+
+The Data API requires an API key (set CRYPTOCOMPARE_API_KEY); requests without
+one are rejected with HTTP 401. Get a free key at https://developers.coindesk.com/.
 
 API Documentation: https://developers.coindesk.com/documentation/
 
@@ -17,7 +20,7 @@ Endpoints used:
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import pandas as pd
@@ -29,8 +32,10 @@ from tenacity import (
     wait_exponential,
 )
 
+from api.base import Coin, PriceProviderError
 from config import (
     CRYPTOCOMPARE_API_CALLS_PER_MINUTE,
+    CRYPTOCOMPARE_API_KEY,
     CRYPTOCOMPARE_BASE_URL,
     CRYPTOCOMPARE_MAX_DAYS_PER_REQUEST,
     CRYPTOCOMPARE_TOP_COINS_PER_PAGE,
@@ -48,11 +53,11 @@ def get_version() -> str:
     """Get package version for User-Agent."""
     try:
         return version("halvix")
-    except Exception:
+    except PackageNotFoundError:
         return "dev"
 
 
-class CryptoCompareError(Exception):
+class CryptoCompareError(PriceProviderError):
     """Base exception for CryptoCompare API errors."""
 
     pass
@@ -68,32 +73,6 @@ class APIError(CryptoCompareError):
     """Raised for general API errors."""
 
     pass
-
-
-@dataclass
-class Coin:
-    """Represents a coin from CryptoCompare."""
-
-    symbol: str
-    name: str
-    market_cap: float
-    market_cap_rank: int
-    current_price: float
-    volume_24h: float
-    circulating_supply: float
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for filtering and processing."""
-        return {
-            "id": self.symbol.lower(),  # Use lowercase symbol as ID
-            "symbol": self.symbol,
-            "name": self.name,
-            "market_cap": self.market_cap,
-            "market_cap_rank": self.market_cap_rank,
-            "current_price": self.current_price,
-            "volume_24h": self.volume_24h,
-            "circulating_supply": self.circulating_supply,
-        }
 
 
 @dataclass
@@ -156,7 +135,8 @@ class CryptoCompareClient:
     """
     CryptoCompare API client for historical cryptocurrency prices.
 
-    Free tier provides full historical data (no time limit).
+    Requires an API key (CRYPTOCOMPARE_API_KEY); the key unlocks full historical
+    data with no time limit.
 
     Uses the rate limit status endpoint to dynamically manage request rate:
     https://developers.coindesk.com/documentation/data-api/admin_v2_rate_limit
@@ -177,11 +157,12 @@ class CryptoCompareClient:
 
         Args:
             base_url: API base URL
-            api_key: Optional API key (not required for basic access)
+            api_key: API key. Defaults to CRYPTOCOMPARE_API_KEY from the
+                environment. The API rejects keyless requests with HTTP 401.
             calls_per_minute: Rate limit
         """
         self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        self.api_key = api_key if api_key is not None else CRYPTOCOMPARE_API_KEY
         self.calls_per_minute = calls_per_minute
         self.min_interval = 60.0 / calls_per_minute
         self._last_request_time: float | None = None
@@ -194,8 +175,14 @@ class CryptoCompareClient:
             "Accept": "application/json",
             "User-Agent": f"Halvix/{get_version()}",
         }
-        if api_key:
-            headers["authorization"] = f"Apikey {api_key}"
+        if self.api_key:
+            headers["authorization"] = f"Apikey {self.api_key}"
+        else:
+            logger.warning(
+                "No API key set — CryptoCompare requests will fail with HTTP 401. "
+                "Set the CRYPTOCOMPARE_API_KEY environment variable "
+                "(free key: https://developers.coindesk.com/)."
+            )
         self.session.headers.update(headers)
 
         # Rate limit logging: track calls for periodic status logging
@@ -281,10 +268,15 @@ class CryptoCompareClient:
             )
             return status
 
-        except Exception as e:
+        except (requests.RequestException, ValueError) as e:
             logger.warning("Error checking rate limit status: %s", e)
             self._dynamic_limits_available = False
             return RateLimitStatus()
+
+    def _invalidate_rate_limit_cache(self) -> None:
+        """Drop the cached rate-limit status after detecting a rate-limit error."""
+        self._last_rate_check_time = None
+        self._dynamic_limits_available = False
 
     def _log_rate_limit_status_if_needed(self, status: RateLimitStatus) -> None:
         """Log rate limit status periodically (every N calls or N seconds)."""
@@ -515,10 +507,15 @@ class CryptoCompareClient:
 
             if response.status_code == 429:
                 logger.warning("Rate limit hit (HTTP 429): %s%s", endpoint, param_info)
-                # Invalidate rate limit cache and mark dynamic limits as unreliable
-                self._last_rate_check_time = None
-                self._dynamic_limits_available = False
+                self._invalidate_rate_limit_cache()
                 raise RateLimitError("Rate limit exceeded (HTTP 429)")
+
+            if response.status_code == 401:
+                raise APIError(
+                    "Authentication failed (HTTP 401): a valid CryptoCompare API key is "
+                    "required. Set the CRYPTOCOMPARE_API_KEY environment variable "
+                    "(free key: https://developers.coindesk.com/)."
+                )
 
             if response.status_code != 200:
                 raise APIError(f"API error {response.status_code}: {response.text}")
@@ -536,9 +533,7 @@ class CryptoCompareClient:
                     logger.warning(
                         "Rate limit hit (JSON body): %s%s - %s", endpoint, param_info, error_msg
                     )
-                    # Invalidate rate limit cache and mark dynamic limits as unreliable
-                    self._last_rate_check_time = None
-                    self._dynamic_limits_available = False
+                    self._invalidate_rate_limit_cache()
                     raise RateLimitError(f"Rate limit exceeded: {error_msg}")
 
                 raise APIError(f"API error: {error_msg}")
@@ -587,6 +582,7 @@ class CryptoCompareClient:
         start_date: date | None = None,
         end_date: date | None = None,
         show_progress: bool = False,
+        provider_id: str | None = None,
     ) -> pd.DataFrame:
         """
         Get full daily historical prices, paginating if needed.
@@ -600,6 +596,8 @@ class CryptoCompareClient:
             start_date: Earliest date to fetch (default: 2010-01-01)
             end_date: Latest date to fetch (default: yesterday - today's data is incomplete)
             show_progress: Print progress messages
+            provider_id: Unused (accepted for ``PriceProvider`` compatibility;
+                CryptoCompare addresses coins by symbol)
 
         Returns:
             DataFrame with date index and OHLCV columns
@@ -812,8 +810,10 @@ class CryptoCompareClient:
         self,
         symbol: str,
         vs_currency: str = "BTC",
+        provider_id: str | None = None,
         wait_for_rate_limit: bool = True,
         max_wait_seconds: float = 120.0,
+        **kwargs: object,
     ) -> dict[str, str]:
         """
         Check if historical daily data is available for a trading pair.
@@ -826,12 +826,13 @@ class CryptoCompareClient:
         Args:
             symbol: Coin symbol (e.g., "KET", "ETH")
             vs_currency: Quote currency (e.g., "BTC", "USD")
+            provider_id: Unused (accepted for ``PriceProvider`` compatibility)
             wait_for_rate_limit: If True, wait for rate limit reset and retry
             max_wait_seconds: Maximum time to wait for rate limit reset
 
         Returns:
             Dictionary with:
-                - 'available': True if histoday works, False otherwise
+                - 'available': non-empty (``"yes"``) if histoday works, ``""`` otherwise
                 - 'reason': Human-readable explanation of why it failed (if applicable)
         """
         max_attempts = 3 if wait_for_rate_limit else 1
@@ -852,7 +853,7 @@ class CryptoCompareClient:
                     # Return the actual API error message
                     message = data.get("Message", "Unknown error")
                     return {
-                        "available": False,
+                        "available": "",
                         "reason": message,
                     }
 
@@ -860,12 +861,12 @@ class CryptoCompareClient:
                 records = data.get("Data", {}).get("Data", [])
                 if not records:
                     return {
-                        "available": False,
+                        "available": "",
                         "reason": f"No historical data returned for {symbol}/{vs_currency}",
                     }
 
                 return {
-                    "available": True,
+                    "available": "yes",
                     "reason": f"{symbol}/{vs_currency} pair available",
                 }
 
@@ -883,16 +884,16 @@ class CryptoCompareClient:
                     continue
                 else:
                     return {
-                        "available": False,
+                        "available": "",
                         "reason": f"Rate limit exceeded after {attempt + 1} attempts: {e}",
                     }
             except Exception as e:
                 return {
-                    "available": False,
+                    "available": "",
                     "reason": f"Error checking pair: {e}",
                 }
 
         return {
-            "available": False,
+            "available": "",
             "reason": "Max attempts exceeded",
         }

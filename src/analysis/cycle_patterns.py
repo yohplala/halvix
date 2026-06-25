@@ -256,10 +256,16 @@ class CyclePatternAnalyzer:
         # Build points index once for all projection methods
         idx = self._build_points_index(result.points)
 
+        # Projections are relative to the current price; without it there is
+        # nothing to compute against.
+        current_price = result.current_price
+        if current_price is None or current_price <= 0:
+            return
+
         # Fit trendlines
         upper_slope, upper_int, lower_slope, lower_int = self._fit_log_trendlines(result.points)
 
-        if upper_slope is not None:
+        if upper_slope is not None and upper_int is not None:
             result.upper_slope = upper_slope
             result.lower_slope = lower_slope
             result.upper_intercept = upper_int
@@ -271,19 +277,19 @@ class CyclePatternAnalyzer:
             target = self._project_trendline_target(upper_slope, upper_int, target_date)
             if target is not None:
                 result.trendline_target = target
-                result.trendline_target_pct = (target / result.current_price - 1) * 100
+                result.trendline_target_pct = (target / current_price - 1) * 100
 
         # Fibonacci extension
         fib_target = self._calculate_fib_extension(result.points, idx)
         if fib_target:
             result.fib_target = fib_target
-            result.fib_target_pct = (fib_target / result.current_price - 1) * 100
+            result.fib_target_pct = (fib_target / current_price - 1) * 100
 
         # Diminishing returns
         dim_target, dim_factor = self._calculate_diminishing_return(result.points, idx)
         if dim_target:
             result.dim_return_target = dim_target
-            result.dim_return_target_pct = (dim_target / result.current_price - 1) * 100
+            result.dim_return_target_pct = (dim_target / current_price - 1) * 100
             result.dim_return_factor = dim_factor
 
         # Historical peak
@@ -292,7 +298,7 @@ class CyclePatternAnalyzer:
         )
         if hist_peak_target:
             result.hist_peak_target = hist_peak_target
-            result.hist_peak_target_pct = (hist_peak_target / result.current_price - 1) * 100
+            result.hist_peak_target_pct = (hist_peak_target / current_price - 1) * 100
             result.hist_peak_is_absolute = hist_peak_is_absolute
 
         # Composite target (weighted average using confidence-based weight profile)

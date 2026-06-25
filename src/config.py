@@ -5,6 +5,7 @@ Halvix - Cryptocurrency price analysis relative to Bitcoin halving cycles.
 """
 
 import math
+import os
 from datetime import date
 from pathlib import Path
 
@@ -88,8 +89,8 @@ VOLUME_SMA_WINDOW = 120
 # TOTAL2b uses a different approach: freeze period + price scaling at entry
 #
 # Freeze Period: Coins must wait this many days after first appearing in
-# CryptoCompare before they can join the index. This ensures stable price
-# data and avoids launch-day volatility.
+# the provider's data before they can join the index. This ensures stable
+# price data and avoids launch-day volatility.
 #
 # Price Scaling: When a coin enters TOTAL2b (after freeze period + reaching
 # TOP30), its price is scaled by TOTAL2b_d-1/COIN_PRICE_d (where COIN_PRICE_d
@@ -98,7 +99,7 @@ TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 we
 TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
 TOTAL2_MIN_COINS_FOR_INDEX = 3  # Minimum coins required to calculate index for a day
 
-# Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
+# Symbol Replacement Detection: providers sometimes reuse symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
 # or LIT changed from Litentry to Lighter in Jan 2026 with a 4.43x jump).
 # Asymmetric thresholds: increases are more suspicious than decreases because
@@ -337,20 +338,64 @@ ALLOWED_TOKENS = {
 }
 
 # =============================================================================
-# CryptoCompare API Configuration
+# CryptoCompare API Configuration (alternative provider)
 # =============================================================================
 
-# CryptoCompare is the sole data source for Halvix:
-# - Top coins by market cap for coin discovery
-# - Historical price data with full history (no time limit on free tier)
-# - Volume data for TOTAL2 calculation
+# CryptoCompare (now CoinDesk Data) is an alternative provider, selectable with
+# PRICE_PROVIDER=cryptocompare. Its Data API requires an API key.
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
+# API key. The CoinDesk/CryptoCompare Data API requires an API key — requests
+# without one are rejected with HTTP 401. Provide it through the
+# CRYPTOCOMPARE_API_KEY environment variable (a GitHub Actions secret in CI).
+# Get a free key at https://developers.coindesk.com/.
+CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "").strip() or None
 
-def coin_url(symbol: str) -> str:
-    """Build CryptoCompare overview URL for a coin symbol."""
-    return f"{CRYPTOCOMPARE_COIN_URL}/{symbol.upper()}/overview"
+# =============================================================================
+# CoinGecko API Configuration (default provider)
+# =============================================================================
+
+# CoinGecko is the default data source: it covers the full coin universe
+# (every coin, not just exchange-listed pairs), exposes native market-cap
+# ranking for discovery, and serves recent price+volume against any quote
+# currency (BTC, USD). Full history is already cached, so the daily job only
+# tops up the most recent days — well within the free tier's monthly quota.
+COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
+COINGECKO_COIN_URL = "https://www.coingecko.com/en/coins"
+
+# Optional CoinGecko Demo API key (free, from https://www.coingecko.com/en/api).
+# Without it the public endpoints still work but are rate-limited more tightly.
+# Provide it via the COINGECKO_API_KEY environment variable (a CI secret).
+COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "").strip() or None
+
+# Conservative fallback request rate. The Demo tier allows ~30 calls/min; the
+# keyless public tier is lower and may return HTTP 429 under load.
+COINGECKO_CALLS_PER_MINUTE = 25
+# market_cap discovery page size (CoinGecko max is 250)
+COINGECKO_MARKETS_PER_PAGE = 250
+# market_chart history cap on the free tier (days). Recent top-up only.
+COINGECKO_MAX_DAYS_PER_REQUEST = 360
+
+# =============================================================================
+# Price Provider Selection
+# =============================================================================
+
+# Which backend to use for coin discovery and price fetching.
+# "coingecko" (default) or "cryptocompare". Override with PRICE_PROVIDER.
+PRICE_PROVIDER = os.environ.get("PRICE_PROVIDER", "coingecko").strip().lower()
+
+
+def coin_url(symbol: str, provider_id: str | None = None) -> str:
+    """
+    Build a CoinGecko reference URL for a coin.
+
+    Uses the CoinGecko slug (``provider_id``) for a direct page when known,
+    otherwise falls back to a symbol search that reliably lands on the coin.
+    """
+    if provider_id:
+        return f"{COINGECKO_COIN_URL}/{provider_id}"
+    return f"https://www.coingecko.com/en/search?query={symbol.upper()}"
 
 
 # Rate limiting: The client uses dynamic rate limiting by checking the
@@ -367,7 +412,7 @@ CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
 # Coin lists for download phase
 # coins_to_download.json - coins that will have price data fetched
 # download_skipped.csv - coins that are skipped with reason (stablecoins, wrapped tokens, etc.)
-# download_failed.csv - coins that failed to download (no BTC pair on CryptoCompare, etc.)
+# download_failed.csv - coins that failed to download (no pair from the provider, etc.)
 # no_usd_data.csv - coins returned by API without USD price data (silently skipped)
 # fetch_metadata.json - metadata about the fetch operation (counts, timestamp)
 COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"

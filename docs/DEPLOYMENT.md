@@ -10,7 +10,7 @@ This document describes how data is fetched, processed, and deployed to GitHub P
 
 Halvix uses a **fully automated CI pipeline** with:
 
-- **Daily Update** (scheduled) → Runs the full pipeline automatically at 6:00 AM UTC
+- **Daily Update** (scheduled) → Runs the full pipeline automatically at 4:00 AM UTC
 - Three **manually-triggered workflows** for on-demand runs
 - Two **data branches** (orphan) for storing raw and processed data
 
@@ -18,7 +18,7 @@ Halvix uses a **fully automated CI pipeline** with:
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| **Daily Update** | ⏰ 6:00 AM UTC (scheduled) | Runs full pipeline: fetch → calculate → deploy |
+| **Daily Update** | ⏰ 4:00 AM UTC (scheduled) | Runs full pipeline: fetch → calculate → deploy |
 | Fetch Raw Data | 🖱️ Manual | Stores price data in `raw-data` branch |
 | Calculate TOTAL2 | 🖱️ Manual | Stores processed index in `processed-data` branch |
 | Deploy to GitHub Pages | 🖱️ Manual | Generates charts and deploys |
@@ -36,7 +36,7 @@ This approach ensures:
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │                        Halvix CI Pipeline                          │
-│          ⏰ Daily Update (6:00 AM UTC) or 🖱️ Manual Trigger        │
+│          ⏰ Daily Update (4:00 AM UTC) or 🖱️ Manual Trigger        │
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
 │  STEP 1: Fetch Raw Data                                            │
@@ -94,7 +94,7 @@ This approach ensures:
 Source code only. No data files (html, parquet, json, csv are gitignored).
 
 ### `raw-data` branch (orphan)
-Contains raw price data fetched from CryptoCompare API:
+Contains raw price data fetched from the price provider:
 
 | Path | Description |
 |------|-------------|
@@ -125,7 +125,7 @@ Contains calculated TOTAL2 index data:
 
 ### Daily Update (`daily-update.yml`) ⭐ Recommended
 
-The **Daily Update** workflow runs the complete pipeline automatically every day at **6:00 AM UTC**.
+The **Daily Update** workflow runs the complete pipeline automatically every day at **4:00 AM UTC**.
 
 **Trigger**: Scheduled (cron: `0 6 * * *`) + Manual (workflow_dispatch)
 
@@ -154,7 +154,7 @@ The individual workflows are available for on-demand runs with custom options.
 
 #### 1. Fetch Raw Data (`fetch-raw-data.yml`)
 
-Fetches cryptocurrency price data from CryptoCompare API.
+Fetches cryptocurrency price data from the configured price provider.
 
 **Trigger**: Manual only (workflow_dispatch)
 
@@ -250,7 +250,7 @@ site/charts/
 
 ### Automatic Daily Updates
 
-The pipeline runs automatically every day at **6:00 AM UTC** via the "Daily Update" workflow.
+The pipeline runs automatically every day at **4:00 AM UTC** via the "Daily Update" workflow.
 
 All generated pages display a "Last updated" timestamp in the footer.
 
@@ -335,7 +335,7 @@ To see when data branches were last updated:
 1. Go to the `raw-data` or `processed-data` branch on GitHub
 2. Check the README.md which shows the last update timestamp
 
-The Daily Update workflow runs automatically at 6:00 AM UTC. If data appears stale:
+The Daily Update workflow runs automatically at 4:00 AM UTC. If data appears stale:
 1. Check the GitHub Actions tab for failed runs
 2. Manually trigger the "Daily Update" workflow
 

@@ -165,19 +165,18 @@ class TestApplyVolumeCorrectionsToDataFrame:
             ratios = [c["ratio"] for c in corrections]
             assert ratios == sorted(ratios, reverse=True)
 
-    def test_show_progress_flag(self, df_with_outliers, capsys):
-        """Test show_progress flag output."""
-        apply_volume_corrections_to_dataframe(
-            df_with_outliers,
-            threshold=20,
-            min_volume=1000,
-            window_days=7,
-            show_progress=True,
+    def test_show_progress_does_not_change_results(self, df_with_outliers):
+        """show_progress is presentation-only: results must be identical."""
+        quiet_df, quiet_corr = apply_volume_corrections_to_dataframe(
+            df_with_outliers, threshold=20, min_volume=1000, window_days=7, show_progress=False
+        )
+        loud_df, loud_corr = apply_volume_corrections_to_dataframe(
+            df_with_outliers, threshold=20, min_volume=1000, window_days=7, show_progress=True
         )
 
-        captured = capsys.readouterr()
-        # Should print progress information
-        assert "outlier" in captured.out.lower() or len(captured.out) >= 0
+        assert loud_corr == quiet_corr
+        assert loud_df.shape == quiet_df.shape
+        pd.testing.assert_frame_equal(loud_df, quiet_df)
 
     def test_max_iterations_respected(self, df_with_outliers):
         """Test max_iterations parameter."""

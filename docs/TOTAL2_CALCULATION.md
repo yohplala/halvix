@@ -48,7 +48,7 @@ Additional configuration for **TOTAL2b** in `src/config.py`:
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21   # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has this many coins
 
-# Symbol Replacement Detection: CryptoCompare sometimes reuses symbols for different
+# Symbol Replacement Detection: providers sometimes reuse symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
 # or LIT changed from Litentry to Lighter in Jan 2026 with a 4.43x jump).
 # Asymmetric thresholds: increases are more suspicious than decreases because
@@ -63,7 +63,7 @@ SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacemen
 # to smooth the spike day rather than eject the coin from the index.
 PRICE_ROUND_TRIP_JUMP_THRESHOLD = 2.0      # candidate when |ratio - 1| > this
 PRICE_ROUND_TRIP_REVERT_THRESHOLD = 1.5    # confirmed when revert is within ±50%
-PRICE_ROUND_TRIP_WINDOW_DAYS = 2           # how many days after the jump to look
+PRICE_ROUND_TRIP_WINDOW_DAYS = 7           # how many days after the jump to look
 ```
 
 ## Calculation Algorithm
@@ -110,7 +110,7 @@ Weights are recalculated daily based on the smoothed volume for that day. A coin
 
 ### Volume Outlier Detection
 
-CryptoCompare occasionally has bad data points with impossible volume spikes. These are automatically detected and corrected.
+Providers occasionally have bad data points with impossible volume spikes. These are automatically detected and corrected.
 
 **Detection criteria:**
 - Volume is **> 20x** the rolling median of past 7 days
@@ -139,14 +139,14 @@ TOTAL2b uses a price scaling mechanism which makes it resistant to distortion be
 
 ### 1. Freeze Period
 
-When a coin first appears in CryptoCompare data, it must wait **21 days** before it can be included in the index. This:
+When a coin first appears in the provider's data, it must wait **21 days** before it can be included in the index. This:
 - Ensures stable price data before inclusion
 - Avoids launch-day volatility spikes
 - Provides time for accurate volume SMA calculation
 
 ### 2. Symbol Replacement Detection
 
-CryptoCompare sometimes reuses a symbol for a different token (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024, or old "OMG" replaced by OmiseGO in July 2017). When detected, the `first_seen` date is reset, and a new freeze period and price scaling apply to the new token.
+Providers sometimes reuse a symbol for a different token (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024, or old "OMG" replaced by OmiseGO in July 2017). When detected, the `first_seen` date is reset, and a new freeze period and price scaling apply to the new token.
 
 > **Note**: The same `detect_symbol_replacement()` function (from `data/price_filters.py`) is also used by the [pattern analysis](PATTERN_ANALYSIS.md) module to trim stale pre-replacement price history before cycle point detection.
 
@@ -364,7 +364,7 @@ This ensures consistent data quality across all analysis modules.
 |----------|-------------|
 | `apply_volume_corrections_to_dataframe()` | Cap volume outliers across a multi-coin DataFrame |
 | `apply_volume_sma_smoothing_to_dataframe()` | Apply SMA smoothing with optional zero-padding |
-| `detect_symbol_replacement()` | Flag CryptoCompare ticker recycling via extreme price jumps |
+| `detect_symbol_replacement()` | Flag provider ticker recycling via extreme price jumps |
 | `detect_round_trips()` / `apply_round_trip_corrections_to_dataframe()` | Detect and neutralise spike-and-revert glitches (single-day or multi-day windows) |
 
 ### Using the Processor

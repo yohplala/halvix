@@ -336,7 +336,7 @@ class CoinFilter:
         Returns:
             Dictionary with counts by reason
         """
-        summary = {}
+        summary: dict[str, int] = {}
         for coin in self.skipped_coins:
             reason = coin.reason
             summary[reason] = summary.get(reason, 0) + 1

@@ -194,14 +194,14 @@ def fit_log_trendlines(
             # Calculate intercept for upper line passing through the max2 point (or average if multiple)
             if major_peaks:
                 # Use the major peak(s) to set the upper intercept
-                major_peak_x = np.mean(
-                    [(get_regression_date(p) - reference_date).days for p in major_peaks]
+                major_peak_x = float(
+                    np.mean([(get_regression_date(p) - reference_date).days for p in major_peaks])
                 )
                 major_peak_y = np.mean([np.log10(p.price) for p in major_peaks])
             else:
                 # Fallback to highest peak
                 highest_peak = max(peaks, key=lambda p: p.price)
-                major_peak_x = (get_regression_date(highest_peak) - reference_date).days
+                major_peak_x = float((get_regression_date(highest_peak) - reference_date).days)
                 major_peak_y = np.log10(highest_peak.price)
             upper_intercept = major_peak_y - slope * major_peak_x
             return (
@@ -217,14 +217,14 @@ def fit_log_trendlines(
             slope = upper_fit[0]
             # Calculate intercept for lower line passing through the min1 point (or average if multiple)
             if major_troughs:
-                major_trough_x = np.mean(
-                    [(get_regression_date(p) - reference_date).days for p in major_troughs]
+                major_trough_x = float(
+                    np.mean([(get_regression_date(p) - reference_date).days for p in major_troughs])
                 )
                 major_trough_y = np.mean([np.log10(p.price) for p in major_troughs])
             else:
                 # Fallback to lowest trough
                 lowest_trough = min(troughs, key=lambda p: p.price)
-                major_trough_x = (get_regression_date(lowest_trough) - reference_date).days
+                major_trough_x = float((get_regression_date(lowest_trough) - reference_date).days)
                 major_trough_y = np.log10(lowest_trough.price)
             lower_intercept = major_trough_y - slope * major_trough_x
             return (

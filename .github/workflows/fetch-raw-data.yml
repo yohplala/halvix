@@ -1,15 +1,33 @@
-# Fetch cryptocurrency price data and store in orphan 'raw-data' branch
-# This workflow is triggered manually from the GitHub Actions UI
+# Fetch cryptocurrency price data and store in orphan 'raw-data' branch.
+# Runs manually, or is called by the Daily Update workflow (reusable).
 name: Fetch Raw Data
 
 on:
-  # Manual trigger only - this is a heavy workflow
+  # Manual trigger - this is a heavy workflow
   workflow_dispatch:
     inputs:
       limit:
         description: 'Limit number of coins to fetch (empty for all)'
         required: false
         default: ''
+  # Reusable: called by the Daily Update orchestrator
+  workflow_call:
+    inputs:
+      limit:
+        description: 'Limit number of coins to fetch (empty for all)'
+        required: false
+        type: string
+        default: ''
+
+# Price-provider credentials. CoinGecko is the default provider; add a free
+# Demo key (https://www.coingecko.com/en/api) as the COINGECKO_API_KEY secret
+# under Settings → Secrets and variables → Actions. Keyless also works but is
+# rate-limited harder. CRYPTOCOMPARE_API_KEY is only needed if PRICE_PROVIDER
+# is switched to "cryptocompare".
+env:
+  PRICE_PROVIDER: coingecko
+  COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+  CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 
 jobs:
   fetch-data:
@@ -19,13 +37,13 @@ jobs:
 
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: main
 
       - name: Checkout raw-data branch
         id: checkout-raw-data
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: raw-data
           path: raw-data-branch
@@ -88,7 +106,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-poetry-dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: main/.venv
           key: venv-data-${{ runner.os }}-3.14-${{ hashFiles('main/**/pyproject.toml') }}
@@ -104,8 +122,8 @@ jobs:
       - name: Fetch price data (incremental)
         working-directory: main
         run: |
-          if [ -n "${{ github.event.inputs.limit }}" ]; then
-            poetry run python -m main fetch-prices --limit ${{ github.event.inputs.limit }}
+          if [ -n "${{ inputs.limit }}" ]; then
+            poetry run python -m main fetch-prices --limit ${{ inputs.limit }}
           else
             poetry run python -m main fetch-prices
           fi

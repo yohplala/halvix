@@ -244,7 +244,8 @@ def process_segment(
     seg_start_halving = halvings[s_idx]
     seg_end_halving = halvings[s_idx + 1]
 
-    # max2 always exists
+    # max2 always exists (Pass 1 populates it before Pass 3 runs)
+    assert seg.max2_date is not None and seg.max2_price is not None
     points.append(_make_point(seg.max2_date, seg.max2_price, prev_cycle, "max2", seg_start_halving))
 
     # Extend min2 search to prev max1 when applicable
@@ -253,6 +254,8 @@ def process_segment(
     # Validate min2
     min2_valid = validate_min2(df, seg, s_idx, state.had_max1, state.min1_price)
     if min2_valid:
+        # validate_min2 sets min2_date/price when it returns True
+        assert seg.min2_date is not None and seg.min2_price is not None
         points.append(
             _make_point(seg.min2_date, seg.min2_price, prev_cycle, "min2", seg_start_halving)
         )
@@ -381,6 +384,8 @@ def find_max1_before_min2(
     """Find max1 before min2 for short-history tokens with no prior max1."""
     if not min2_valid or prev_max1_date is not None:
         return None
+    if seg.min2_date is None or seg.min2_price is None or seg.max2_price is None:
+        return None
     first_available = _to_date(df.index[0])
     max1_search_start = first_available + timedelta(days=LAUNCH_DATE_BUFFER_DAYS)
     max1_mask = (
@@ -440,7 +445,12 @@ def validate_min2(
     prev_min1_price: float | None,
 ) -> bool:
     """Validate whether the min2 candidate is structurally significant."""
-    if seg.min2_price is None:
+    if (
+        seg.min2_price is None
+        or seg.min2_date is None
+        or seg.max2_price is None
+        or seg.max2_date is None
+    ):
         return False
     if not prev_had_max1 and s_idx > 0:
         # Alternation rule: prev segment ended with min (no max1)
@@ -505,6 +515,8 @@ def find_min1(
     seg_end_halving: date,
 ) -> CyclePoint | None:
     """Find min1: minimum price in (max2_date, effective_end]."""
+    if seg.max2_date is None or seg.max2_price is None:
+        return None
     min1_mask = (seg.valid_data.index.date > seg.max2_date) & (
         seg.valid_data.index.date <= seg.effective_end
     )
@@ -544,13 +556,13 @@ def find_max1(
     seg_end_halving: date,
 ) -> CyclePoint | None:
     """Find max1: max in [min1_date, seg_end], extended to next min2."""
-    if min1_point is None:
+    if min1_point is None or seg.max2_price is None:
         return None
 
     max1_search_end = seg.effective_end
     if s_idx + 1 < len(segments) and segments[s_idx + 1] is not None:
         next_seg = segments[s_idx + 1]
-        if next_seg.min2_date is not None:
+        if next_seg is not None and next_seg.min2_date is not None:
             max1_search_end = max(max1_search_end, next_seg.min2_date)
 
     max1_mask = (seg.valid_data.index.date >= min1_point.date) & (

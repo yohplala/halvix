@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -32,7 +32,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-poetry-dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
@@ -46,6 +46,12 @@ jobs:
 
       - name: Run linter (ruff)
         run: poetry run ruff check src/ tests/
+
+      - name: Check formatting (black)
+        run: poetry run black --check src/ tests/
+
+      - name: Type check (mypy)
+        run: poetry run mypy src/
 
       - name: Run tests
         run: poetry run pytest tests/ -v --tb=short
