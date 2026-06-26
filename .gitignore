@@ -78,11 +78,11 @@ venv.bak/
 *.swo
 *~
 
-# Project-specific data directories
-data/
+# Project-specific data directories (root only — must NOT match src/data/)
+/data/
 
 # Generated site (charts are generated in CI)
-site/
+/site/
 
 # Output directory
 output/
