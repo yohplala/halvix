@@ -32,8 +32,19 @@ format YYYY.MM.patch.
   Updated GitHub Actions (`checkout@v7`, `cache@v6`) and `target-version` to
   `py314`.
 - **Changed:** `poetry.lock` is now committed for reproducible builds.
-- **Added:** Tests for the CoinGecko client, the provider factory, and the
-  CryptoCompare 401 auth path.
+- **Added:** Migration safeguards for splicing a new provider onto cached
+  history (different providers can map the same symbol to different assets):
+  - Bulk-rename guard: a wholesale name change across many coins (e.g. a
+    provider switch) no longer deletes cached history; only a few genuine
+    reassignments do.
+  - Splice price-equivalence check: an incremental top-up is compared against
+    the cached history over a 30-day overlap (median level + log-ratio
+    tracking) and skipped if it diverges — preventing a different asset from
+    corrupting the series.
+  - Contiguity guard: a truncated/non-contiguous provider window is skipped
+    rather than left as a gap.
+- **Added:** Tests for the CoinGecko client, the provider factory, the
+  CryptoCompare 401 auth path, and the splice safeguards.
 - **Fixed:** Global CLI flags (`--verbose/--quiet/--log-file`) now work both
   before and after the subcommand.
 - **Fixed:** Documentation inconsistencies — provider references, Daily Update

@@ -405,6 +405,26 @@ def coin_url(symbol: str, provider_id: str | None = None) -> str:
 # We use a very conservative fallback of 1 call every 5 seconds.
 CRYPTOCOMPARE_API_CALLS_PER_MINUTE = 12  # Fallback: 5 seconds between requests
 
+# Splice safety: when an incremental top-up appends a NEW provider's data onto a
+# coin's cached history (e.g. CryptoCompare → CoinGecko), the providers are
+# compared over an OVERLAP WINDOW of already-cached days before appending. If a
+# symbol now resolves to a DIFFERENT asset, the series disagree and the top-up is
+# skipped rather than corrupting the history.
+#
+# Two signals (a single day is not enough — different assets can momentarily
+# share a price level, e.g. SYRUP/EDEN):
+#   - level:    median(provider/cached) must be within [1/MAX_RATIO, MAX_RATIO]
+#   - tracking: std(log(provider/cached)) over the window must be small — the
+#               same asset tracks proportionally; different assets drift apart.
+SPLICE_OVERLAP_DAYS = 30  # how many cached days to re-fetch for comparison
+SPLICE_MIN_OVERLAP_DAYS = 5  # need at least this many to use the tracking signal
+SPLICE_PRICE_MAX_RATIO = 2.0  # level tolerance
+SPLICE_MAX_LOG_RATIO_STD = 0.15  # tracking tolerance (~15% day-to-day ratio wobble)
+# Max allowed gap (days) between the last cached day and the first new day. A
+# larger gap means the provider returned a truncated/non-contiguous window
+# (common keyless), so the top-up is skipped rather than leaving a hole.
+SPLICE_MAX_GAP_DAYS = 2
+
 # =============================================================================
 # Output Files
 # =============================================================================

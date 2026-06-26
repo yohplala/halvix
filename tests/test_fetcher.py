@@ -564,3 +564,123 @@ class TestDetectSymbolReplacementsByName:
             result = fetcher._detect_symbol_replacements_by_name(new_coins)
 
         assert result == []
+
+    def test_bulk_rename_preserves_cache(self, fetcher, temp_dirs):
+        """A wholesale re-label (e.g. provider switch) must NOT delete history."""
+        _, prices_dir, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        # 30 coins, all with a different name in the new list (> the bulk threshold)
+        old_coins = [{"id": f"c{i}", "name": f"Old Name {i}"} for i in range(30)]
+        new_coins = [{"id": f"c{i}", "name": f"New Name {i}"} for i in range(30)]
+        self._write_old_coins(coins_path, old_coins)
+        price_files = [self._create_price_file(prices_dir, f"c{i}") for i in range(30)]
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert result == []  # bulk guard skips deletion
+        assert all(f.exists() for f in price_files)  # history preserved
+
+    def test_few_renames_still_delete(self, fetcher, temp_dirs):
+        """A handful of renames (below the guard) are still treated as real."""
+        _, prices_dir, processed_dir = temp_dirs
+        coins_path = processed_dir / "coins_to_download.json"
+
+        # 30 coins, only 2 renamed → below threshold → real reassignments
+        old_coins = [{"id": f"c{i}", "name": f"Name {i}"} for i in range(30)]
+        new_coins = [{"id": f"c{i}", "name": f"Name {i}"} for i in range(30)]
+        new_coins[0]["name"] = "Reassigned A"
+        new_coins[1]["name"] = "Reassigned B"
+        self._write_old_coins(coins_path, old_coins)
+        kept = self._create_price_file(prices_dir, "c5")
+        deleted = self._create_price_file(prices_dir, "c0")
+
+        with patch("data.fetcher.COINS_TO_DOWNLOAD_JSON", coins_path):
+            result = fetcher._detect_symbol_replacements_by_name(new_coins)
+
+        assert {r["id"] for r in result} == {"c0", "c1"}
+        assert not deleted.exists()  # renamed coin's cache deleted
+        assert kept.exists()  # untouched coin preserved
+
+
+class TestSpliceValidation:
+    """Tests for the splice-time price-equivalence safeguard."""
+
+    @pytest.fixture
+    def fetcher(self):
+        return DataFetcher(client=MagicMock(spec=CryptoCompareClient))
+
+    @staticmethod
+    def _df(start, closes):
+        idx = pd.date_range(start, periods=len(closes), freq="D")
+        return pd.DataFrame({"close": closes}, index=idx)
+
+    def test_same_asset_allows_splice(self, fetcher):
+        # Same asset: provider tracks cached proportionally (~1x, tiny wobble).
+        base = [1.0, 1.1, 1.05, 1.2, 1.15, 1.3, 1.25, 1.4]
+        cached = self._df("2026-06-01", base)
+        new = self._df("2026-06-01", [x * 1.01 for x in base])
+        assert fetcher._splice_is_consistent("eth", "BTC", cached, new) is True
+        assert fetcher.splice_mismatches == []
+
+    def test_level_mismatch_blocks_splice(self, fetcher):
+        cached = self._df("2026-06-01", [1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        new = self._df("2026-06-01", [5.0, 5.0, 5.0, 5.0, 5.0, 5.0])  # 5x level
+        assert fetcher._splice_is_consistent("foo", "BTC", cached, new) is False
+        m = fetcher.splice_mismatches[0]
+        assert m["id"] == "foo" and m["reason"] == "level"
+        assert m["median_ratio"] == pytest.approx(5.0)
+
+    def test_similar_level_but_untracked_blocks_splice(self, fetcher):
+        # Different assets that momentarily share a price level (~1x) but whose
+        # day-to-day moves are unrelated -> caught by the tracking signal.
+        cached = self._df("2026-06-01", [1.0, 1.2, 0.9, 1.3, 0.8, 1.4, 1.0, 1.1])
+        new = self._df("2026-06-01", [1.0, 0.8, 1.3, 0.9, 1.4, 0.85, 1.2, 0.95])
+        assert fetcher._splice_is_consistent("syrup", "BTC", cached, new) is False
+        assert fetcher.splice_mismatches[0]["reason"] == "tracking"
+
+    def test_no_overlap_allows_splice(self, fetcher):
+        cached = self._df("2026-06-01", [1.0, 1.0])  # ends 2026-06-02
+        new = self._df("2026-06-05", [9.0, 9.0])  # no shared day
+        assert fetcher._splice_is_consistent("eth", "BTC", cached, new) is True
+
+    def test_incremental_skips_topup_on_mismatch(self):
+        """A mismatched provider series must NOT be appended to history."""
+        cached = self._df("2026-06-01", [1.0, 1.0, 1.0])  # cache to 2026-06-03
+        topup = self._df("2026-06-03", [5.0, 5.1, 5.2])  # overlap 06-03 diverges 5x
+
+        client = MagicMock(spec=CryptoCompareClient)
+        client.get_full_daily_history.return_value = topup
+        price_cache = MagicMock()
+        price_cache.get_prices.return_value = cached
+        fetcher = DataFetcher(client=client, price_cache=price_cache)
+        # Pretend yesterday is well past the cache so a top-up is attempted.
+        fetcher.history_end_date = pd.Timestamp("2026-06-06").date()
+
+        out = fetcher.fetch_coin_prices("foo", "FOO", "BTC", provider_id="foo-token")
+
+        # Returned cache unchanged; nothing written; mismatch recorded.
+        assert out.index.max().date().isoformat() == "2026-06-03"
+        price_cache.set_prices.assert_not_called()
+        assert len(fetcher.splice_mismatches) == 1
+
+    def test_incremental_skips_on_gap_or_no_overlap(self):
+        """A truncated/non-contiguous provider window must not create a gap."""
+        cached = self._df("2026-06-01", [1.0, 1.0, 1.0])  # cache to 2026-06-03
+        # Provider returns only far-future days (no overlap, big gap) — e.g.
+        # keyless CoinGecko truncation.
+        topup = self._df("2026-06-20", [1.0, 1.0, 1.0])
+
+        client = MagicMock(spec=CryptoCompareClient)
+        client.get_full_daily_history.return_value = topup
+        price_cache = MagicMock()
+        price_cache.get_prices.return_value = cached
+        fetcher = DataFetcher(client=client, price_cache=price_cache)
+        fetcher.history_end_date = pd.Timestamp("2026-06-25").date()
+
+        out = fetcher.fetch_coin_prices("foo", "FOO", "BTC", provider_id="foo-token")
+
+        assert out.index.max().date().isoformat() == "2026-06-03"  # unchanged, no gap
+        price_cache.set_prices.assert_not_called()
+        assert fetcher.splice_mismatches[0]["reason"] in {"no_overlap", "gap"}

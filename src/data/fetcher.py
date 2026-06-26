@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast, overload
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -33,6 +34,11 @@ from config import (
     NO_USD_DATA_CSV,
     PROCESSED_DIR,
     QUOTE_CURRENCIES,
+    SPLICE_MAX_GAP_DAYS,
+    SPLICE_MAX_LOG_RATIO_STD,
+    SPLICE_MIN_OVERLAP_DAYS,
+    SPLICE_OVERLAP_DAYS,
+    SPLICE_PRICE_MAX_RATIO,
     TOP_N_BY_MARKETCAP_TO_FETCH,
     USE_YESTERDAY_AS_END_DATE,
 )
@@ -104,6 +110,9 @@ class DataFetcher:
         self.price_cache = price_cache or PriceDataCache()
         self.coin_filter = coin_filter or CoinFilter()
         self.no_usd_filter: CoinFilter | None = None  # Filter for coins without USD data
+        # Coins whose incremental top-up was skipped because the provider's price
+        # for the overlap day disagreed with cached history (suspected mismatch).
+        self.splice_mismatches: list[dict] = []
 
         # Calculate the date range needed for all halving cycles
         # First halving minus DAYS_BEFORE to last halving plus DAYS_AFTER
@@ -345,6 +354,13 @@ class DataFetcher:
 
         return NO_USD_DATA_CSV
 
+    # If more than this fraction (or count) of coins change name in one run, it
+    # is a bulk re-label (e.g. switching data provider, whose naming style
+    # differs) rather than genuine symbol reassignments — so cached history is
+    # preserved instead of deleted. A real reassignment touches only a handful.
+    BULK_RENAME_MIN_COUNT = 20
+    BULK_RENAME_FRACTION = 0.05
+
     def _detect_symbol_replacements_by_name(self, new_coins: list[dict]) -> list[dict]:
         """
         Detect symbol recycling by comparing coin names against previous metadata.
@@ -353,8 +369,10 @@ class DataFetcher:
         LIT changed from Litentry to Lighter). Price-ratio detection misses this
         when both tokens trade at similar price levels. Comparing names catches it.
 
-        When a name change is detected, cached price data is deleted so that
-        fetch-prices downloads only the new token's history.
+        When a genuine reassignment is detected, cached price data is deleted so
+        that fetch-prices downloads only the new token's history. A *wholesale*
+        rename (many coins at once — e.g. a data-source switch) is treated as a
+        naming-style difference and the cache is preserved (see the bulk guard).
 
         Args:
             new_coins: The new coins list about to be saved
@@ -368,30 +386,48 @@ class DataFetcher:
         try:
             with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
                 old_coins = json.load(f)
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError, OSError:
             return []
 
-        old_names = {coin["id"]: coin.get("name", "") for coin in old_coins}
-        replacements = []
+        old_names = {coin["id"]: (coin.get("name") or "").strip() for coin in old_coins}
 
+        # Collect candidates first so we can distinguish a few real reassignments
+        # from a wholesale re-label before touching the cache.
+        candidates: list[dict] = []
         for coin in new_coins:
             coin_id = coin["id"]
-            new_name = coin.get("name", "")
+            new_name = (coin.get("name") or "").strip()
             old_name = old_names.get(coin_id)
-
             if old_name is not None and old_name != new_name:
-                # Delete cached price data for all quote currencies
-                for vs_currency in QUOTE_CURRENCIES:
-                    self.price_cache.delete_prices(coin_id, vs_currency)
+                candidates.append({"id": coin_id, "old_name": old_name, "new_name": new_name})
 
-                replacements.append({"id": coin_id, "old_name": old_name, "new_name": new_name})
-                logger.warning(
-                    "Symbol replacement detected: %s renamed from '%s' to '%s'"
-                    " — deleted cached price data",
-                    coin_id.upper(),
-                    old_name,
-                    new_name,
-                )
+        bulk_threshold = max(
+            self.BULK_RENAME_MIN_COUNT, int(len(new_coins) * self.BULK_RENAME_FRACTION)
+        )
+        if len(candidates) > bulk_threshold:
+            logger.warning(
+                "%d coins changed name (> %d) — treating as a bulk re-label "
+                "(e.g. data-source/naming change); cached price history preserved.",
+                len(candidates),
+                bulk_threshold,
+            )
+            return []
+
+        replacements = []
+        for cand in candidates:
+            coin_id = cand["id"]
+            # Delete cached price data for all quote currencies
+            for vs_currency in QUOTE_CURRENCIES:
+                self.price_cache.delete_prices(coin_id, vs_currency)
+
+            replacements.append(cand)
+            logger.warning(
+                "Symbol replacement detected: %s renamed from '%s' to '%s'"
+                " — deleted cached price data",
+                coin_id.upper(),
+                cand["old_name"],
+                cand["new_name"],
+            )
 
         return replacements
 
@@ -402,6 +438,69 @@ class DataFetcher:
 
         with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
             return json.load(f)
+
+    def _splice_is_consistent(
+        self,
+        coin_id: str,
+        vs_currency: str,
+        cached: pd.DataFrame,
+        new_data: pd.DataFrame,
+    ) -> bool:
+        """
+        Verify the provider matches the cached history before splicing.
+
+        Compares the two series over their overlapping days using two signals:
+          - level:    median(provider / cached) within the configured ratio band
+          - tracking: std(log(provider / cached)) small (the same asset moves
+                      proportionally; a different asset drifts apart even if a
+                      single day coincidentally matches)
+
+        A failure means the symbol likely maps to a different asset now; the
+        top-up is skipped and recorded in ``splice_mismatches`` so cached history
+        is not corrupted. Returns True if it is safe to splice.
+        """
+        overlap = new_data.index.intersection(cached.index)
+        if len(overlap) == 0:
+            return True  # nothing to compare (provider lacks the overlap)
+
+        old = pd.to_numeric(cached.loc[overlap, "close"], errors="coerce")
+        new = pd.to_numeric(new_data.loc[overlap, "close"], errors="coerce")
+        valid = (old > 0) & (new > 0) & old.notna() & new.notna()
+        old, new = old[valid], new[valid]
+        if old.empty:
+            return True
+
+        log_ratio = np.log(new.to_numpy() / old.to_numpy())
+        median_ratio = float(np.exp(np.median(log_ratio)))
+        ratio_std = float(np.std(log_ratio)) if len(log_ratio) >= SPLICE_MIN_OVERLAP_DAYS else 0.0
+
+        level_bad = (
+            median_ratio > SPLICE_PRICE_MAX_RATIO or median_ratio < 1.0 / SPLICE_PRICE_MAX_RATIO
+        )
+        tracking_bad = ratio_std > SPLICE_MAX_LOG_RATIO_STD
+
+        if level_bad or tracking_bad:
+            logger.warning(
+                "Splice mismatch for %s/%s over %d overlap days: median ratio %.2fx, "
+                "log-ratio std %.3f — skipping top-up (symbol may map to a different asset).",
+                coin_id.upper(),
+                vs_currency,
+                len(old),
+                median_ratio,
+                ratio_std,
+            )
+            self.splice_mismatches.append(
+                {
+                    "id": coin_id,
+                    "vs_currency": vs_currency,
+                    "overlap_days": int(len(old)),
+                    "median_ratio": median_ratio,
+                    "log_ratio_std": ratio_std,
+                    "reason": "level" if level_bad else "tracking",
+                }
+            )
+            return False
+        return True
 
     def fetch_coin_prices(
         self,
@@ -457,11 +556,14 @@ class DataFetcher:
                 if last_cached_date >= effective_end_date:
                     return cached
 
-                # Incremental: only fetch new data since last cache
-                fetch_start = last_cached_date + timedelta(days=1)
-
-                if fetch_start > effective_end_date:
-                    return cached
+                # Incremental: fetch starting an overlap window BEFORE the last
+                # cached day so the splice can be validated against multiple
+                # already-cached days before appending (one provider call covers
+                # the whole window regardless of how far back it starts).
+                fetch_start = max(
+                    self.history_start_date,
+                    last_cached_date - timedelta(days=SPLICE_OVERLAP_DAYS),
+                )
 
                 try:
                     new_data = self.client.get_full_daily_history(
@@ -473,15 +575,52 @@ class DataFetcher:
                         provider_id=provider_id,
                     )
 
-                    if not new_data.empty:
-                        # Merge with existing cache
-                        combined = pd.concat([cached, new_data])
-                        combined = combined[~combined.index.duplicated(keep="last")]
-                        combined = combined.sort_index()
-                        self.price_cache.set_prices(coin_id, combined, vs_currency)
-                        return combined
+                    if new_data.empty:
+                        return cached
 
-                    return cached
+                    new_rows = new_data[new_data.index > cached.index.max()]
+                    if new_rows.empty:
+                        return cached
+
+                    # Refuse to splice unless the new data both OVERLAPS the cache
+                    # (so price equivalence can be verified) and CONNECTS to it
+                    # without a gap. Truncated provider responses (common on the
+                    # keyless tier) otherwise create gaps or unverified splices.
+                    overlap = new_data.index.intersection(cached.index)
+                    gap_days = (new_rows.index.min().date() - last_cached_date).days
+                    if len(overlap) == 0 or gap_days > SPLICE_MAX_GAP_DAYS:
+                        why = "no overlap to verify" if len(overlap) == 0 else f"{gap_days}-day gap"
+                        logger.warning(
+                            "Skipping %s/%s top-up (%s): provider window %s..%s does not safely "
+                            "connect to cached history ending %s.",
+                            coin_id.upper(),
+                            vs_currency,
+                            why,
+                            new_data.index.min().date(),
+                            new_data.index.max().date(),
+                            last_cached_date,
+                        )
+                        self.splice_mismatches.append(
+                            {
+                                "id": coin_id,
+                                "vs_currency": vs_currency,
+                                "reason": "no_overlap" if len(overlap) == 0 else "gap",
+                                "overlap_days": int(len(overlap)),
+                                "gap_days": int(gap_days),
+                            }
+                        )
+                        return cached
+
+                    # Guard against splicing a different asset onto the history.
+                    if not self._splice_is_consistent(coin_id, vs_currency, cached, new_data):
+                        return cached
+
+                    # Append only strictly-newer rows; never overwrite cached
+                    # historical values (keep="first" would, so we slice instead).
+                    combined = pd.concat([cached, new_rows]).sort_index()
+                    combined = combined[~combined.index.duplicated(keep="last")]
+                    self.price_cache.set_prices(coin_id, combined, vs_currency)
+                    return combined
 
                 except PriceProviderError:
                     # On error, return existing cache
@@ -598,6 +737,23 @@ class DataFetcher:
                 logger.warning("  - %s", error)
             if len(errors) > 10:
                 logger.warning("  ... and %d more", len(errors) - 10)
+
+        if self.splice_mismatches:
+            logger.warning(
+                "%d coin(s) skipped on splice price mismatch (possible symbol→asset "
+                "mismatch); not appended to history:",
+                len(self.splice_mismatches),
+            )
+            for m in self.splice_mismatches[:10]:
+                logger.warning(
+                    "  - %s/%s on %s: %.6g vs %.6g (%.2fx)",
+                    m["id"].upper(),
+                    m["vs_currency"],
+                    m["date"],
+                    m["cached_price"],
+                    m["provider_price"],
+                    m["ratio"],
+                )
 
         return results
 
