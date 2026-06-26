@@ -42,6 +42,7 @@ poetry run black src/ tests/
 halvix/
 ├── pyproject.toml              # Poetry config (Python 3.14+)
 ├── poetry.lock                 # Pinned dependency graph (committed)
+├── .env.example                # Template for local API keys (copy to .env)
 ├── CLAUDE.md                   # This file
 ├── README.md
 ├── CHANGELOG.md
@@ -118,6 +119,11 @@ coins = provider.get_top_coins_by_market_cap(n=300)
   `COINGECKO_API_KEY` (keyless works but is throttled harder).
 - **CryptoCompare** (`api/cryptocompare.py`) — alternative; requires
   `CRYPTOCOMPARE_API_KEY`. Select with `PRICE_PROVIDER=cryptocompare`.
+
+Keys (`COINGECKO_API_KEY`, `CRYPTOCOMPARE_API_KEY`) and `PRICE_PROVIDER` are read
+from the environment, or from a gitignored `.env` file at the repo root
+(`config._load_local_env`; copy `.env.example` to `.env`). Real env vars / CI
+secrets take precedence over `.env`.
 
 Full history is cached on the `raw-data` branch, so the daily job only tops up
 the most recent days for the top coins by market cap.

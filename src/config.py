@@ -22,6 +22,41 @@ CACHE_DIR = DATA_DIR / "cache"
 CACHE_EXPIRY_SECONDS = 86400
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
+
+# =============================================================================
+# Local .env loading
+# =============================================================================
+
+
+def _load_local_env(env_path: Path) -> None:
+    """
+    Populate os.environ from a local ``.env`` file (simple ``KEY=VALUE`` lines).
+
+    Real environment variables take precedence (so CI secrets always win); the
+    file only fills values that are not already set. Blank lines and lines
+    starting with ``#`` are ignored; surrounding quotes are stripped. This keeps
+    a no-dependency way to store API keys locally without exporting them.
+    """
+    if not env_path.exists():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+# Load the local .env (if any) before reading any environment-backed settings.
+_load_local_env(PROJECT_ROOT / ".env")
+
 # =============================================================================
 # Bitcoin Halving Dates
 # =============================================================================

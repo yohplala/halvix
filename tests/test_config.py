@@ -2,9 +2,39 @@
 Tests for configuration module.
 """
 
+import os
 from datetime import date
 
-from config import HALVING_DATES
+from config import HALVING_DATES, _load_local_env
+
+
+class TestLoadLocalEnv:
+    """Tests for the local .env loader."""
+
+    def test_parses_keys_and_strips_quotes(self, tmp_path, monkeypatch):
+        env = tmp_path / ".env"
+        env.write_text(
+            "# a comment\n"
+            "\n"
+            'COINGECKO_API_KEY="cg-123"\n'
+            "PRICE_PROVIDER = coingecko \n"
+            "IGNORED line without equals\n"
+        )
+        monkeypatch.delenv("COINGECKO_API_KEY", raising=False)
+        monkeypatch.delenv("PRICE_PROVIDER", raising=False)
+        _load_local_env(env)
+        assert os.environ["COINGECKO_API_KEY"] == "cg-123"
+        assert os.environ["PRICE_PROVIDER"] == "coingecko"
+
+    def test_real_env_takes_precedence(self, tmp_path, monkeypatch):
+        env = tmp_path / ".env"
+        env.write_text("COINGECKO_API_KEY=from-file\n")
+        monkeypatch.setenv("COINGECKO_API_KEY", "from-env")
+        _load_local_env(env)
+        assert os.environ["COINGECKO_API_KEY"] == "from-env"  # env wins
+
+    def test_missing_file_is_noop(self, tmp_path):
+        _load_local_env(tmp_path / "does-not-exist.env")  # must not raise
 
 
 class TestHalvingDates:

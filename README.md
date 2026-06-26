@@ -22,14 +22,21 @@ default** (full coin coverage + native market-cap ranking); CryptoCompare is
 available as an alternative.
 
 - CoinGecko works keyless, but a free [Demo API key](https://www.coingecko.com/en/api)
-  lifts the rate limit. Provide it via the `COINGECKO_API_KEY` environment
-  variable (a GitHub Actions secret in CI).
+  lifts the rate limit (the keyless tier can return truncated data, so updates
+  may skip coins without a key).
 - To switch backend, set `PRICE_PROVIDER=cryptocompare` and supply
   `CRYPTOCOMPARE_API_KEY` (free key at https://developers.coindesk.com/).
 
+**Local setup:** copy `.env.example` to `.env` and paste your key — it is
+gitignored and loaded automatically:
+
 ```bash
-export COINGECKO_API_KEY=your_demo_key   # optional but recommended
+cp .env.example .env
+# then edit .env:  COINGECKO_API_KEY=your_demo_key
 ```
+
+Real environment variables and GitHub Actions secrets take precedence over
+`.env`, so CI is unaffected (set `COINGECKO_API_KEY` as a repo secret there).
 
 ## Quick Start
 
