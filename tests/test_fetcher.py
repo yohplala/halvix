@@ -684,3 +684,27 @@ class TestSpliceValidation:
         assert out.index.max().date().isoformat() == "2026-06-03"  # unchanged, no gap
         price_cache.set_prices.assert_not_called()
         assert fetcher.splice_mismatches[0]["reason"] in {"no_overlap", "gap"}
+
+    def test_mismatch_summary_logs_without_error(self):
+        """fetch_all_prices must summarise both mismatch shapes without crashing."""
+        fetcher = DataFetcher(client=MagicMock(spec=CryptoCompareClient), price_cache=MagicMock())
+        fetcher.splice_mismatches = [
+            {  # price-equivalence failure shape
+                "id": "foo",
+                "vs_currency": "BTC",
+                "reason": "level",
+                "median_ratio": 5.0,
+                "log_ratio_std": 0.1,
+                "overlap_days": 30,
+            },
+            {  # contiguity failure shape
+                "id": "bar",
+                "vs_currency": "BTC",
+                "reason": "no_overlap",
+                "overlap_days": 0,
+                "gap_days": 14,
+            },
+        ]
+        # Empty coin list: exercises only the post-loop summary (the path that
+        # previously raised KeyError on the new dict shape).
+        fetcher.fetch_all_prices(coins=[], show_progress=True)

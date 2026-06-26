@@ -740,20 +740,22 @@ class DataFetcher:
 
         if self.splice_mismatches:
             logger.warning(
-                "%d coin(s) skipped on splice price mismatch (possible symbol→asset "
-                "mismatch); not appended to history:",
+                "%d coin(s) skipped on splice safety check (possible symbol→asset "
+                "mismatch or truncated window); not appended to history:",
                 len(self.splice_mismatches),
             )
             for m in self.splice_mismatches[:10]:
-                logger.warning(
-                    "  - %s/%s on %s: %.6g vs %.6g (%.2fx)",
-                    m["id"].upper(),
-                    m["vs_currency"],
-                    m["date"],
-                    m["cached_price"],
-                    m["provider_price"],
-                    m["ratio"],
-                )
+                if "median_ratio" in m:  # price-equivalence failure
+                    detail = (
+                        f"{m['reason']}: median {m['median_ratio']:.2f}x, "
+                        f"log-std {m['log_ratio_std']:.3f} over {m['overlap_days']}d"
+                    )
+                else:  # contiguity/overlap failure
+                    detail = (
+                        f"{m['reason']}: overlap={m.get('overlap_days', 0)}d, "
+                        f"gap={m.get('gap_days', 0)}d"
+                    )
+                logger.warning("  - %s/%s: %s", m["id"].upper(), m["vs_currency"], detail)
 
         return results
 
