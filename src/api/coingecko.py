@@ -73,6 +73,9 @@ class CoinGeckoClient:
         df = client.get_full_daily_history("ETH", "BTC", provider_id="ethereum")
     """
 
+    # Registry key for this backend (see ``data.coin_registry``).
+    name = "coingecko"
+
     def __init__(
         self,
         base_url: str = COINGECKO_BASE_URL,

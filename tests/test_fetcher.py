@@ -8,6 +8,7 @@ Tests cover:
 """
 
 import tempfile
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -708,3 +709,118 @@ class TestSpliceValidation:
         # Empty coin list: exercises only the post-loop summary (the path that
         # previously raised KeyError on the new dict shape).
         fetcher.fetch_all_prices(coins=[], show_progress=True)
+
+
+class _FakeProvider:
+    """Minimal PriceProvider double returning canned per-symbol history."""
+
+    name = "coingecko"
+
+    def __init__(self, series_by_symbol: dict[str, pd.DataFrame]):
+        self._series = series_by_symbol
+
+    def get_full_daily_history(
+        self,
+        symbol: str,
+        vs_currency: str = "BTC",
+        start_date=None,
+        end_date=None,
+        show_progress: bool = False,
+        provider_id: str | None = None,
+    ) -> pd.DataFrame:
+        df = self._series.get(symbol.upper())
+        if df is None:
+            return pd.DataFrame()
+        out = df
+        if start_date is not None:
+            out = out[out.index.date >= start_date]
+        if end_date is not None:
+            out = out[out.index.date <= end_date]
+        return out.copy()
+
+
+class TestRegistryIntegration:
+    """Cross-provider stem resolution wired through the fetch path."""
+
+    @staticmethod
+    def _series(start: str, closes: list[float]) -> pd.DataFrame:
+        idx = pd.date_range(start, periods=len(closes), freq="D")
+        return pd.DataFrame({"close": closes, "volume_to": [100.0] * len(closes)}, index=idx)
+
+    def _make(self, tmp_path, series_by_symbol, seed_files):
+        """Build a fetcher over a tmp price dir + tmp registry, with seed parquets."""
+        from data.coin_registry import CoinRegistry
+
+        prices_dir = tmp_path / "prices"
+        price_cache = PriceDataCache(prices_dir=prices_dir)
+        for stem, df in seed_files.items():
+            price_cache.set_prices(stem, df, "BTC")
+        registry = CoinRegistry(path=tmp_path / "coin_registry.json")
+        fetcher = DataFetcher(
+            client=_FakeProvider(series_by_symbol),
+            price_cache=price_cache,
+            registry=registry,
+        )
+        fetcher.history_end_date = date(2026, 6, 25)
+        return fetcher, price_cache, registry
+
+    def test_same_asset_adopts_existing_stem(self, tmp_path):
+        """A CoinGecko coin whose series matches cached history extends it in place."""
+        ramp = [1.0 + 0.01 * i for i in range(40)]  # 2026-05-01 .. 2026-06-09
+        cached = self._series("2026-05-01", ramp[:39])  # CryptoCompare era, ends 06-08
+        full = self._series("2026-05-01", ramp + [1.4 + 0.01 * i for i in range(16)])  # to 06-25
+        fetcher, price_cache, registry = self._make(tmp_path, {"ETH": full}, {"eth": cached})
+
+        coin = {"id": "eth", "symbol": "ETH", "provider_id": "ethereum"}
+        fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
+
+        updated = price_cache.get_prices("eth", "BTC")
+        assert updated.index.max().date() == date(2026, 6, 25)  # extended
+        assert registry.get_stem("coingecko", "ethereum") == "eth"  # adopted, not forked
+        assert not (tmp_path / "prices" / "eth-2-btc.parquet").exists()
+
+    def test_symbol_collision_forks_to_new_stem(self, tmp_path):
+        """A different asset sharing a symbol is stored separately as ``<sym>-2``."""
+        cached = self._series("2026-05-01", [1.0] * 39)  # CryptoCompare BTCY, ends 06-08
+        # CoinGecko BTCY is a different asset: 5x level over the overlap window.
+        other = self._series("2026-05-09", [5.0] * 47)  # 05-09 .. 06-24-ish
+        fetcher, price_cache, registry = self._make(tmp_path, {"BTCY": other}, {"btcy": cached})
+
+        coin = {"id": "btcy", "symbol": "BTCY", "provider_id": "btc-yield"}
+        fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
+
+        # Original CryptoCompare history untouched.
+        original = price_cache.get_prices("btcy", "BTC")
+        assert original.index.max().date() == date(2026, 6, 8)
+        assert float(original["close"].iloc[-1]) == 1.0
+        # New asset stored under a forked stem and bound in the registry.
+        forked = price_cache.get_prices("btcy-2", "BTC")
+        assert forked is not None and float(forked["close"].iloc[-1]) == 5.0
+        assert registry.get_stem("coingecko", "btc-yield") == "btcy-2"
+        # Pre-migration file remains owned by CryptoCompare.
+        assert registry.get_stem("cryptocompare", "BTCY") == "btcy"
+
+    def test_known_identity_routes_directly(self, tmp_path):
+        """An already-registered identity tops up its bound stem with no probe."""
+        cached2 = self._series("2026-05-01", [5.0] * 39)  # btcy-2 history, ends 06-08
+        full = self._series("2026-05-01", [5.0] * 55)  # extends to 06-24
+        fetcher, price_cache, registry = self._make(tmp_path, {"BTCY": full}, {"btcy-2": cached2})
+        registry.set_stem("coingecko", "btc-yield", "btcy-2")
+        registry.save()
+
+        coin = {"id": "btcy", "symbol": "BTCY", "provider_id": "btc-yield"}
+        fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
+
+        updated = price_cache.get_prices("btcy-2", "BTC")
+        assert updated.index.max().date() == date(2026, 6, 24)
+        assert not (tmp_path / "prices" / "btcy-btc.parquet").exists()  # bare stem untouched
+
+    def test_bootstrap_seeds_cryptocompare_provenance(self, tmp_path):
+        """Existing parquets are recorded as CryptoCompare-owned on first use."""
+        cached = self._series("2026-06-01", [1.0, 1.0])
+        fetcher, _price_cache, registry = self._make(tmp_path, {}, {"eth": cached, "sol": cached})
+
+        fetcher._bootstrap_registry()
+
+        assert registry.get_stem("cryptocompare", "ETH") == "eth"
+        assert registry.get_stem("cryptocompare", "SOL") == "sol"

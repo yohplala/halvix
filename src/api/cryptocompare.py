@@ -146,6 +146,10 @@ class CryptoCompareClient:
         df = client.get_daily_history("BTC", "USD", days=5000)
     """
 
+    # Registry key for this backend (see ``data.coin_registry``). CryptoCompare
+    # addresses coins by symbol, so its native id is the (upper) symbol.
+    name = "cryptocompare"
+
     def __init__(
         self,
         base_url: str = CRYPTOCOMPARE_BASE_URL,

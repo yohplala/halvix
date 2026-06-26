@@ -56,6 +56,10 @@ class PriceProvider(Protocol):
     addresses coins by id rather than symbol can resolve the right series.
     """
 
+    # Stable backend identifier (e.g. "coingecko", "cryptocompare"). Used as the
+    # top-level key of the cross-provider coin-identity registry.
+    name: str
+
     def get_top_coins_by_market_cap(
         self,
         n: int = 300,

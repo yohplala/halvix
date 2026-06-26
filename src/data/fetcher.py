@@ -43,6 +43,7 @@ from config import (
     USE_YESTERDAY_AS_END_DATE,
 )
 from data.cache import FileCache, PriceDataCache
+from data.coin_registry import CoinRegistry
 from utils.logging import get_logger
 
 # Module logger
@@ -95,6 +96,7 @@ class DataFetcher:
         cache: FileCache | None = None,
         price_cache: PriceDataCache | None = None,
         coin_filter: CoinFilter | None = None,
+        registry: CoinRegistry | None = None,
     ):
         """
         Initialize the data fetcher.
@@ -104,11 +106,17 @@ class DataFetcher:
             cache: File cache for API responses (default: new instance)
             price_cache: Price data cache (default: new instance)
             coin_filter: Coin filter (default: new instance)
+            registry: Cross-provider coin-identity map (default: new instance)
         """
         self.client = client or get_price_provider()
         self.cache = cache or FileCache()
         self.price_cache = price_cache or PriceDataCache()
         self.coin_filter = coin_filter or CoinFilter()
+        self.registry = registry or CoinRegistry()
+        # Backend identifier used as the registry's top-level key. Read defensively
+        # so a spec'd test double (whose ``.name`` is a mock) doesn't poison it.
+        client_name = getattr(self.client, "name", None)
+        self.provider_name = client_name if isinstance(client_name, str) else "unknown"
         self.no_usd_filter: CoinFilter | None = None  # Filter for coins without USD data
         # Coins whose incremental top-up was skipped because the provider's price
         # for the overlap day disagreed with cached history (suspected mismatch).
@@ -502,6 +510,88 @@ class DataFetcher:
             return False
         return True
 
+    # ------------------------------------------------------------------ #
+    # Cross-provider coin identity (registry)
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _native_id(coin: dict) -> str:
+        """
+        Provider-native identifier used as the registry key for a coin.
+
+        CoinGecko addresses coins by slug (carried as ``provider_id``);
+        CryptoCompare addresses them by symbol. The slug, when present, is the
+        unique id; otherwise fall back to the upper-cased symbol.
+        """
+        provider_id = coin.get("provider_id")
+        if provider_id:
+            return str(provider_id)
+        return (coin.get("symbol") or coin["id"]).upper()
+
+    def _bootstrap_registry(self) -> None:
+        """
+        Seed the registry from the existing cache the first time it is used.
+
+        Every parquet on disk predates the provider migration, so it belongs to
+        CryptoCompare (which keys by symbol → stem == lowercase symbol, native id
+        == upper symbol). Seeding records that provenance and reserves those
+        stems so a later collision allocates a fresh ``symbol-2`` rather than
+        clobbering history. A no-op once the ``cryptocompare`` map exists.
+        """
+        try:
+            stems = list(self.price_cache.list_cached_coins())
+        except TypeError:  # e.g. a mocked price cache in tests
+            return
+        if not stems or not all(isinstance(s, str) for s in stems):
+            return
+        seed = {stem.upper(): stem for stem in stems}
+        if self.registry.bootstrap_provider("cryptocompare", seed):
+            self.registry.save()
+            logger.info(
+                "Bootstrapped coin registry from %d cached stems (CryptoCompare).", len(seed)
+            )
+
+    def _register_identity(self, provider: str | None, native_id: str | None, stem: str) -> None:
+        """Bind (provider, native_id) → stem and persist, if not already bound."""
+        if not provider or not native_id:
+            return
+        if self.registry.get_stem(provider, native_id) == stem:
+            return
+        self.registry.set_stem(provider, native_id, stem)
+        self.registry.save()
+
+    def _fork_stem(
+        self, provider: str | None, native_id: str | None, symbol: str, stem: str
+    ) -> str | None:
+        """
+        Allocate a fresh stem when a symbol resolves to a *different* asset.
+
+        Applies only when the tentative stem was the bare symbol (i.e. an asset
+        owned by another provider already holds it) and this identity is not yet
+        registered. A mismatch on an already-bound stem is a genuine mid-life
+        asset swap, handled elsewhere — not a fork. Returns the new stem, or
+        None when forking does not apply.
+        """
+        if not provider or not native_id:
+            return None
+        if self.registry.get_stem(provider, native_id) is not None:
+            return None  # already owns this stem; a mismatch here is a real swap
+        if stem != symbol.lower():
+            return None  # not a bare-symbol collision
+        reserved = set(self.price_cache.list_cached_coins()) | self.registry.all_stems()
+        new_stem = self.registry.allocate_stem(symbol, reserved=reserved)
+        self.registry.set_stem(provider, native_id, new_stem)
+        self.registry.save()
+        logger.warning(
+            "Symbol collision: %s %r is a different asset than cached %r/* — "
+            "storing separately as %r.",
+            provider,
+            native_id,
+            stem,
+            new_stem,
+        )
+        return new_stem
+
     def fetch_coin_prices(
         self,
         coin_id: str,
@@ -510,6 +600,9 @@ class DataFetcher:
         use_cache: bool = True,
         incremental: bool = True,
         provider_id: str | None = None,
+        provider: str | None = None,
+        native_id: str | None = None,
+        stem: str | None = None,
     ) -> pd.DataFrame:
         """
         Fetch historical price data for a single coin-pair.
@@ -517,17 +610,25 @@ class DataFetcher:
         Supports incremental fetching: if cached data exists, only fetch new data
         from the last cached date to yesterday.
 
-        Files are stored as {coin_id}-{vs_currency}.parquet (e.g., eth-btc.parquet).
+        Files are stored as {stem}-{vs_currency}.parquet (e.g., eth-btc.parquet).
+        The *stem* is the cross-provider cache key: usually the lowercase symbol,
+        but a fresh ``symbol-2`` when this provider's coin is a different asset
+        that happens to share a symbol with already-cached history. When
+        ``provider``/``native_id`` are given, the resolved binding is recorded in
+        the registry so later runs route to the right file without re-comparing.
 
         Note: BTC-BTC pair is skipped as it doesn't make sense (BTC priced in BTC = 1.0).
 
         Args:
-            coin_id: Coin ID (lowercase symbol)
+            coin_id: Coin ID (lowercase symbol) — used for logging and the BTC skip
             symbol: Coin symbol (e.g., "ETH")
             vs_currency: Quote currency (default: "BTC")
             use_cache: Whether to check cache first
             incremental: If True and cache exists, only fetch new data
             provider_id: Provider-native coin id (e.g. CoinGecko slug)
+            provider: Backend name for the registry binding (e.g. "coingecko")
+            native_id: Provider-native registry key (slug or upper symbol)
+            stem: On-disk cache key (default: ``coin_id``)
 
         Returns:
             DataFrame with date index and OHLCV columns
@@ -535,6 +636,7 @@ class DataFetcher:
         # Providers expect the uppercase symbol
         symbol = symbol.upper()
         vs_currency = vs_currency.upper()
+        stem = (stem or coin_id).lower()
 
         # Skip BTC-BTC pair - it doesn't make sense (BTC priced in BTC = 1.0)
         if coin_id.lower() == "btc" and vs_currency == "BTC":
@@ -547,12 +649,14 @@ class DataFetcher:
 
         # Check cache for incremental update
         if use_cache and incremental:
-            cached = self.price_cache.get_prices(coin_id, vs_currency)
+            cached = self.price_cache.get_prices(stem, vs_currency)
 
             if cached is not None and not cached.empty:
                 last_cached_date = cached.index.max().date()
 
-                # If cache is up to date, return it
+                # If cache is up to date, return it. (Identity is left
+                # unregistered here: a fresh cache offers no overlap to confirm
+                # this provider's coin is the same asset as the stem's history.)
                 if last_cached_date >= effective_end_date:
                     return cached
 
@@ -602,7 +706,7 @@ class DataFetcher:
                         )
                         self.splice_mismatches.append(
                             {
-                                "id": coin_id,
+                                "id": stem,
                                 "vs_currency": vs_currency,
                                 "reason": "no_overlap" if len(overlap) == 0 else "gap",
                                 "overlap_days": int(len(overlap)),
@@ -612,14 +716,32 @@ class DataFetcher:
                         return cached
 
                     # Guard against splicing a different asset onto the history.
-                    if not self._splice_is_consistent(coin_id, vs_currency, cached, new_data):
+                    if not self._splice_is_consistent(stem, vs_currency, cached, new_data):
+                        # A price mismatch on a bare-symbol stem means this
+                        # provider's coin is a DIFFERENT asset sharing the symbol.
+                        # Fork to its own stem and fetch it there from scratch.
+                        forked = self._fork_stem(provider, native_id, symbol, stem)
+                        if forked is not None and forked != stem:
+                            return self.fetch_coin_prices(
+                                coin_id=coin_id,
+                                symbol=symbol,
+                                vs_currency=vs_currency,
+                                use_cache=use_cache,
+                                incremental=incremental,
+                                provider_id=provider_id,
+                                provider=provider,
+                                native_id=native_id,
+                                stem=forked,
+                            )
                         return cached
 
                     # Append only strictly-newer rows; never overwrite cached
                     # historical values (keep="first" would, so we slice instead).
                     combined = pd.concat([cached, new_rows]).sort_index()
                     combined = combined[~combined.index.duplicated(keep="last")]
-                    self.price_cache.set_prices(coin_id, combined, vs_currency)
+                    self.price_cache.set_prices(stem, combined, vs_currency)
+                    # Verified same asset over the overlap → bind identity → stem.
+                    self._register_identity(provider, native_id, stem)
                     return combined
 
                 except PriceProviderError:
@@ -639,7 +761,9 @@ class DataFetcher:
 
             # Cache the result
             if not df.empty:
-                self.price_cache.set_prices(coin_id, df, vs_currency)
+                self.price_cache.set_prices(stem, df, vs_currency)
+                # We created (or own) this stem → bind the identity to it.
+                self._register_identity(provider, native_id, stem)
 
             return df
 
@@ -664,7 +788,8 @@ class DataFetcher:
         Supports incremental updates: if cached data exists, only fetches
         new data from the last cached date to yesterday.
 
-        Files are stored as {coin_id}-{vs_currency}.parquet (e.g., eth-btc.parquet).
+        Files are stored as {stem}-{vs_currency}.parquet (e.g., eth-btc.parquet),
+        where the stem is resolved per coin through the cross-provider registry.
 
         Args:
             coins: List of coin dicts (default: load from coins_to_download.json)
@@ -681,6 +806,10 @@ class DataFetcher:
 
         if vs_currencies is None:
             vs_currencies = QUOTE_CURRENCIES
+
+        # Seed the registry from existing (CryptoCompare-era) parquets once, so
+        # collisions fork instead of clobbering pre-migration history.
+        self._bootstrap_registry()
 
         results: dict[str, dict[str, pd.DataFrame]] = {}
         errors = []
@@ -702,9 +831,14 @@ class DataFetcher:
             coin_id = coin["id"]
             symbol = coin.get("symbol", coin_id)
             provider_id = coin.get("provider_id")
+            native_id = self._native_id(coin)
             results[coin_id] = {}
 
             for vs_currency in vs_currencies:
+                # Resolve the stem each pass: a known identity routes straight to
+                # its file; an unknown one tentatively uses the symbol, and a
+                # fork made during the BTC pass is picked up here for USD.
+                stem = self.registry.get_stem(self.provider_name, native_id) or coin_id.lower()
                 try:
                     df = self.fetch_coin_prices(
                         coin_id=coin_id,
@@ -713,6 +847,9 @@ class DataFetcher:
                         use_cache=use_cache,
                         incremental=incremental,
                         provider_id=provider_id,
+                        provider=self.provider_name,
+                        native_id=native_id,
+                        stem=stem,
                     )
 
                     if not df.empty:
