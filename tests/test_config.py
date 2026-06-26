@@ -17,14 +17,14 @@ class TestLoadLocalEnv:
             "# a comment\n"
             "\n"
             'COINGECKO_API_KEY="cg-123"\n'
-            "PRICE_PROVIDER = coingecko \n"
+            "CRYPTOCOMPARE_API_KEY = cc-456 \n"
             "IGNORED line without equals\n"
         )
         monkeypatch.delenv("COINGECKO_API_KEY", raising=False)
-        monkeypatch.delenv("PRICE_PROVIDER", raising=False)
+        monkeypatch.delenv("CRYPTOCOMPARE_API_KEY", raising=False)
         _load_local_env(env)
         assert os.environ["COINGECKO_API_KEY"] == "cg-123"
-        assert os.environ["PRICE_PROVIDER"] == "coingecko"
+        assert os.environ["CRYPTOCOMPARE_API_KEY"] == "cc-456"
 
     def test_real_env_takes_precedence(self, tmp_path, monkeypatch):
         env = tmp_path / ".env"

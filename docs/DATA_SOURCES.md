@@ -19,15 +19,17 @@ vendor. Two backends ship today:
 | **CoinGecko** (`api/coingecko.py`) | ✅ | optional free Demo key | full coin universe | native market-cap ranking, recent price+volume vs BTC/USD |
 | **CryptoCompare** (`api/cryptocompare.py`) | | required API key | full | legacy backend; exchange-aggregated history |
 
-Select a backend with the `PRICE_PROVIDER` environment variable
-(`coingecko` — default — or `cryptocompare`) and build it via the factory:
+The backend is auto-selected from whichever API key is configured (CoinGecko key
+→ CoinGecko; only a CryptoCompare key → CryptoCompare; neither → CoinGecko
+keyless). Build it via the factory:
 
 ```python
 from api import get_price_provider
 
-provider = get_price_provider()          # honours PRICE_PROVIDER
+provider = get_price_provider()          # auto-selects from configured keys
 coins = provider.get_top_coins_by_market_cap(n=300)
 df = provider.get_full_daily_history("ETH", "BTC", provider_id="ethereum")
+# get_price_provider("cryptocompare") forces a specific backend.
 ```
 
 Halvix caches full history on the `raw-data` branch, so day-to-day the pipeline
@@ -83,7 +85,8 @@ COINGECKO_MAX_DAYS_PER_REQUEST = 360   # free-tier history cap (recent top-up on
 
 ## CryptoCompare (alternative provider)
 
-Selectable with `PRICE_PROVIDER=cryptocompare`. The CryptoCompare / CoinDesk
+Used when only a `CRYPTOCOMPARE_API_KEY` (and no CoinGecko key) is configured,
+or forced via `get_price_provider("cryptocompare")`. The CryptoCompare / CoinDesk
 Data API **requires an API key** (free key at
 https://developers.coindesk.com/); keyless requests return HTTP 401. Provide it
 via `CRYPTOCOMPARE_API_KEY`.
@@ -226,7 +229,7 @@ implied base-asset volume.
 ### Authentication (HTTP 401/403) errors
 
 The provider rejected the credentials. Set the appropriate key
-(`COINGECKO_API_KEY` or `CRYPTOCOMPARE_API_KEY`) for the active `PRICE_PROVIDER`.
+(`COINGECKO_API_KEY` or `CRYPTOCOMPARE_API_KEY`) for the active provider.
 
 ### Empty historical data
 

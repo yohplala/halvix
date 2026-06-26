@@ -376,8 +376,8 @@ ALLOWED_TOKENS = {
 # CryptoCompare API Configuration (alternative provider)
 # =============================================================================
 
-# CryptoCompare (now CoinDesk Data) is an alternative provider, selectable with
-# PRICE_PROVIDER=cryptocompare. Its Data API requires an API key.
+# CryptoCompare (now CoinDesk Data) is an alternative provider, used when only
+# its API key (and no CoinGecko key) is configured. Its Data API requires a key.
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
 CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
@@ -412,13 +412,8 @@ COINGECKO_MARKETS_PER_PAGE = 250
 # market_chart history cap on the free tier (days). Recent top-up only.
 COINGECKO_MAX_DAYS_PER_REQUEST = 360
 
-# =============================================================================
-# Price Provider Selection
-# =============================================================================
-
-# Which backend to use for coin discovery and price fetching.
-# "coingecko" (default) or "cryptocompare". Override with PRICE_PROVIDER.
-PRICE_PROVIDER = os.environ.get("PRICE_PROVIDER", "coingecko").strip().lower()
+# The provider is auto-selected from the available API keys — see
+# ``api.get_price_provider``. No explicit selector is needed.
 
 
 def coin_url(symbol: str, provider_id: str | None = None) -> str:

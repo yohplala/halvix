@@ -19,13 +19,12 @@ on:
         type: string
         default: ''
 
-# Price-provider credentials. CoinGecko is the default provider; add a free
-# Demo key (https://www.coingecko.com/en/api) as the COINGECKO_API_KEY secret
-# under Settings → Secrets and variables → Actions. Keyless also works but is
-# rate-limited harder. CRYPTOCOMPARE_API_KEY is only needed if PRICE_PROVIDER
-# is switched to "cryptocompare".
+# Price-provider credentials. The provider is auto-selected from whichever key
+# is set: add a free CoinGecko Demo key (https://www.coingecko.com/en/api) as the
+# COINGECKO_API_KEY secret under Settings → Secrets and variables → Actions.
+# Keyless also works but is rate-limited harder. CRYPTOCOMPARE_API_KEY is only
+# used when no CoinGecko key is set.
 env:
-  PRICE_PROVIDER: coingecko
   COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
   CRYPTOCOMPARE_API_KEY: ${{ secrets.CRYPTOCOMPARE_API_KEY }}
 

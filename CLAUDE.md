@@ -110,18 +110,18 @@ Price data is sourced through a provider abstraction (`api.base.PriceProvider`):
 ```python
 from api import get_price_provider
 
-provider = get_price_provider()          # honours PRICE_PROVIDER (default: coingecko)
+provider = get_price_provider()          # auto-selects backend from configured keys
 coins = provider.get_top_coins_by_market_cap(n=300)
 ```
 
-- **CoinGecko** (`api/coingecko.py`) — default; full coin coverage, native
-  market-cap ranking, recent price+volume vs BTC/USD. Optional free Demo key via
-  `COINGECKO_API_KEY` (keyless works but is throttled harder).
-- **CryptoCompare** (`api/cryptocompare.py`) — alternative; requires
-  `CRYPTOCOMPARE_API_KEY`. Select with `PRICE_PROVIDER=cryptocompare`.
+The backend is auto-selected from whichever API key is set (`api._default_provider`):
+- `COINGECKO_API_KEY` set → **CoinGecko** (`api/coingecko.py`) — preferred; full
+  coin coverage, native market-cap ranking, price+volume vs BTC/USD.
+- only `CRYPTOCOMPARE_API_KEY` → **CryptoCompare** (`api/cryptocompare.py`).
+- neither → CoinGecko keyless (throttled). `get_price_provider("cryptocompare")`
+  still forces a backend explicitly.
 
-Keys (`COINGECKO_API_KEY`, `CRYPTOCOMPARE_API_KEY`) and `PRICE_PROVIDER` are read
-from the environment, or from a gitignored `.env` file at the repo root
+Keys are read from the environment or a gitignored `.env` at the repo root
 (`config._load_local_env`; copy `.env.example` to `.env`). Real env vars / CI
 secrets take precedence over `.env`.
 
@@ -177,9 +177,9 @@ DEFAULT_QUOTE_CURRENCY = "BTC"
 ### Common Pitfalls
 1. Always use `poetry run` for commands
 2. Check `ALLOWED_TOKENS` before filtering tokens
-3. Price provider is CoinGecko by default (`PRICE_PROVIDER`); a `COINGECKO_API_KEY`
-   raises rate limits. The daily job is scoped to the top ~300 coins to stay
-   within the free tier.
+3. Price provider is auto-selected from API keys (CoinGecko preferred); a
+   `COINGECKO_API_KEY` raises rate limits. The daily job is scoped to the top
+   ~300 coins to stay within the free tier.
 
 ---
 

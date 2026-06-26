@@ -20,24 +20,51 @@ def _ms(dt: datetime) -> int:
 
 
 class TestProviderFactory:
-    def test_default_is_coingecko(self):
-        provider = get_price_provider()
-        assert isinstance(provider, CoinGeckoClient)
-        assert isinstance(provider, PriceProvider)
-
-    def test_select_cryptocompare(self):
+    def test_explicit_select_cryptocompare(self):
         from api.cryptocompare import CryptoCompareClient
 
         assert isinstance(get_price_provider("cryptocompare"), CryptoCompareClient)
+
+    def test_explicit_select_coingecko(self):
+        assert isinstance(get_price_provider("coingecko"), CoinGeckoClient)
+        assert isinstance(get_price_provider("coingecko"), PriceProvider)
 
     def test_unknown_provider_raises(self):
         with pytest.raises(ValueError):
             get_price_provider("does-not-exist")
 
 
+class TestProviderAutoSelection:
+    """The backend is auto-selected from configured API keys."""
+
+    def test_coingecko_key_selects_coingecko(self, monkeypatch):
+        import api
+
+        monkeypatch.setattr(api, "COINGECKO_API_KEY", "cg-key")
+        monkeypatch.setattr(api, "CRYPTOCOMPARE_API_KEY", "cc-key")
+        assert isinstance(get_price_provider(), CoinGeckoClient)  # CoinGecko preferred
+
+    def test_only_cryptocompare_key_selects_cryptocompare(self, monkeypatch):
+        import api
+        from api.cryptocompare import CryptoCompareClient
+
+        monkeypatch.setattr(api, "COINGECKO_API_KEY", None)
+        monkeypatch.setattr(api, "CRYPTOCOMPARE_API_KEY", "cc-key")
+        assert isinstance(get_price_provider(), CryptoCompareClient)
+
+    def test_no_keys_defaults_to_coingecko_keyless(self, monkeypatch):
+        import api
+
+        monkeypatch.setattr(api, "COINGECKO_API_KEY", None)
+        monkeypatch.setattr(api, "CRYPTOCOMPARE_API_KEY", None)
+        assert isinstance(get_price_provider(), CoinGeckoClient)
+
+
 class TestCoinGeckoInit:
     def test_no_key_has_no_auth_header(self):
-        client = CoinGeckoClient(api_key=None)
+        # Explicit empty string => no key (api_key=None would fall back to the
+        # configured/.env key, which may be set in the dev environment).
+        client = CoinGeckoClient(api_key="")
         assert "x-cg-demo-api-key" not in client.session.headers
 
     def test_key_sets_demo_header(self):
