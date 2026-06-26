@@ -409,8 +409,10 @@ COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "").strip() or None
 COINGECKO_CALLS_PER_MINUTE = 25
 # market_cap discovery page size (CoinGecko max is 250)
 COINGECKO_MARKETS_PER_PAGE = 250
-# market_chart history cap on the free tier (days). Recent top-up only.
-COINGECKO_MAX_DAYS_PER_REQUEST = 360
+# Max days of history per request. This is the Demo/keyless tier's hard limit:
+# CoinGecko rejects larger ranges (and days=max) with HTTP 401, so a brand-new
+# coin gets at most ~1 year until more accrues (deeper history needs a paid plan).
+COINGECKO_MAX_DAYS_PER_REQUEST = 365
 
 # The provider is auto-selected from the available API keys — see
 # ``api.get_price_provider``. No explicit selector is needed.

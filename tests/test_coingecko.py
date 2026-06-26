@@ -4,7 +4,7 @@ Tests for the CoinGecko price provider and the provider abstraction.
 Network calls are mocked; a single optional live test is skipped by default.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -159,6 +159,42 @@ class TestResampling:
             client = CoinGeckoClient()
             df = client.get_full_daily_history("ETH", "BTC", provider_id="ethereum")
         assert df.empty
+
+
+class TestRequestSizing:
+    """A new/deep request asks for the tier's max window; an incremental one a small window."""
+
+    EMPTY = {"prices": [], "total_volumes": []}
+
+    def _days_param(self, m):
+        return m.call_args.kwargs["params"]["days"]
+
+    def test_new_coin_no_start_requests_cap(self):
+        from config import COINGECKO_MAX_DAYS_PER_REQUEST
+
+        client = CoinGeckoClient()
+        with patch.object(client, "_request", return_value=self.EMPTY) as m:
+            client.get_full_daily_history("ETH", "BTC", provider_id="ethereum")
+        assert self._days_param(m) == COINGECKO_MAX_DAYS_PER_REQUEST
+
+    def test_deep_span_capped(self):
+        from config import COINGECKO_MAX_DAYS_PER_REQUEST
+
+        client = CoinGeckoClient()
+        with patch.object(client, "_request", return_value=self.EMPTY) as m:
+            client.get_full_daily_history(
+                "ETH", "BTC", start_date=date(2012, 1, 1), provider_id="ethereum"
+            )
+        # Never exceeds the tier limit (CoinGecko 401s on larger ranges).
+        assert self._days_param(m) == COINGECKO_MAX_DAYS_PER_REQUEST
+
+    def test_incremental_requests_numeric_days(self):
+        client = CoinGeckoClient()
+        start = datetime.now(UTC).date() - timedelta(days=10)
+        with patch.object(client, "_request", return_value=self.EMPTY) as m:
+            client.get_full_daily_history("ETH", "BTC", start_date=start, provider_id="ethereum")
+        days = self._days_param(m)
+        assert isinstance(days, int) and 2 <= days <= 365
 
 
 class TestHistoryWindow:

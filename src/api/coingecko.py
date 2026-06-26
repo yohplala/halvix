@@ -255,10 +255,17 @@ class CoinGeckoClient:
         Get daily OHLCV history for a coin, resampled from CoinGecko's intraday
         market_chart series.
 
-        CoinGecko serves hourly points for multi-day ranges on the free tier;
-        these are aggregated into daily bars (open/high/low/close + BTC-volume).
-        Only the most recent ``COINGECKO_MAX_DAYS_PER_REQUEST`` days are
-        available on the free tier, which is ample for the daily top-up.
+        CoinGecko serves hourly points for multi-day ranges and daily points for
+        long ranges; these are aggregated into daily bars (open/high/low/close +
+        quote-currency volume).
+
+        Request sizing: an incremental top-up requests exactly its small window;
+        a deep request (no start_date, or a span beyond the cap — e.g. a new coin
+        with no cache) requests ``COINGECKO_MAX_DAYS_PER_REQUEST`` days. That cap
+        is the Demo/keyless historical limit (~365 days); the API rejects larger
+        ranges with HTTP 401, so a brand-new coin gets at most ~1 year of history
+        until more accrues from daily updates (deeper history requires a paid
+        CoinGecko plan).
 
         Returns:
             DataFrame indexed by date with the standard OHLCV columns
@@ -269,15 +276,16 @@ class CoinGeckoClient:
         if end_date is None:
             end_date = today - timedelta(days=1)
 
-        # How many days back to request (CoinGecko counts back from "now").
-        if start_date is not None:
-            span_days = (today - start_date).days + 1
-        else:
+        # CoinGecko counts back from "now". Cap at the tier's historical limit;
+        # larger ranges are rejected (HTTP 401) on the Demo/keyless tier.
+        if start_date is None:
             span_days = COINGECKO_MAX_DAYS_PER_REQUEST
+        else:
+            span_days = (today - start_date).days + 1
         days = max(2, min(span_days, COINGECKO_MAX_DAYS_PER_REQUEST))
 
         if show_progress:
-            logger.info("Fetching %s/%s from CoinGecko (%d days)", symbol, vs_currency, days)
+            logger.info("Fetching %s/%s from CoinGecko (days=%d)", symbol, vs_currency, days)
 
         data = self._request(
             f"/coins/{coin_id}/market_chart",
