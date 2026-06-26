@@ -81,6 +81,9 @@ jobs:
             cp raw-data-branch/processed/download_failed.csv main/data/processed/ 2>/dev/null || true
             cp raw-data-branch/processed/no_usd_data.csv main/data/processed/ 2>/dev/null || true
             cp raw-data-branch/processed/fetch_metadata.json main/data/processed/ 2>/dev/null || true
+            # Persist the cross-provider coin-identity registry so runtime-learned
+            # bindings (forks beyond the committed seed) survive across runs.
+            cp raw-data-branch/processed/coin_registry.json main/data/processed/ 2>/dev/null || true
             echo "Restored cached data from raw-data branch"
             echo "Price files found:"
             ls -la main/data/raw/prices/ 2>/dev/null | head -20 || echo "No price files yet"
@@ -151,9 +154,10 @@ jobs:
             cp -r ../main/data/cache . 2>/dev/null || true
             echo "Copied cache data"
           fi
-          # Copy processed files (coins list, metadata, skipped/failed, no-USD)
+          # Copy processed files (coins list, metadata, skipped/failed, no-USD,
+          # and the coin-identity registry so learned bindings persist).
           mkdir -p processed
-          for file in coins_to_download.json download_skipped.csv download_failed.csv no_usd_data.csv fetch_metadata.json; do
+          for file in coins_to_download.json download_skipped.csv download_failed.csv no_usd_data.csv fetch_metadata.json coin_registry.json; do
             if [ -f "../main/data/processed/$file" ]; then
               cp "../main/data/processed/$file" processed/ 2>/dev/null || true
             fi

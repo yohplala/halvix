@@ -5,12 +5,12 @@
 name: Daily Update
 
 on:
-  # Scheduled trigger TEMPORARILY DISABLED while the cross-provider coin-identity
-  # registry is being built (prevents an automated run from splicing CoinGecko
-  # data onto the CryptoCompare base before symbol collisions are handled).
-  # Re-enable by uncommenting the schedule block below.
-  # schedule:
-  #   - cron: '0 4 * * *'
+  # Daily at 4:00 AM UTC. The cross-provider coin-identity registry (committed
+  # seed + bindings persisted on the raw-data branch) routes CoinGecko data onto
+  # the right parquet, so automated runs no longer risk splicing onto the wrong
+  # history.
+  schedule:
+    - cron: '0 4 * * *'
 
   # Manual trigger for testing
   workflow_dispatch:
