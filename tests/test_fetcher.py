@@ -7,6 +7,7 @@ Tests cover:
 - Integration with cache and filter
 """
 
+import json
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -824,3 +825,39 @@ class TestRegistryIntegration:
 
         assert registry.get_stem("cryptocompare", "ETH") == "eth"
         assert registry.get_stem("cryptocompare", "SOL") == "sol"
+
+    def test_identity_seed_routes_rename_to_existing_stem(self, tmp_path):
+        """A committed slug->stem seed continues history across a symbol rename."""
+        ramp = [1.0 + 0.01 * i for i in range(40)]
+        cached = self._series("2026-05-01", ramp[:39])  # 'mantle' history, ends 06-08
+        full = self._series("2026-05-01", ramp + [1.4 + 0.01 * i for i in range(16)])
+        fetcher, price_cache, registry = self._make(tmp_path, {"MNT": full}, {"mantle": cached})
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps({"coingecko": {"mantle": "mantle"}}))
+
+        # CoinGecko now lists this asset under symbol MNT, slug 'mantle'.
+        coin = {"id": "mnt", "symbol": "MNT", "provider_id": "mantle"}
+        with patch("data.fetcher.COINGECKO_IDENTITY_SEED_JSON", seed):
+            fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
+
+        updated = price_cache.get_prices("mantle", "BTC")
+        assert updated.index.max().date() == date(2026, 6, 25)  # mantle continued
+        assert not (tmp_path / "prices" / "mnt-btc.parquet").exists()  # no fresh fork
+        assert registry.get_stem("coingecko", "mantle") == "mantle"
+
+    def test_registered_identity_bypasses_price_gate(self, tmp_path):
+        """A registered binding appends even when prices diverge (micro-price case)."""
+        cached = self._series("2026-05-01", [1.0] * 39)  # 'lunc' history, ends 06-08
+        # Provider series diverges 5x over the overlap — would FORK if unregistered.
+        full = self._series("2026-05-01", [5.0] * 56)  # spans through 2026-06-25
+        fetcher, price_cache, registry = self._make(tmp_path, {"LUNC": full}, {"lunc": cached})
+        registry.set_stem("coingecko", "terra-luna", "lunc")  # authoritative binding
+        registry.save()
+
+        coin = {"id": "lunc", "symbol": "LUNC", "provider_id": "terra-luna"}
+        fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
+
+        updated = price_cache.get_prices("lunc", "BTC")
+        assert updated.index.max().date() == date(2026, 6, 25)  # appended, not skipped
+        assert not (tmp_path / "prices" / "lunc-2-btc.parquet").exists()  # not forked
+        assert fetcher.splice_mismatches == []

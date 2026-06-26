@@ -27,6 +27,7 @@ from analysis.filters import CoinFilter
 from api import get_price_provider
 from api.base import PriceProvider, PriceProviderError
 from config import (
+    COINGECKO_IDENTITY_SEED_JSON,
     COINS_TO_DOWNLOAD_JSON,
     DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
@@ -551,6 +552,32 @@ class DataFetcher:
                 "Bootstrapped coin registry from %d cached stems (CryptoCompare).", len(seed)
             )
 
+    def _apply_identity_seed(self) -> None:
+        """
+        Apply the committed CoinGecko ``slug -> stem`` identity seed (if present).
+
+        This one-time, version-controlled map binds the historical CryptoCompare
+        base to stable CoinGecko slugs (renames, name-matches, curated forks). It
+        is authoritative, so seeded slugs route deterministically; coins absent
+        from it fall back to runtime symbol+price resolution.
+        """
+        if not COINGECKO_IDENTITY_SEED_JSON.exists():
+            return
+        try:
+            data = json.loads(COINGECKO_IDENTITY_SEED_JSON.read_text(encoding="utf-8"))
+            mapping = data.get("coingecko", {})
+        except (json.JSONDecodeError, OSError, AttributeError):
+            logger.warning("Could not read identity seed at %s.", COINGECKO_IDENTITY_SEED_JSON)
+            return
+        applied = 0
+        for slug, stem in mapping.items():
+            if self.registry.get_stem("coingecko", slug) != stem:
+                self.registry.set_stem("coingecko", str(slug), str(stem))
+                applied += 1
+        if applied:
+            self.registry.save()
+            logger.info("Applied %d CoinGecko identity-seed bindings.", applied)
+
     def _register_identity(self, provider: str | None, native_id: str | None, stem: str) -> None:
         """Bind (provider, native_id) → stem and persist, if not already bound."""
         if not provider or not native_id:
@@ -638,6 +665,13 @@ class DataFetcher:
         vs_currency = vs_currency.upper()
         stem = (stem or coin_id).lower()
 
+        # A registered identity is an authoritative (provider, native_id) -> stem
+        # binding (from the committed seed or a prior verified splice). For these
+        # we trust the binding and skip the price-equivalence gate, which exists
+        # only to DISCOVER identity for unregistered tentative-symbol stems (and
+        # would mis-fire on volatile micro-price coins, e.g. LUNC at ~3e-10).
+        registered = bool(provider and native_id and self.registry.get_stem(provider, native_id))
+
         # Skip BTC-BTC pair - it doesn't make sense (BTC priced in BTC = 1.0)
         if coin_id.lower() == "btc" and vs_currency == "BTC":
             logger.debug("Skipping BTC-BTC pair (doesn't make sense)")
@@ -715,8 +749,12 @@ class DataFetcher:
                         )
                         return cached
 
-                    # Guard against splicing a different asset onto the history.
-                    if not self._splice_is_consistent(stem, vs_currency, cached, new_data):
+                    # Guard against splicing a DIFFERENT asset onto the history —
+                    # but only for unregistered stems still being identified. A
+                    # registered binding is authoritative and trusted as-is.
+                    if not registered and not self._splice_is_consistent(
+                        stem, vs_currency, cached, new_data
+                    ):
                         # A price mismatch on a bare-symbol stem means this
                         # provider's coin is a DIFFERENT asset sharing the symbol.
                         # Fork to its own stem and fetch it there from scratch.
@@ -808,8 +846,10 @@ class DataFetcher:
             vs_currencies = QUOTE_CURRENCIES
 
         # Seed the registry from existing (CryptoCompare-era) parquets once, so
-        # collisions fork instead of clobbering pre-migration history.
+        # collisions fork instead of clobbering pre-migration history, then apply
+        # the committed CoinGecko slug->stem identity seed (renames/forks).
         self._bootstrap_registry()
+        self._apply_identity_seed()
 
         results: dict[str, dict[str, pd.DataFrame]] = {}
         errors = []

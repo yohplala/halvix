@@ -14,6 +14,7 @@ from pathlib import Path
 # =============================================================================
 
 PROJECT_ROOT = Path(__file__).parent.parent
+SRC_DIR = Path(__file__).parent
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PRICES_DIR = RAW_DATA_DIR / "prices"
@@ -21,6 +22,12 @@ PROCESSED_DIR = DATA_DIR / "processed"
 CACHE_DIR = DATA_DIR / "cache"
 CACHE_EXPIRY_SECONDS = 86400
 OUTPUT_DIR = PROJECT_ROOT / "output"
+
+# Committed (version-controlled) CoinGecko slug -> parquet-stem identity seed.
+# A one-time map connecting the historical CryptoCompare base to stable CoinGecko
+# slugs, so renamed/collided coins route to the right file. Lives under src/ (not
+# the gitignored data/) so it survives data restores. See data.coin_registry.
+COINGECKO_IDENTITY_SEED_JSON = SRC_DIR / "data" / "coingecko_identity_seed.json"
 
 
 # =============================================================================
