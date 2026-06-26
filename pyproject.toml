@@ -44,7 +44,10 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 100
-target-version = ['py314']
+# Pinned to py313 on purpose: under py314 black applies PEP 758 and drops the
+# parentheses in multi-exception `except (A, B):` clauses, which reads like a
+# Python-2 bug. py313 formatting is forward-compatible with 3.14.
+target-version = ['py313']
 include = '\.pyi?$'
 
 [tool.ruff]

@@ -242,7 +242,7 @@ def _add_trendlines(
         upper_y_end = 10 ** (upper_slope * x_end_days + upper_intercept)
         lower_y_start = 10 ** (lower_slope * x_start_days + lower_intercept)
         lower_y_end = 10 ** (lower_slope * x_end_days + lower_intercept)
-    except OverflowError, ValueError:
+    except (OverflowError, ValueError):
         return
 
     # Draw upper trendline

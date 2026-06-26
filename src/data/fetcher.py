@@ -386,7 +386,7 @@ class DataFetcher:
         try:
             with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
                 old_coins = json.load(f)
-        except json.JSONDecodeError, OSError:
+        except (json.JSONDecodeError, OSError):
             return []
 
         old_names = {coin["id"]: (coin.get("name") or "").strip() for coin in old_coins}

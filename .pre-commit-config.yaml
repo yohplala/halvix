@@ -8,13 +8,15 @@ repos:
       - id: check-added-large-files
         args: ['--maxkb=1024']
 
+  # Keep these in sync with the versions in pyproject.toml so pre-commit and CI
+  # format/lint identically.
   - repo: https://github.com/psf/black
-    rev: 25.11.0
+    rev: 26.5.1
     hooks:
       - id: black
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.8
+    rev: v0.15.20
     hooks:
       - id: ruff
         args: [--fix]
