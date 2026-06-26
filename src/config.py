@@ -467,11 +467,13 @@ SPLICE_MAX_GAP_DAYS = 2
 # download_failed.csv - coins that failed to download (no pair from the provider, etc.)
 # no_usd_data.csv - coins returned by API without USD price data (silently skipped)
 # fetch_metadata.json - metadata about the fetch operation (counts, timestamp)
+# coin_registry.json - cross-provider identity map {provider: {native_id: stem}}
 COINS_TO_DOWNLOAD_JSON = PROCESSED_DIR / "coins_to_download.json"
 DOWNLOAD_SKIPPED_CSV = PROCESSED_DIR / "download_skipped.csv"
 DOWNLOAD_FAILED_CSV = PROCESSED_DIR / "download_failed.csv"
 NO_USD_DATA_CSV = PROCESSED_DIR / "no_usd_data.csv"
 FETCH_METADATA_JSON = PROCESSED_DIR / "fetch_metadata.json"
+COIN_REGISTRY_JSON = PROCESSED_DIR / "coin_registry.json"
 
 # Analysis results
 TOTAL2_INDEX_FILE = PROCESSED_DIR / "total2_index.parquet"
