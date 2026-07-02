@@ -251,35 +251,48 @@ class HtmlGenerator:
         coins_with_usd = fetch_metadata.get("coins_fetched", 0)
         coins_no_usd = fetch_metadata.get("coins_no_usd_data", 0)
         coins_no_usd_accepted = fetch_metadata.get("coins_no_usd_accepted", 0)
-        total_accepted = fetch_metadata.get("coins_accepted", len(coins_to_download))
-        coins_with_data = sum(
-            1 for c in coins_to_download if c.get("id", "").lower() in price_summaries
-        )
+        # "Downloaded" is driven by the ACTUAL price parquets (price_summaries is
+        # keyed by parquet stem), joined to coins_to_download metadata by id then
+        # by symbol. The cross-provider registry renames some parquets so the stem
+        # no longer equals the coin's native id; matching coins_to_download.id to
+        # stems (the old logic) therefore under-counted, and dropped to 0 on daily
+        # runs whose regenerated coin list didn't share ids with the cached stems.
+        ctd_by_id = {c["id"].lower(): c for c in coins_to_download if c.get("id")}
+        ctd_by_symbol = {c["symbol"].lower(): c for c in coins_to_download if c.get("symbol")}
+
+        def _meta_for(stem: str) -> dict:
+            return ctd_by_id.get(stem) or ctd_by_symbol.get(stem) or {}
+
+        coins_with_data = len(price_summaries)
+        total_accepted = fetch_metadata.get("coins_accepted") or coins_with_data
 
         all_skipped = skipped_coins + failed_coins
         total_skipped = len(all_skipped)
         total_pairs = sum(len(s.get("quotes", [])) for s in price_summaries.values())
 
-        # Sort coins: first by has_usd_data (True first), then by market cap (descending)
-        coins_sorted_raw = sorted(
-            [c for c in coins_to_download if c.get("id", "").lower() in price_summaries],
-            key=lambda c: (not c.get("has_usd_data", True), -c.get("market_cap", 0)),
+        # Sort by has_usd_data (True first), then market cap (descending).
+        stems_sorted = sorted(
+            price_summaries.keys(),
+            key=lambda s: (
+                not _meta_for(s).get("has_usd_data", True),
+                -_meta_for(s).get("market_cap", 0),
+            ),
         )
 
         # Pre-process coins for template
         coins_sorted = []
-        for coin in coins_sorted_raw:
-            coin_id = coin.get("id", "").lower()
-            price_info = price_summaries.get(coin_id, {})
+        for stem in stems_sorted:
+            price_info = price_summaries[stem]
+            coin = _meta_for(stem)
             has_usd_data = coin.get("has_usd_data", True)
             market_cap = coin.get("market_cap", 0)
-            symbol = coin.get("symbol", "N/A")
+            symbol = coin.get("symbol") or stem.upper()
             quotes = price_info.get("quotes", [])
 
             coins_sorted.append(
                 {
                     "symbol": symbol,
-                    "name": coin.get("name", "N/A"),
+                    "name": coin.get("name") or stem.upper(),
                     "url": coin_url(symbol, coin.get("provider_id")),
                     "source_str": (
                         "USD"

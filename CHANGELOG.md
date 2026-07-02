@@ -10,6 +10,68 @@ format YYYY.MM.patch.
 - **Categories** indicate the type of changes (Tests, Code, Documentation, etc.).
 - Each version represents a significant milestone in development.
 
+## 2026.07
+
+### [Unreleased]
+
+**TOTAL2 "bart" fix — stale-entry re-anchor**
+
+- **Fixed:** A ~4x spike-and-crash in TOTAL2b over 2026-05..06 (index ≈0.28 →
+  1.12 → 0.28). Root cause: a coin's price-scaling multiplier was anchored the
+  day it cleared the freeze period (became eligible), which can be months before
+  its volume ranks it into the TOP30. A coin that drifts up while
+  eligible-but-low-volume then enters the TOP30 carrying a **stale** multiplier,
+  so its scaled price is many × the index and — even at ~1.6% volume weight — it
+  dominates the volume-weighted price mean, then crashes it on exit. (`LAB`
+  entered on 2026-05-27 at ~29× the index, contributing up to 54% of it.) Not a
+  provider-migration artifact and not a splice deletion.
+- **Added:** `TOTAL2_STALE_ENTRY_REANCHOR_RATIO` (default 5.0). When a coin
+  *enters* the TOP30 composition with a scaled price above this multiple of the
+  index, its multiplier is **re-anchored** to the current index level (joins at
+  ~1× and then tracks its own return). Re-anchoring only affects *entering*
+  coins, so continuously present long-term outperformers (e.g. BNB, legitimately
+  many × the index) are untouched — genuine multi-cycle appreciation is
+  preserved. Recorded in the `stale_entry_reanchors` metadata list.
+- **Changed:** Recomputing TOTAL2b re-anchors 17 coins historically (incl. BNB,
+  ENJ, THETA, AXS, VIRTUAL) that had the same stale-entry pattern, lowering the
+  index level in recent years (latest 2026-06-25: 0.281 → 0.110). The index is a
+  BTC-denominated volume-weighted **price** (level is arbitrary); its **shape**
+  (cycle peaks/troughs) is preserved.
+- **Fixed (UI):** `full methodology` link on the Cycle Pattern Analysis page now
+  uses the heading blue (`--accent-blue`) instead of the harsh default link blue.
+- **Fixed (copy):** Removed stale "CryptoCompare" references from the Total2
+  Statistics page (now provider-neutral); links resolve to CoinGecko via
+  `coin_url()`.
+
+**Cycle pattern analysis — maturity metric, young-coin projections, filters**
+
+- **Changed:** The displayed cycle count and confidence are now driven by the
+  number of realized **peaks** (`count_peak_cycles`, max2), not bear-market
+  bottoms (`count_min1_cycles`). An old coin at a fresh high (TRX) now reads its
+  true cycle count of **3** (was 2, matching the younger SOL); the admission gate
+  uses the same metric, so a trending post-2024 coin (HYPE) is analyzed instead
+  of dropped for having only a projected min1.
+- **Changed:** Coins with **no completed prior halving cycle** (all structure in
+  the in-progress cycle — SYRUP, SIREN, HYPE) are projected from the log-linear
+  **trendline only**; the rebound methods (Fibonacci / diminishing / historical
+  peak) are suppressed because there is no past cycle to anchor them. The
+  trendline projection is strongly down-weighted (`YOUNG_COIN_COMPOSITE_SCALE` =
+  0.05) and capped (`YOUNG_COIN_MAX_COMPOSITE_PCT` = 300) at LOW confidence — a
+  steep sub-cycle trend extrapolated to the next halving would otherwise explode
+  (SYRUP's raw trendline projects ~+227,000%).
+- **Added:** Staircase run-length filter (`MAX_FLAT_RUN_DAYS` = 5,
+  `MAX_ZERO_CHANGE_FRACTION` = 0.35) — rejects low-liquidity coins with long flat
+  plateaus that sit right at the 30-unique-price threshold (e.g. BANANAS31, which
+  the unique-count gate alone let through).
+- **Added:** `PATTERN_ANALYSIS_ALWAYS_INCLUDE` (ETH, BNB, XRP, SOL) — flagship
+  majors are always shown, bypassing the quality filters (e.g. ETH, filtered by
+  the retracement gate, is shown with its real numbers rather than hidden).
+- **Fixed:** The data-status "Downloaded Price Data" count/table is now derived
+  from the actual price parquets (registry stems) instead of matching
+  `coins_to_download.id` to stems — the cross-provider registry renamed some
+  parquets, which under-counted (786 vs 1724) and showed 0 on daily runs. Stale
+  "CryptoCompare" copy on the data-status page is now provider-neutral.
+
 ## 2026.06
 
 ### [2026.06.0] - 2026-06-25
