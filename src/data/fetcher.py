@@ -395,7 +395,7 @@ class DataFetcher:
         try:
             with open(COINS_TO_DOWNLOAD_JSON, encoding="utf-8") as f:
                 old_coins = json.load(f)
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError, OSError:
             return []
 
         old_names = {coin["id"]: (coin.get("name") or "").strip() for coin in old_coins}
@@ -566,7 +566,7 @@ class DataFetcher:
         try:
             data = json.loads(COINGECKO_IDENTITY_SEED_JSON.read_text(encoding="utf-8"))
             mapping = data.get("coingecko", {})
-        except (json.JSONDecodeError, OSError, AttributeError):
+        except json.JSONDecodeError, OSError, AttributeError:
             logger.warning("Could not read identity seed at %s.", COINGECKO_IDENTITY_SEED_JSON)
             return
         applied = 0

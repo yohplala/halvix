@@ -49,7 +49,7 @@ class CoinRegistry:
                 for p, m in data.items()
                 if isinstance(m, dict)
             }
-        except (json.JSONDecodeError, OSError, AttributeError):
+        except json.JSONDecodeError, OSError, AttributeError:
             logger.warning("Could not read coin registry at %s; starting empty.", self.path)
             self._data = {}
 

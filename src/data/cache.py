@@ -99,7 +99,7 @@ class FileCache:
         try:
             with open(filepath, encoding="utf-8") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError, OSError:
             return None
 
     def set_json(self, key: str, value: Any) -> Path:
@@ -145,7 +145,7 @@ class FileCache:
 
         try:
             return pd.read_parquet(filepath)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
 
     def set_parquet(self, key: str, df: pd.DataFrame) -> Path:
@@ -291,7 +291,7 @@ class PriceDataCache:
             df.index = df.index.normalize()
 
             return df
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return None
 
     def set_prices(self, coin_id: str, df: pd.DataFrame, quote_currency: str = "BTC") -> Path:
