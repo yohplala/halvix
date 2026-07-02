@@ -3407,3 +3407,16 @@ class TestMaturityAndYoungCoinHandling:
         an._run_projections(r)
         assert r.num_cycles == 2
         assert any(t is not None for t in (r.fib_target, r.dim_return_target, r.hist_peak_target))
+
+    def test_force_included_coin_sorts_by_composite_not_appended(self):
+        # A force-included coin that FAILS a filter must sort into its composite
+        # position, not be tacked on at the end (the XRP/ETH bug).
+        an = CyclePatternAnalyzer(price_cache=MagicMock())
+        ok_hi = self._passing("ok_hi", composite=500.0)
+        ok_lo = self._passing("ok_lo", composite=10.0)
+        # forced_mid fails the declining-floor filter but is force-included with a
+        # mid composite -> it belongs BETWEEN ok_hi and ok_lo.
+        forced_mid = self._passing("forced_mid", composite=100.0, lower_slope=-1.0)
+        results = {"ok_hi": ok_hi, "ok_lo": ok_lo, "forced_mid": forced_mid}
+        order = [r.coin_id for r in an.get_top_coins(results, n=10, include={"forced_mid"})]
+        assert order == ["ok_hi", "forced_mid", "ok_lo"]

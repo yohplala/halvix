@@ -826,16 +826,26 @@ class CyclePatternAnalyzer:
         # Maturity/confidence is shown via the badge, NOT used to reorder the
         # ranking (the composite cap on young coins already keeps their figures
         # plausible without editorialising the order).
-        sorted_results = sorted(candidates, key=lambda x: x.composite_target_pct or 0, reverse=True)
+        #
+        # Force-included coins join the ranked pool even if they failed a filter,
+        # so a flagship (e.g. ETH, filtered by retracement; XRP near the trendline
+        # floor) sorts into its composite position rather than being tacked on at
+        # the end of the table/charts.
+        pool = {r.coin_id: r for r in candidates}
+        pool.update(forced_results)
+        ranked = sorted(pool.values(), key=lambda x: x.composite_target_pct or 0, reverse=True)
 
-        top = sorted_results[:n]
+        top = ranked[:n]
 
-        # Append force-included coins that aren't already in top-N,
-        # sorted among themselves by composite target (descending)
+        # Guarantee every force-included coin appears even if it ranks beyond n,
+        # still ordered by composite among the appended extras.
         if forced_results:
             top_ids = {r.coin_id for r in top}
-            extras = [r for r in forced_results.values() if r.coin_id not in top_ids]
-            extras.sort(key=lambda x: x.composite_target_pct or 0, reverse=True)
+            extras = sorted(
+                (r for cid, r in forced_results.items() if cid not in top_ids),
+                key=lambda x: x.composite_target_pct or 0,
+                reverse=True,
+            )
             top.extend(extras)
 
         return top

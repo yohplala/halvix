@@ -1104,7 +1104,17 @@ def generate_pattern_analysis_page(
             color: var(--text-secondary);
             font-size: 0.85rem;
             text-transform: uppercase;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
         }
+
+        .ranking-table th:hover {
+            color: var(--accent-blue);
+        }
+
+        .ranking-table th.sorted-asc::after { content: " \\2191"; }
+        .ranking-table th.sorted-desc::after { content: " \\2193"; }
 
         .ranking-table td.number {
             font-family: 'SF Mono', Consolas, monospace;
@@ -1259,6 +1269,45 @@ def generate_pattern_analysis_page(
             except Exception as e:
                 logger.warning("Could not generate embedded chart for %s: %s", coin.coin_id, e)
 
+    # Client-side column sorting for the ranking table. The initial DOM order is
+    # kept as generated (BTC pinned at rank 0, altcoins by composite), and no
+    # default sort is applied on load; clicking a header sorts (descending first,
+    # toggling). Plain string (not the f-string below) so its JS braces are safe.
+    sort_script = """
+    <script>
+    (function () {
+        const table = document.getElementById('pattern-ranking-table');
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        const PCT = new Set([4, 5, 6, 7, 8]);   // Composite, Trendline, Fib, Dim, Hist
+        const NUM = new Set([0, 3]);            // Rank, Cycles
+        const CONF = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+        function val(cell, col) {
+            const t = cell.textContent.trim();
+            if (col === 2) return CONF[t.toUpperCase()] || 0;
+            if (PCT.has(col)) { const n = parseFloat(t.replace(/[%,]/g, '')); return isNaN(n) ? -Infinity : n; }
+            if (NUM.has(col)) { const n = parseFloat(t.replace(/,/g, '')); return isNaN(n) ? -Infinity : n; }
+            return t.toLowerCase();
+        }
+        table.querySelectorAll('th').forEach((th, col) => {
+            th.addEventListener('click', () => {
+                const desc = !th.classList.contains('sorted-desc');
+                table.querySelectorAll('th').forEach(h => h.classList.remove('sorted-asc', 'sorted-desc'));
+                const rows = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort((a, b) => {
+                    const av = val(a.cells[col], col), bv = val(b.cells[col], col);
+                    if (av < bv) return desc ? 1 : -1;
+                    if (av > bv) return desc ? -1 : 1;
+                    return 0;
+                });
+                th.classList.add(desc ? 'sorted-desc' : 'sorted-asc');
+                rows.forEach(r => tbody.appendChild(r));
+            });
+        });
+    })();
+    </script>
+    """
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1286,7 +1335,7 @@ def generate_pattern_analysis_page(
         </p>
 
         <div class="table-container" style="overflow-x: auto;">
-            <table class="ranking-table">
+            <table class="ranking-table" id="pattern-ranking-table">
                 <thead>
                     <tr>
                         <th>Rank</th>
@@ -1313,6 +1362,7 @@ def generate_pattern_analysis_page(
     </main>
 
     {footer_html}
+    {sort_script}
 </body>
 </html>
 """

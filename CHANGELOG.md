@@ -66,6 +66,11 @@ format YYYY.MM.patch.
 - **Added:** `PATTERN_ANALYSIS_ALWAYS_INCLUDE` (ETH, BNB, XRP, SOL) — flagship
   majors are always shown, bypassing the quality filters (e.g. ETH, filtered by
   the retracement gate, is shown with its real numbers rather than hidden).
+  Force-included coins sort into their composite position in the table and charts
+  instead of being appended at the end (fixes XRP/ETH out of order).
+- **Added:** The ranking table is sortable by clicking any column header
+  (descending first, toggling). The default order keeps BTC pinned at rank 0,
+  then altcoins by composite.
 - **Fixed:** The data-status "Downloaded Price Data" count/table is now derived
   from the actual price parquets (registry stems) instead of matching
   `coins_to_download.id` to stems — the cross-provider registry renamed some
