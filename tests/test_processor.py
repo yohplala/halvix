@@ -380,6 +380,116 @@ class TestTotal2bScalingOptimization:
         assert event["change_factor"] > 0
 
 
+class TestStaleEntryReanchor:
+    """Tests for the stale-entry re-anchor (the 2026-06 "bart" fix).
+
+    A coin can clear the freeze period (become eligible + first-eligibility
+    scaled) long before its volume ranks it into the top-N. If its raw price
+    ramps in the meantime, its stale multiplier makes it enter the top-N far
+    above the index level and dominate the volume-weighted mean. On entry it
+    should be re-anchored to the current index level instead.
+    """
+
+    @pytest.fixture
+    def sample_data_with_stale_pump_entrant(self):
+        """3 stable coins + a low-volume coin that ramps 50x then enters top-N."""
+        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+
+        # Volumes are kept < DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK (5000) so the
+        # volume-outlier corrector never caps pmp's entry-day volume jump.
+        def const(close, vol):
+            return pd.DataFrame(
+                {"close": [close] * 40, "volume_to": [float(vol)] * 40}, index=dates
+            )
+
+        aaa = const(0.010, 1000)  # forms the index (highest steady volume)
+        bbb = const(0.005, 800)
+        ccc = const(0.002, 600)
+
+        # pmp: appears on day 10 (after aaa/bbb/ccc are already an established,
+        # scaling-active index), becomes eligible ~day 13 and is first-eligibility
+        # scaled at its low launch price -> a large stale multiplier. It stays
+        # low-volume (rank 4, out of the top-3) while its price ramps ~40x
+        # gradually (per-day 1.216 stays under the 4.42x symbol-replacement
+        # threshold). On day 30 its volume finally lifts it into the top-3, still
+        # carrying that stale multiplier.
+        pmp_close: list = [None] * 10
+        pmp_vol: list = [None] * 10
+        p = 0.0001
+        for i in range(10, 40):
+            pmp_close.append(p)
+            if i < 30:  # ramp over days 10..29
+                p *= 1.216
+        pmp_vol += [10.0] * 20 + [4500.0] * 10  # low volume, then enters top-3 on day 30
+        pmp = pd.DataFrame({"close": pmp_close, "volume_to": pmp_vol}, index=dates)
+
+        return {"aaa": aaa, "bbb": bbb, "ccc": ccc, "pmp": pmp}
+
+    def _run(self, temp_dir, data, reanchor_ratio):
+        cache = PriceDataCache(prices_dir=temp_dir)
+        for coin_id, df in data.items():
+            cache.set_prices(coin_id, df)
+        processor = Total2Processor(
+            price_cache=cache,
+            top_n=3,
+            volume_sma_window=2,
+            freeze_period_days=3,
+            min_coins_for_scaling=3,
+            stale_entry_reanchor_ratio=reanchor_ratio,
+        )
+        return processor.calculate_total2(show_progress=False)
+
+    def test_reanchor_removes_the_bart(self, temp_dir, sample_data_with_stale_pump_entrant):
+        """With the guard on, the stale entrant is re-anchored and the index stays smooth."""
+        res = self._run(temp_dir, sample_data_with_stale_pump_entrant, reanchor_ratio=5.0)
+
+        prices = res.index_df["total2_price"]
+        entry_day = pd.Timestamp("2024-01-31")  # day 30 (0-indexed): pmp enters top-3
+        prev_day = pd.Timestamp("2024-01-30")
+        assert entry_day in prices.index and prev_day in prices.index
+        # No bart: the index must not spike when the stale entrant joins.
+        assert prices[entry_day] / prices[prev_day] < 1.5
+
+        # The re-anchor must be recorded for PMP.
+        reanchors = res.stale_entry_reanchors or []
+        pmp_events = [e for e in reanchors if e["coin"] == "PMP"]
+        assert len(pmp_events) >= 1
+        ev = pmp_events[0]
+        assert ev["stale_ratio"] > 5.0  # it really was stale on entry
+        assert ev["reanchored_to"] == pytest.approx(prices[prev_day], rel=0.05)
+
+    def test_without_guard_the_bart_appears(self, temp_dir, sample_data_with_stale_pump_entrant):
+        """Sanity check: with the guard disabled (ratio=0) the same data barts."""
+        res = self._run(temp_dir, sample_data_with_stale_pump_entrant, reanchor_ratio=0)
+
+        prices = res.index_df["total2_price"]
+        entry_day = pd.Timestamp("2024-01-31")
+        prev_day = pd.Timestamp("2024-01-30")
+        # Disabled guard -> the stale entrant dominates and the index spikes hard.
+        assert prices[entry_day] / prices[prev_day] > 3.0
+        assert not (res.stale_entry_reanchors or [])
+
+    def test_normal_entrant_is_not_reanchored(self, temp_dir):
+        """A coin entering the top-N near the index level must not be re-anchored."""
+        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+
+        def const(close, vol):
+            return pd.DataFrame(
+                {"close": [close] * 40, "volume_to": [float(vol)] * 40}, index=dates
+            )
+
+        data = {"aaa": const(0.010, 1000), "bbb": const(0.005, 800), "ccc": const(0.002, 600)}
+        # ddd enters late (day 15) at a normal level, immediately with top-N volume.
+        ddd_close = [None] * 15 + [0.004] * 25
+        ddd_vol = [None] * 15 + [700.0] * 25
+        data["ddd"] = pd.DataFrame({"close": ddd_close, "volume_to": ddd_vol}, index=dates)
+
+        res = self._run(temp_dir, data, reanchor_ratio=5.0)
+        ddd_reanchors = [e for e in (res.stale_entry_reanchors or []) if e["coin"] == "DDD"]
+        assert ddd_reanchors == []
+        assert (res.index_df["total2_price"] > 0).all()
+
+
 class TestSymbolReplacementDetection:
     """Tests for symbol replacement detection (shared utility).
 

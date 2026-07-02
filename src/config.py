@@ -137,9 +137,29 @@ VOLUME_SMA_WINDOW = 120
 # Price Scaling: When a coin enters TOTAL2b (after freeze period + reaching
 # TOP30), its price is scaled by TOTAL2b_d-1/COIN_PRICE_d (where COIN_PRICE_d
 # is the coin price at entry day d). This preserves day-over-day price changes.
+# The scaling factor is (re-)anchored on the day the coin actually enters the
+# top-N index composition — NOT on the earlier day it merely became freeze-
+# eligible. Anchoring at first-eligibility let a coin sit eligible-but-low-volume
+# while its raw price drifted for months, so by the time its volume ranked it
+# into the top-N it carried a stale multiplier and its scaled price could be
+# tens of times the index level (the 2026-06 "bart"). See Total2Processor.
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21  # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30  # Only apply scaling after index has this many coins
 TOTAL2_MIN_COINS_FOR_INDEX = 3  # Minimum coins required to calculate index for a day
+
+# Stale-entry re-anchor ratio (bart safety net). When a coin ENTERS the top-N
+# composition carrying a scaled price already above this multiple of the index
+# level, its multiplier is treated as stale and re-anchored to the current index
+# (the coin joins at ~1x and then tracks its own return). This is the detection
+# threshold of the old "deviation guard" idea, but it triggers a RE-ANCHOR
+# rather than an exclusion: excluding would remove a real coin and, applied to a
+# long-standing outperformer (e.g. BNB legitimately sits many x the index),
+# corrupt the index. Only coins *entering* the composition are affected —
+# continuously present coins keep their factor, so genuine multi-cycle
+# outperformance is preserved. Set low enough to always catch stale anchors (LAB
+# entered at ~36x the index) yet above the ~1-2x a normal fresh entrant shows.
+# Set to 0 to disable.
+TOTAL2_STALE_ENTRY_REANCHOR_RATIO = 5.0
 
 # Symbol Replacement Detection: providers sometimes reuse symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,

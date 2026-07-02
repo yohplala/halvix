@@ -45,6 +45,7 @@ from config import (
     TOTAL2_INDEX_FILE,
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
     TOTAL2_MIN_COINS_FOR_INDEX,
+    TOTAL2_STALE_ENTRY_REANCHOR_RATIO,
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
     VOLUME_SMA_WINDOW,
@@ -92,6 +93,10 @@ class Total2Result:
     scaling_events: list[dict] | None = None
     round_trip_corrections: list[dict] | None = None
     symbol_replacements: list[dict] | None = None
+    # Coins whose stale first-eligibility multiplier was re-anchored to the index
+    # level on their first top-N entry (bart fix): scaled price had drifted above
+    # TOTAL2_STALE_ENTRY_REANCHOR_RATIO x the index before the coin joined.
+    stale_entry_reanchors: list[dict] | None = None
 
 
 class Total2Processor:
@@ -108,11 +113,13 @@ class Total2Processor:
        gradually).
     5. Compute per-coin first-seen dates, detecting symbol replacements that
        reset the freeze clock.
-    6. Iterate dates: each day, build the top-N eligible coins, scale new
-       entrants by ``prev_total2 / raw_price``, and compute the volume-weighted
-       average of scaled prices.
+    6. Iterate dates: each day, scale new freeze-eligible entrants by
+       ``prev_total2 / raw_price``, pick the top-N by volume, re-anchor any coin
+       that enters the composition carrying a stale multiplier (scaled price
+       above ``stale_entry_reanchor_ratio`` x the index — the bart fix), and
+       compute the volume-weighted average of scaled prices.
     7. Save index, composition, and metadata (corrections, scaling events,
-       coin statistics).
+       stale-entry re-anchors, coin statistics).
     """
 
     def __init__(
@@ -126,6 +133,7 @@ class Total2Processor:
         min_coins_for_scaling: int = TOTAL2B_MIN_COINS_FOR_SCALING,
         symbol_replacement_increase_threshold: float = SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
         symbol_replacement_decrease_threshold: float = SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
+        stale_entry_reanchor_ratio: float = TOTAL2_STALE_ENTRY_REANCHOR_RATIO,
     ):
         self.price_cache = price_cache or PriceDataCache()
         self.coin_filter = coin_filter or CoinFilter()
@@ -136,6 +144,10 @@ class Total2Processor:
         self.min_coins_for_scaling = min_coins_for_scaling
         self.symbol_replacement_increase_threshold = symbol_replacement_increase_threshold
         self.symbol_replacement_decrease_threshold = symbol_replacement_decrease_threshold
+        # Bart safety net: a coin entering the top-N with a scaled price above
+        # this multiple of the index has a stale multiplier and is re-anchored to
+        # the index level (0/None disables).
+        self.stale_entry_reanchor_ratio = stale_entry_reanchor_ratio
 
     # =========================================================================
     # Data loading + alignment
@@ -321,11 +333,13 @@ class Total2Processor:
 
         if show_progress:
             logger.info("Calculating TOTAL2 with freeze period and scaling...")
-        index_df, composition_records, scaling_events = self._calculate_total2_iterative(
-            close_df,
-            smoothed_volume_df,
-            first_seen_dates,
-            show_progress=show_progress,
+        index_df, composition_records, scaling_events, stale_entry_reanchors = (
+            self._calculate_total2_iterative(
+                close_df,
+                smoothed_volume_df,
+                first_seen_dates,
+                show_progress=show_progress,
+            )
         )
 
         if start_date:
@@ -362,6 +376,7 @@ class Total2Processor:
             scaling_events=scaling_events,
             round_trip_corrections=round_trip_corrections,
             symbol_replacements=symbol_replacements,
+            stale_entry_reanchors=stale_entry_reanchors,
             index_type="total2b",
         )
 
@@ -461,18 +476,40 @@ class Total2Processor:
         smoothed_volume_df: pd.DataFrame,
         first_seen_dates: dict[str, pd.Timestamp],
         show_progress: bool = True,
-    ) -> tuple[pd.DataFrame, list[dict], list[dict]]:
+    ) -> tuple[pd.DataFrame, list[dict], list[dict], list[dict]]:
         """
         Per-day pass over the eligibility-masked close/volume matrices.
 
-        Scaling formula for new entrants:
-            scaled_price = raw_price * prev_total2 / COIN_PRICE_d
-        so the entry-day scaled price equals prev_total2 (continuity) and the
-        coin carries the same scaling factor for every subsequent day
-        (preserves day-over-day return factors).
+        Entry-day price scaling. When a coin first becomes freeze-eligible (and
+        the index is mature) its multiplier is anchored so its scaled price lines
+        up with the prior index value::
+
+            scaled_price = raw_price * prev_total2 / raw_price_at_entry
+
+        The entry-day scaled price then equals prev_total2 (continuity) and the
+        coin tracks its day-over-day return via that fixed factor. This
+        first-eligibility anchoring is preserved unchanged — it is what defines
+        the historical index — with one correction:
+
+        Stale-entry re-anchor (fixes A+B merged — the 2026-06 "bart"). A coin can
+        sit freeze-eligible but below the top-N by volume for months while its
+        raw price drifts far. Its first-eligibility multiplier then goes stale,
+        and on the day its volume finally ranks it INTO the top-N its scaled
+        price can be tens of times the index level (LAB entered the top-N in May
+        2026 carrying a Dec-2025 anchor at ~36x the index and, at ~1.6% volume
+        weight, dominated the volume-weighted price mean, spiking then crashing
+        the index). When a coin ENTERS the composition (not present the previous
+        index day) with a scaled price above
+        ``stale_entry_reanchor_ratio`` x prev_total2, its factor is RE-ANCHORED
+        to the current index level — the coin joins at ~1x and then tracks its
+        own return. Re-anchoring (rather than excluding the coin, an earlier
+        idea) keeps a real constituent in the index and, crucially, only touches
+        *entering* coins: a continuously present long-term outperformer such as
+        BNB (legitimately many x the index) is never re-anchored, so real
+        multi-cycle appreciation is preserved.
 
         Returns:
-            (index_df, composition_records, scaling_events)
+            (index_df, composition_records, scaling_events, stale_entry_reanchors)
         """
         eligibility_mask = self._build_eligibility_mask(
             close_df, smoothed_volume_df, first_seen_dates
@@ -482,10 +519,14 @@ class Total2Processor:
         index_records: list[dict] = []
         composition_records: list[dict] = []
         scaling_events: list[dict] = []
+        stale_entry_reanchors: list[dict] = []
 
-        coins_in_index: set[str] = set()
         coin_scaling_factors: dict[str, float] = {}
+        coins_eligible_prev: set[str] = set()  # previous day's eligible set
+        prev_index_coins: set[str] = set()  # composition (top-N) of the previous index day
         prev_total2: float | None = None
+
+        reanchor_ratio = self.stale_entry_reanchor_ratio
 
         close_values = close_df.values
         volume_values = smoothed_volume_df.values
@@ -506,14 +547,17 @@ class Total2Processor:
             if len(eligible_coins) < TOTAL2_MIN_COINS_FOR_INDEX:
                 continue
 
-            new_entries = set(eligible_coins) - coins_in_index
             should_scale = (
-                len(coins_in_index) >= self.min_coins_for_scaling and prev_total2 is not None
+                len(coins_eligible_prev) >= self.min_coins_for_scaling
+                and prev_total2 is not None
+                and prev_total2 > 0
             )
+
+            # First-eligibility anchoring (unchanged; defines the historical index).
+            new_entries = set(eligible_coins) - coins_eligible_prev
             for coin_id in new_entries:
-                if should_scale and prev_total2 is not None and prev_total2 > 0:
-                    idx = coin_to_idx[coin_id]
-                    raw_price_at_entry = close_values[date_idx, idx]
+                if should_scale:
+                    raw_price_at_entry = close_values[date_idx, coin_to_idx[coin_id]]
                     if raw_price_at_entry > 0:
                         scaling_factor = prev_total2 / raw_price_at_entry
                         coin_scaling_factors[coin_id] = scaling_factor
@@ -528,11 +572,48 @@ class Total2Processor:
                                 "prev_total2b": float(prev_total2),
                             }
                         )
+            coins_eligible_prev = set(eligible_coins)
 
-            coins_in_index = set(eligible_coins)
+            # Top-N by volume (volume ranking is independent of price scaling).
+            top_ids = sorted(
+                eligible_coins,
+                key=lambda c: volume_values[date_idx, coin_to_idx[c]],
+                reverse=True,
+            )[: self.top_n]
+
+            # --- Stale-entry re-anchor (fixes A+B) ----------------------------
+            # A coin ENTERING the composition (not in the previous index day)
+            # whose scaled price is already > reanchor_ratio x the index carried a
+            # stale first-eligibility multiplier. Reset it to the index level so
+            # it joins at ~1x rather than dominating (the LAB bart) or being
+            # dropped (which would corrupt the index for legitimate long-term
+            # outperformers). Continuously present coins are never touched.
+            if should_scale and reanchor_ratio and reanchor_ratio > 0:
+                limit = reanchor_ratio * prev_total2
+                for coin_id in top_ids:
+                    if coin_id in prev_index_coins:
+                        continue  # continuing member — keep its factor (tracks return)
+                    idx = coin_to_idx[coin_id]
+                    raw_price = close_values[date_idx, idx]
+                    if raw_price <= 0:
+                        continue
+                    factor = coin_scaling_factors.get(coin_id)
+                    scaled = raw_price * factor if factor is not None else raw_price
+                    if scaled > limit:
+                        coin_scaling_factors[coin_id] = prev_total2 / raw_price
+                        stale_entry_reanchors.append(
+                            {
+                                "date": str(dt.date()),
+                                "coin": coin_id.upper(),
+                                "stale_scaled_price": float(scaled),
+                                "reanchored_to": float(prev_total2),
+                                "stale_ratio": float(scaled / prev_total2),
+                                "raw_price": float(raw_price),
+                            }
+                        )
 
             volumes: list[tuple[str, float, float]] = []
-            for coin_id in eligible_coins:
+            for coin_id in top_ids:
                 idx = coin_to_idx[coin_id]
                 vol = volume_values[date_idx, idx]
                 raw_price = close_values[date_idx, idx]
@@ -543,13 +624,11 @@ class Total2Processor:
                 )
                 volumes.append((coin_id, vol, price))
 
-            volumes.sort(key=lambda x: x[1], reverse=True)
-            top_n = volumes[: self.top_n]
-            total_volume = sum(v for _, v, _ in top_n)
+            total_volume = sum(v for _, v, _ in volumes)
             if total_volume <= 0:
                 continue
 
-            weighted_sum = sum(p * v for _, v, p in top_n)
+            weighted_sum = sum(p * v for _, v, p in volumes)
             total2_price = weighted_sum / total_volume
 
             index_records.append(
@@ -557,12 +636,13 @@ class Total2Processor:
                     "date": dt,
                     "total2_price": total2_price,
                     "total_volume": total_volume,
-                    "coin_count": len(top_n),
+                    "coin_count": len(volumes),
                 }
             )
             prev_total2 = total2_price
+            prev_index_coins = {c for c, _, _ in volumes}
 
-            for rank, (coin_id, vol, price) in enumerate(top_n, start=1):
+            for rank, (coin_id, vol, price) in enumerate(volumes, start=1):
                 composition_records.append(
                     {
                         "date": dt.date(),
@@ -592,7 +672,25 @@ class Total2Processor:
             if len(scaling_events) > 10:
                 logger.info("    ... and %d more", len(scaling_events) - 10)
 
-        return index_df, composition_records, scaling_events
+        if show_progress and stale_entry_reanchors:
+            logger.info(
+                "  Re-anchored %d stale-entry coin(s) (scaled price > %.1fx index on entry):",
+                len(stale_entry_reanchors),
+                reanchor_ratio,
+            )
+            for ev in stale_entry_reanchors[:10]:
+                logger.info(
+                    "    %6s %s: %.4f (%.1fx index) -> %.4f",
+                    ev["coin"],
+                    ev["date"],
+                    ev["stale_scaled_price"],
+                    ev["stale_ratio"],
+                    ev["reanchored_to"],
+                )
+            if len(stale_entry_reanchors) > 10:
+                logger.info("    ... and %d more", len(stale_entry_reanchors) - 10)
+
+        return index_df, composition_records, scaling_events, stale_entry_reanchors
 
     def get_freeze_period_status(
         self,
@@ -766,6 +864,7 @@ class Total2Processor:
             "scaling_events": result.scaling_events or [],
             "round_trip_corrections": result.round_trip_corrections or [],
             "symbol_replacements": result.symbol_replacements or [],
+            "stale_entry_reanchors": result.stale_entry_reanchors or [],
             "coin_statistics": coin_statistics,
             "index_type": result.index_type,
         }

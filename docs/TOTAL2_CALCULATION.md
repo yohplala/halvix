@@ -47,6 +47,9 @@ Additional configuration for **TOTAL2b** in `src/config.py`:
 # TOTAL2b new coin entry settings (pre-entry freeze + scaling)
 TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS = 21   # Days to wait before coin can join (3 weeks)
 TOTAL2B_MIN_COINS_FOR_SCALING = 30      # Only apply scaling after index has this many coins
+TOTAL2_STALE_ENTRY_REANCHOR_RATIO = 5.0 # Re-anchor a coin entering TOP30 with a scaled
+                                        # price > this x the index (stale-multiplier "bart"
+                                        # fix; 0 disables). See "Stale-Entry Re-Anchor".
 
 # Symbol Replacement Detection: providers sometimes reuse symbols for different
 # tokens (e.g., old worthless "HYPE" replaced by Hyperliquid "HYPE" in Dec 2024,
@@ -206,6 +209,40 @@ Where:
 - Applies only when index already has 30+ coins (established baseline)
 - Persistent: once applied, the scaling factor remains for all subsequent days
 
+### 5. Stale-Entry Re-Anchor (the "bart" fix)
+
+The scaling factor is anchored the day a coin first clears the **freeze period**
+(becomes eligible), which can be long before its volume ranks it into the
+TOP30. If a coin sits eligible-but-low-volume while its raw price drifts far,
+its multiplier goes **stale**: on the day its volume finally lifts it into the
+TOP30 its scaled price can be tens of times the index level, so — even at a
+tiny volume weight — it dominates the volume-weighted price mean and spikes the
+index, then crashes it on exit. This produced the June 2026 "bart" (TOTAL2b
+≈0.28 → 1.12 → 0.28): the coin `LAB` was scaled on 2025-12-09 at raw
+`1.25e-6 BTC`, sat below the TOP30 for ~6 months while its price rose ~180x, and
+entered the TOP30 on 2026-05-27 carrying a scaled price ~29x the index,
+contributing up to **54%** of the index at only ~1.6% volume weight.
+
+**Correction:** when a coin **enters** the TOP30 composition (was not in it the
+previous index day) carrying a scaled price above
+`TOTAL2_STALE_ENTRY_REANCHOR_RATIO` × the previous index value, its multiplier
+is **re-anchored** to the current index level (the coin joins at ~1× and then
+tracks its own return):
+
+```python
+if entering_top30 and raw * factor > TOTAL2_STALE_ENTRY_REANCHOR_RATIO * prev_total2b:
+    factor = prev_total2b / raw   # reset the stale multiplier to the index level
+```
+
+Re-anchoring (rather than **excluding** the coin — an idea that was rejected)
+keeps a real constituent in the index. Crucially it only touches *entering*
+coins: a continuously present long-term outperformer such as **BNB**
+(legitimately worth many × the index) is never re-anchored, so genuine
+multi-cycle appreciation is preserved. Each re-anchor is recorded in the
+`stale_entry_reanchors` metadata list. Default ratio is **5.0** (set to 0 to
+disable); it is well below a normal fresh entrant's ~1–2× yet always catches a
+stale multiplier.
+
 ### Algorithm Summary
 
 ```python
@@ -219,12 +256,14 @@ for each day:
        - Detect symbol replacements (>4.42x increase or <0.101x decrease)
        - Reset first_seen date if replacement detected
     2. Filter eligible coins (passed freeze period + valid data)
-    3. Detect new entries (coins entering TOP30 today)
-    4. For new entries: apply price scaling (if index has 30+ coins)
+    3. For coins newly eligible today: apply price scaling (if index has 30+ coins)
        - scaling_factor = prev_total2b / entry_day_price
-       - Apply to all future prices for this coin
-    5. Calculate volume-weighted average of TOP30 (using scaled prices)
-    6. Record composition
+    4. Pick the TOP30 by (SMA-smoothed) volume
+    5. For coins ENTERING the TOP30 with a stale multiplier
+       (scaled price > TOTAL2_STALE_ENTRY_REANCHOR_RATIO x index): re-anchor
+       their factor to the current index level
+    6. Calculate volume-weighted average of TOP30 (using scaled prices)
+    7. Record composition
 ```
 
 ---
