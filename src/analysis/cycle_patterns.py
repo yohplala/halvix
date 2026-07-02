@@ -43,14 +43,17 @@ from analysis.cycle_points import (
     CyclePoint,
     _to_date,
     build_points_index,
-    count_min1_cycles,
+    count_min1_cycles,  # noqa: F401  (re-exported for tests)
+    count_peak_cycles,
     fib_retracement_ratio,  # noqa: F401  (re-exported for tests)
 )
 from config import (
     DAYS_BEFORE_HALVING,
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
+    MAX_FLAT_RUN_DAYS,
     MAX_RETRACEMENT_LEVEL,
+    MAX_ZERO_CHANGE_FRACTION,
     MIN_COIN_AGE_DAYS,
     MIN_LOWER_SLOPE,
     MIN_UNIQUE_PRICES,
@@ -60,6 +63,8 @@ from config import (
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_LOOKBACK_YEARS,
     UNIQUE_PRICES_WINDOW_DAYS,
+    YOUNG_COIN_COMPOSITE_SCALE,
+    YOUNG_COIN_MAX_COMPOSITE_PCT,
 )
 from data.cache import PriceDataCache
 from data.price_filters import detect_symbol_replacement, smooth_round_trips_on_series
@@ -228,6 +233,7 @@ class CyclePatternAnalyzer:
     # by tests and production callers).
     _build_points_index = staticmethod(build_points_index)
     _count_min1_cycles = staticmethod(count_min1_cycles)
+    _count_peak_cycles = staticmethod(count_peak_cycles)
 
     _fit_log_trendlines = staticmethod(projections.fit_log_trendlines)
     _project_trendline_target = staticmethod(projections.project_trendline_target)
@@ -279,36 +285,60 @@ class CyclePatternAnalyzer:
                 result.trendline_target = target
                 result.trendline_target_pct = (target / current_price - 1) * 100
 
-        # Fibonacci extension
-        fib_target = self._calculate_fib_extension(result.points, idx)
-        if fib_target:
-            result.fib_target = fib_target
-            result.fib_target_pct = (fib_target / current_price - 1) * 100
-
-        # Diminishing returns
-        dim_target, dim_factor = self._calculate_diminishing_return(result.points, idx)
-        if dim_target:
-            result.dim_return_target = dim_target
-            result.dim_return_target_pct = (dim_target / current_price - 1) * 100
-            result.dim_return_factor = dim_factor
-
-        # Historical peak
-        hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(
-            result.points, idx
+        # Maturity: has the coin lived through a COMPLETED prior halving cycle,
+        # i.e. does it own a realized peak (max2) dated before the current cycle's
+        # halving? The rebound-based methods (Fibonacci, diminishing returns,
+        # historical peak) all assume a full-cycle rebound and need a past cycle to
+        # anchor to. A coin with only in-progress-cycle structure (SYRUP, SIREN,
+        # HYPE) has no such anchor and would over-extrapolate wildly, so for it the
+        # composite is built from the demonstrated trendline only, then capped.
+        last_halving = max(h for h in HALVING_DATES if h <= date.today())
+        mature = any(
+            p.point_type == "max2" and not p.projected and p.date < last_halving
+            for p in result.points
         )
-        if hist_peak_target:
-            result.hist_peak_target = hist_peak_target
-            result.hist_peak_target_pct = (hist_peak_target / current_price - 1) * 100
-            result.hist_peak_is_absolute = hist_peak_is_absolute
 
-        # Composite target (weighted average using confidence-based weight profile)
-        result.composite_target_pct = self._calculate_weighted_composite(
-            trendline_pct=result.trendline_target_pct,
-            fib_pct=result.fib_target_pct,
-            dim_return_pct=result.dim_return_target_pct,
-            hist_peak_pct=result.hist_peak_target_pct,
-            confidence=result.confidence,
-        )
+        if mature:
+            # Fibonacci extension
+            fib_target = self._calculate_fib_extension(result.points, idx)
+            if fib_target:
+                result.fib_target = fib_target
+                result.fib_target_pct = (fib_target / current_price - 1) * 100
+
+            # Diminishing returns
+            dim_target, dim_factor = self._calculate_diminishing_return(result.points, idx)
+            if dim_target:
+                result.dim_return_target = dim_target
+                result.dim_return_target_pct = (dim_target / current_price - 1) * 100
+                result.dim_return_factor = dim_factor
+
+            # Historical peak
+            hist_peak_target, hist_peak_is_absolute = self._calculate_historical_peak(
+                result.points, idx
+            )
+            if hist_peak_target:
+                result.hist_peak_target = hist_peak_target
+                result.hist_peak_target_pct = (hist_peak_target / current_price - 1) * 100
+                result.hist_peak_is_absolute = hist_peak_is_absolute
+
+        # Composite target.
+        if mature:
+            # Weighted average using the confidence-based weight profile.
+            result.composite_target_pct = self._calculate_weighted_composite(
+                trendline_pct=result.trendline_target_pct,
+                fib_pct=result.fib_target_pct,
+                dim_return_pct=result.dim_return_target_pct,
+                hist_peak_pct=result.hist_peak_target_pct,
+                confidence=result.confidence,
+            )
+        elif result.trendline_target_pct is not None:
+            # Young coin: trendline-only, strongly down-weighted, then capped —
+            # a steep sub-cycle trend extrapolated to the next halving would
+            # otherwise explode (e.g. SYRUP's raw trendline ~+227,000%).
+            result.composite_target_pct = min(
+                result.trendline_target_pct * YOUNG_COIN_COMPOSITE_SCALE,
+                YOUNG_COIN_MAX_COMPOSITE_PCT,
+            )
 
         # Retracement ratio + continuous penalty
         result.retracement_ratio = self._calculate_retracement_ratio(result.points, idx)
@@ -484,11 +514,14 @@ class CyclePatternAnalyzer:
             logger.debug("%s: No cycle points found", coin_id.upper())
             return None
 
-        # Count cycles where coin has min1 (pre-halving data proves coin existed before halving)
-        # Post-halving-only data (min2/max2) doesn't count as experiencing a full cycle
-        result.num_cycles = self._count_min1_cycles(result.points)
+        # "Cycles" / maturity = number of halving cycles in which the coin printed
+        # a realized peak (max2). This counts cycle tops the coin actually reached
+        # (so TRX, at a fresh high, reads 3 like SOL) rather than bear bottoms.
+        result.num_cycles = self._count_peak_cycles(result.points)
 
-        # Check minimum cycles requirement
+        # Check minimum cycles requirement (>=1 realized peak). Admits trending
+        # young coins (e.g. HYPE) that only have an in-progress-cycle peak; their
+        # projections are governed by the young-coin path in _run_projections.
         if not force and result.num_cycles < self.min_cycles:
             logger.debug(
                 "%s: Insufficient cycles (%d < %d required)",
@@ -517,12 +550,30 @@ class CyclePatternAnalyzer:
 
         unique_window_start = result.current_date - timedelta(days=UNIQUE_PRICES_WINDOW_DAYS)
         recent_prices = df[df.index.date >= unique_window_start]
-        result.unique_price_count = (
-            recent_prices["close"].nunique() if not recent_prices.empty else 0
-        )
+        recent_close = recent_prices["close"] if not recent_prices.empty else None
+        result.unique_price_count = recent_close.nunique() if recent_close is not None else 0
+        result.max_flat_run, result.zero_change_fraction = self._staircase_metrics(recent_close)
 
         self._run_projections(result)
         return result
+
+    @staticmethod
+    def _staircase_metrics(recent_close: pd.Series | None) -> tuple[int, float]:
+        """Longest run of identical consecutive closes + fraction of zero-change days.
+
+        Robust low-liquidity signals over the recent window: a liquid coin moves
+        almost every day (short flat runs, near-zero zero-change fraction), while a
+        staircase coin (BANANAS31) holds a price flat for many days at a time.
+        """
+        if recent_close is None or len(recent_close) < 2:
+            return 0, 0.0
+        vals = recent_close.to_numpy()
+        longest = run = 1
+        for i in range(1, len(vals)):
+            run = run + 1 if vals[i] == vals[i - 1] else 1
+            longest = max(longest, run)
+        zero_change_fraction = float((vals[1:] == vals[:-1]).mean())
+        return longest, zero_change_fraction
 
     def analyze_all_coins(
         self,
@@ -681,6 +732,17 @@ class CyclePatternAnalyzer:
         candidates = [r for r in candidates if r.unique_price_count >= MIN_UNIQUE_PRICES]
         after_unique = len(candidates)
 
+        # Filter 8: Staircase / illiquid — long flat plateaus or many zero-change
+        # days (robust where the unique-count sits right at its threshold, e.g.
+        # BANANAS31: 26 unique but ~week-long flat runs).
+        candidates = [
+            r
+            for r in candidates
+            if r.max_flat_run <= MAX_FLAT_RUN_DAYS
+            and r.zero_change_fraction <= MAX_ZERO_CHANGE_FRACTION
+        ]
+        after_staircase = len(candidates)
+
         # Build unified filter summary table including early pipeline stages.
         # These counts are populated by analyze_all_coins(); when get_top_coins()
         # is called standalone (custom results dict) they stay at None and the
@@ -747,13 +809,23 @@ class CyclePatternAnalyzer:
                 after_age - after_unique,
             )
         )
+        lines.append(
+            _step(
+                f"Not staircase (flat run <= {MAX_FLAT_RUN_DAYS}d)",
+                after_staircase,
+                after_unique - after_staircase,
+            )
+        )
 
         if forced_results:
             lines.append(f"  {'Force-included coins':<44s}  {len(forced_results)}")
 
         logger.info("\n".join(lines))
 
-        # Sort by composite target (descending) - primary ranking criterion
+        # Sort by composite target (descending) - primary ranking criterion.
+        # Maturity/confidence is shown via the badge, NOT used to reorder the
+        # ranking (the composite cap on young coins already keeps their figures
+        # plausible without editorialising the order).
         sorted_results = sorted(candidates, key=lambda x: x.composite_target_pct or 0, reverse=True)
 
         top = sorted_results[:n]

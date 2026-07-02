@@ -28,6 +28,7 @@ from config import (
     DAYS_BEFORE_HALVING,
     FIB_HINT_Y_SHIFT,
     HALVING_DATES,
+    PATTERN_ANALYSIS_ALWAYS_INCLUDE,
     PATTERN_ANALYSIS_TOP_N,
     coin_url,
 )
@@ -1054,6 +1055,18 @@ def generate_pattern_analysis_page(
             line-height: 1.6;
         }
 
+        /* Match the "full methodology" link to the heading blue (var(--accent-blue),
+           the same colour as the "Cycle Pattern Analysis" title) rather than the
+           browser-default link blue, which is too harsh on the dark background. */
+        .description a {
+            color: var(--accent-blue);
+            text-decoration: underline;
+        }
+
+        .description a:hover {
+            opacity: 0.85;
+        }
+
         .chart-badge {
             padding: 0.25rem 0.75rem;
             border-radius: 12px;
@@ -1268,7 +1281,7 @@ def generate_pattern_analysis_page(
             Analysis of price patterns across Bitcoin halving cycles with projections
             for cycle 5 (2028). Four methods are used to estimate targets: log-linear trendline
             regression, Fibonacci 100% extension, diminishing returns model, and historical peak.
-            <strong>Ranking is by composite score (descending).</strong>
+            <strong>Ranking is by composite score (descending)</strong> — the projected upside for the next cycle; a younger coin can rank above a more mature one.
             See <a href="https://github.com/yohplala/halvix/blob/main/docs/PATTERN_ANALYSIS.md" target="_blank">full methodology</a> for details on filtering, confidence levels, and weight profiles.
         </p>
 
@@ -1342,8 +1355,11 @@ def generate_all_pattern_charts(
         create_btc_pattern_chart(btc_result, price_cache, btc_chart_path)
         paths["btc"] = btc_chart_path
 
-    # Analyze all altcoins
-    include_set = set(include) if include else None
+    # Analyze all altcoins. Always force-include the flagship majors so they
+    # appear regardless of the quality filters (e.g. ETH, filtered by the
+    # retracement gate, is more useful shown with its real numbers than hidden).
+    include_set = set(include) if include else set()
+    include_set |= set(PATTERN_ANALYSIS_ALWAYS_INCLUDE)
     coin_results = analyzer.analyze_all_coins(
         filter_total2=True, include=include_set, show_progress=show_progress
     )

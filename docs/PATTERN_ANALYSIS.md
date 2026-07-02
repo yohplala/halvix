@@ -279,15 +279,15 @@ The historical peak method provides an anchor based on actual achieved prices:
 
 ## Confidence Levels
 
-Coins are assigned confidence levels based on the number of cycles where they have **pre-halving data** (min1 point). A cycle only counts if the coin existed before that halving.
+The displayed **cycle count** and the confidence level are both driven by the number of halving cycles in which the coin printed a realized **peak** (`max2`) — i.e. cycle tops the coin actually reached (`count_peak_cycles`).
 
-| Level | Cycles with min1 | Description |
-|-------|------------------|-------------|
-| **HIGH** | 3+ | Full historical data (2016+ halving) |
-| **MEDIUM** | 2 | Two complete cycles (2020+ halving) |
-| **LOW** | 1 | Single cycle only (limited statistical confidence) |
+| Level | Cycles with a peak (max2) | Description |
+|-------|---------------------------|-------------|
+| **HIGH** | 3+ | Reached a top in three or more cycles |
+| **MEDIUM** | 2 | Reached a top in two cycles |
+| **LOW** | 1 | A single (in-progress) cycle only — limited statistical confidence |
 
-**Note**: Coins launched after a halving (with only post-halving data like min2/max2) do not count that cycle toward confidence. For example, a coin launched in June 2024 (after the 4th halving) only has cycle 5 min1, resulting in LOW confidence.
+**Why peaks, not bottoms?** An earlier version counted bear-market *bottoms* (`min1`). That under-counted an old coin currently at a fresh high with no recent bottom yet (e.g. TRX read 2 while the younger SOL read 3), and hinged on the arbitrary distinction between an actual and a projected in-progress min1. Counting realized peaks makes an old coin like TRX read **3** like SOL, and a coin launched after the 2024 halving (e.g. SYRUP, HYPE) read **1** (LOW).
 
 ### Confidence-Based Weight Profiles
 
@@ -423,13 +423,35 @@ Coins must have at least **30 distinct price values** (`MIN_UNIQUE_PRICES` = 30)
 | **≥ 30** | Yes | Normal trading activity |
 | **< 30** | No | Staircase pattern, illiquid (e.g., ZBCN with only 4 price levels) |
 
+**8. Staircase Run-Length Filter:**
+
+The unique-price count alone is a weak staircase signal — a coin can sit right at the 30-unique threshold yet still print long flat plateaus. This filter rejects a coin whose longest run of **identical consecutive closes** in the window exceeds `MAX_FLAT_RUN_DAYS` (5), **or** whose fraction of **zero-change days** exceeds `MAX_ZERO_CHANGE_FRACTION` (0.35). Liquid coins move almost every day (flat runs of 1–2 days, near-zero zero-change fraction).
+
+| Longest flat run | Zero-change days | Included? | Example |
+|------------------|------------------|-----------|---------|
+| ≤ 5 days | ≤ 35% | Yes | Liquid (SOL/BNB: 1–2 day runs) |
+| > 5 days | — | No | Staircase (BANANAS31: ~week-long flat runs, 26 unique) |
+| — | > 35% | No | Mostly-flat / illiquid |
+
 **Additional Requirements:**
 - Coins must have a valid **composite score** (at least one projection method must succeed)
+
+### Young Coins (sub-cycle) — trendline-only projection
+
+A coin that has **not lived through a completed prior halving cycle** — all its structure is in the in-progress cycle (e.g. SYRUP, SIREN, HYPE) — has no past cycle to anchor a rebound projection to. The three rebound-based methods (Fibonacci extension, diminishing returns, historical peak) all assume a full-cycle rebound and, applied to a single partial cycle, over-extrapolate wildly (SYRUP's raw trendline projects **~+227,000%**). For such coins those methods are **suppressed** and the composite is the demonstrated **log-linear trendline only**, at LOW confidence:
+
+```
+composite = min(trendline_pct × YOUNG_COIN_COMPOSITE_SCALE,   # 0.05, strong down-weight
+                YOUNG_COIN_MAX_COMPOSITE_PCT)                  # 300% cap on the tail
+```
+
+The `SCALE` (0.05) down-weights a sub-cycle projection far more than the 0.15 low-confidence scale used for mature single-cycle coins; the `CAP` (300%) bounds the tail so a steep extrapolation to the next halving cannot show an implausible headline number. Both are tunable constants.
 
 ### Rank Display
 
 - **BTC** is always shown with rank **0** (baseline asset)
-- **Altcoins** are ranked **1, 2, 3...** based on their composite target
+- **Altcoins** are ranked **1, 2, 3...** purely by their composite target (projected next-cycle upside). Maturity is conveyed by the confidence badge, **not** used to reorder the list — a younger coin with higher projected potential can legitimately rank above a mature one.
+- **Flagship majors** (`PATTERN_ANALYSIS_ALWAYS_INCLUDE` = ETH, BNB, XRP, SOL) are always shown via the force-include mechanism, bypassing the quality filters — e.g. ETH, filtered by the retracement gate because ETH/BTC broke its higher-low structure, is more useful shown with its real numbers than hidden.
 - Each chart title includes the rank prefix (e.g., "#1 - ETH/BTC - Cycle Pattern Analysis")
 - The ranking table shows the rank in the first column
 

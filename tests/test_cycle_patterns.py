@@ -34,6 +34,7 @@ from config import (
     MIN_RETRACEMENT_LEVEL,
     RETRACEMENT_PENALTY_AT_MAX,
     TOTAL2_LOOKBACK_YEARS,
+    YOUNG_COIN_MAX_COMPOSITE_PCT,
 )
 
 
@@ -3301,3 +3302,108 @@ class TestGetTotal2Coins:
         # OLD_COIN is from 2010, should be excluded if lookback < 16 years
         if TOTAL2_LOOKBACK_YEARS < 16:
             assert "old_coin" not in coins
+
+
+class TestMaturityAndYoungCoinHandling:
+    """Peak-count maturity metric, young-coin trendline-only cap, and staircase filter.
+
+    These cover the post-migration refactor: cycle count is the number of realized
+    peaks lived through (so TRX reads 3), sub-cycle coins are projected from the
+    trendline only and hard-capped, and long flat plateaus are rejected — while the
+    top-list ordering stays a pure composite (potential) ranking.
+    """
+
+    def test_count_peak_cycles_counts_distinct_max2(self):
+        pts = [
+            CyclePoint(date(2018, 1, 1), 1.0, 2, "max2", 0),
+            CyclePoint(date(2021, 11, 1), 2.0, 3, "max2", 0),
+            CyclePoint(date(2026, 1, 1), 3.0, 4, "max2", 0),
+            CyclePoint(date(2019, 1, 1), 0.5, 3, "min1", 0),  # min1 must not count
+            CyclePoint(date(2021, 1, 1), 1.5, 3, "max1", 0),  # max1 must not count
+        ]
+        assert CyclePatternAnalyzer._count_peak_cycles(pts) == 3
+
+    @staticmethod
+    def _passing(coin_id, confidence="high", composite=100.0, **kw):
+        pts = [
+            CyclePoint(date(2016, 7, 9), 1.0, 2, "max2", 0),
+            CyclePoint(date(2018, 1, 1), 2.0, 2, "max1", 0),  # intermediate extrema
+            CyclePoint(date(2019, 1, 1), 0.5, 3, "min1", 0),
+        ]
+        r = CoinPatternResult(coin_id=coin_id, points=pts)
+        r.num_cycles = 3
+        r.confidence = confidence
+        r.composite_target_pct = composite
+        r.lower_slope = None
+        r.trendline_target_pct = 100.0
+        r.retracement_ratio = 0.5
+        r.first_price_date = date(2016, 1, 1)
+        r.unique_price_count = 90
+        r.max_flat_run = 2
+        r.zero_change_fraction = 0.05
+        for k, v in kw.items():
+            setattr(r, k, v)
+        return r
+
+    def test_staircase_filter_rejects_flat_runs_and_zero_change(self):
+        an = CyclePatternAnalyzer(price_cache=MagicMock())
+        results = {
+            "liquid": self._passing("liquid", max_flat_run=2, zero_change_fraction=0.05),
+            "stair_run": self._passing("stair_run", max_flat_run=10, zero_change_fraction=0.05),
+            "stair_zc": self._passing("stair_zc", max_flat_run=2, zero_change_fraction=0.6),
+        }
+        ids = {r.coin_id for r in an.get_top_coins(results, n=10)}
+        assert "liquid" in ids
+        assert "stair_run" not in ids  # long identical-price plateau
+        assert "stair_zc" not in ids  # too many zero-change days
+
+    def test_ranking_is_pure_composite_potential(self):
+        # A younger, low-confidence coin with higher next-cycle potential must rank
+        # ABOVE a mature high-confidence coin — maturity does not reorder the list.
+        an = CyclePatternAnalyzer(price_cache=MagicMock())
+        results = {
+            "younghi": self._passing("younghi", confidence="low", composite=250.0),
+            "matlow": self._passing("matlow", confidence="high", composite=100.0),
+        }
+        order = [r.coin_id for r in an.get_top_coins(results, n=10)]
+        assert order == ["younghi", "matlow"]
+
+    def test_young_coin_uses_trendline_only(self):
+        an = CyclePatternAnalyzer(price_cache=MagicMock())
+        # All structure in the in-progress (post-2024-halving) cycle -> "young".
+        pts = [
+            CyclePoint(date(2025, 1, 1), 1e-6, 4, "min1", 0),
+            CyclePoint(date(2025, 6, 1), 5e-6, 4, "max1", 0),
+            CyclePoint(date(2026, 1, 1), 2e-5, 4, "max2", 0),
+        ]
+        r = CoinPatternResult(coin_id="young", points=pts)
+        r.num_cycles = an._count_peak_cycles(pts)
+        r.current_price = 1e-5
+        an._run_projections(r)
+        assert r.num_cycles == 1
+        assert r.confidence == "low"
+        # rebound-based methods need a completed prior cycle to anchor to; a
+        # young coin's composite is the trendline projection only, down-weighted
+        # and capped.
+        assert r.fib_target is None
+        assert r.dim_return_target is None
+        assert r.hist_peak_target is None
+        assert r.trendline_target_pct is not None
+        assert r.composite_target_pct is not None
+        assert r.composite_target_pct <= YOUNG_COIN_MAX_COMPOSITE_PCT + 1e-6
+
+    def test_mature_coin_uses_rebound_methods(self):
+        an = CyclePatternAnalyzer(price_cache=MagicMock())
+        # Realized peaks before the 2024 halving -> mature; rebound methods apply.
+        pts = [
+            CyclePoint(date(2019, 1, 1), 1e-6, 3, "min1", 0),
+            CyclePoint(date(2021, 11, 1), 5e-5, 3, "max2", 0),
+            CyclePoint(date(2023, 1, 1), 2e-6, 4, "min1", 0),
+            CyclePoint(date(2024, 1, 1), 3e-5, 4, "max2", 0),
+        ]
+        r = CoinPatternResult(coin_id="mature", points=pts)
+        r.num_cycles = an._count_peak_cycles(pts)
+        r.current_price = 5e-6
+        an._run_projections(r)
+        assert r.num_cycles == 2
+        assert any(t is not None for t in (r.fib_target, r.dim_return_target, r.hist_peak_target))

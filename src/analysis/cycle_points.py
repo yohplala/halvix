@@ -132,6 +132,8 @@ class CoinPatternResult:
     # Price data info
     first_price_date: date | None = None  # First date with price data (for age filtering)
     unique_price_count: int = 0  # Number of unique price values (filters staircase patterns)
+    max_flat_run: int = 0  # Longest run of identical consecutive closes (staircase/illiquidity)
+    zero_change_fraction: float = 0.0  # Share of window days with no price change (illiquidity)
 
     # Rank in trendline prediction ranking (set after sorting)
     rank: int | None = None
@@ -256,3 +258,20 @@ def count_min1_cycles(points: list[CyclePoint]) -> int:
     bump the cycle count (and therefore the confidence level).
     """
     return len({p.cycle_num for p in points if p.point_type == "min1" and not p.projected})
+
+
+def count_peak_cycles(points: list[CyclePoint]) -> int:
+    """Count distinct halving cycles in which the coin printed a realized peak (max2).
+
+    This is the maturity / "cycles lived" metric used for the displayed cycle
+    count and the confidence tier. It counts cycle *tops* the coin actually
+    reached, which — unlike ``count_min1_cycles`` (bear-market *bottoms*) —
+
+    - does NOT under-count an old coin currently making a fresh high with no
+      recent bottom yet (e.g. TRX: peaks in cycles 2/3/4 -> 3, matching SOL),
+    - does NOT over-count a young coin whose only ``min1`` sits in the
+      in-progress cycle.
+
+    ``max2`` points are structural and always realized (never projected).
+    """
+    return len({p.cycle_num for p in points if p.point_type == "max2"})

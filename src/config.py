@@ -584,6 +584,16 @@ MIN_COIN_AGE_DAYS = 365  # 1 year minimum
 UNIQUE_PRICES_WINDOW_DAYS = 90  # ~3 months lookback for unique price check
 MIN_UNIQUE_PRICES = 30
 
+# Staircase run-length filter (robust low-liquidity detector). The unique-price
+# count alone is a weak staircase signal — a coin can sit right at MIN_UNIQUE_PRICES
+# yet still print long flat plateaus (BANANAS31: 26 unique over 90d, but ~week-long
+# flat runs). A coin is rejected when its longest run of IDENTICAL consecutive
+# closes in the window exceeds MAX_FLAT_RUN_DAYS, OR when the fraction of
+# zero-change days exceeds MAX_ZERO_CHANGE_FRACTION. Liquid coins move almost
+# every day (tiny flat runs, near-zero zero-change fraction).
+MAX_FLAT_RUN_DAYS = 5  # reject if identical close held > this many consecutive days
+MAX_ZERO_CHANGE_FRACTION = 0.35  # reject if > this share of window days had no price change
+
 # Composite score weight profiles by confidence level
 #
 # Each profile defines method weights and an overall scale factor.
@@ -708,6 +718,29 @@ PATTERN_ANALYSIS_TOP_N = 14
 # This expanded selection allows analysis of coins even if they temporarily
 # dropped out of the TOTAL2 top 30.
 TOTAL2_LOOKBACK_YEARS = 3
+
+# Flagship coins always shown on the pattern-analysis page (bypass quality
+# filters via the force-include mechanism). BTC is charted separately; these are
+# the majors a reader expects to see regardless of whether they currently pass
+# the filters — e.g. ETH is filtered by the retracement gate because ETH/BTC
+# broke its higher-low structure, but hiding it entirely is more surprising than
+# showing it with its real (weak) numbers.
+PATTERN_ANALYSIS_ALWAYS_INCLUDE = ("eth", "bnb", "xrp", "sol")
+
+# Young coins (no completed prior halving cycle — all structure in the in-progress
+# cycle, e.g. SYRUP, SIREN, HYPE) have no past cycle to anchor a rebound
+# projection to, so the rebound methods (Fibonacci / diminishing / historical
+# peak) are suppressed and their composite is the demonstrated log-linear
+# trendline ONLY, computed as:
+#     composite = min(trendline_pct * YOUNG_COIN_COMPOSITE_SCALE,
+#                     YOUNG_COIN_MAX_COMPOSITE_PCT)
+# The SCALE strongly down-weights a sub-cycle projection (well below the 0.15
+# low-confidence scale used for mature single-cycle coins); the CAP bounds the
+# tail, since a steep sub-cycle trend extrapolated to the next halving would
+# otherwise explode (SYRUP's raw trendline projects ~+227,000%). LOW confidence.
+# See CyclePatternAnalyzer._run_projections.
+YOUNG_COIN_COMPOSITE_SCALE = 0.05
+YOUNG_COIN_MAX_COMPOSITE_PCT = 300.0
 
 # =============================================================================
 # CSV Export Configuration
