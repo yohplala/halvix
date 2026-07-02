@@ -556,7 +556,7 @@ class Total2Processor:
             # First-eligibility anchoring (unchanged; defines the historical index).
             new_entries = set(eligible_coins) - coins_eligible_prev
             for coin_id in new_entries:
-                if should_scale:
+                if should_scale and prev_total2 is not None:
                     raw_price_at_entry = close_values[date_idx, coin_to_idx[coin_id]]
                     if raw_price_at_entry > 0:
                         scaling_factor = prev_total2 / raw_price_at_entry
@@ -588,7 +588,7 @@ class Total2Processor:
             # it joins at ~1x rather than dominating (the LAB bart) or being
             # dropped (which would corrupt the index for legitimate long-term
             # outperformers). Continuously present coins are never touched.
-            if should_scale and reanchor_ratio and reanchor_ratio > 0:
+            if should_scale and prev_total2 is not None and reanchor_ratio and reanchor_ratio > 0:
                 limit = reanchor_ratio * prev_total2
                 for coin_id in top_ids:
                     if coin_id in prev_index_coins:
