@@ -48,6 +48,16 @@ format YYYY.MM.patch.
   on distance-below-ATH and 2-peak coins lean less on a 2-point extrapolation.
 - **Fixed:** added an overflow guard to the Fibonacci extension (mirrors the
   trendline guard); documented the effective (squared) `polyfit` recency weighting.
+- **Added:** floor-aware trendline damping (`TRENDLINE_FLOOR_DAMPING`, default 1.0
+  = weakest-link). The next-cycle peak is projected at `min(peak-slope, floor-slope)`
+  beyond the last realized peak, so a widening/parabolic channel (peaks outrunning
+  the floor) is discounted to the rate its floor supports, while a compressing coin
+  (floor keeping pace, e.g. XRP/ETH) is unchanged. On the chart the upper line kinks
+  at the last peak onto the damped projection so it lands on the target ★.
+- **Changed:** because the damping now honestly tames parabolic young coins
+  (SYRUP's raw trendline ~+227,000% → ~+2,000%), `YOUNG_COIN_COMPOSITE_SCALE` is
+  relaxed 0.05 → 0.15 so a young coin with a floor that keeps pace (HYPE, TAG)
+  can score higher than a parabolic one.
 
 **Documentation**
 

@@ -37,6 +37,7 @@ from config import (
     MAJOR_POINT_WEIGHT,
     MINOR_POINT_WEIGHT,
     SLOPE_DIFF_CHANNEL_THRESHOLD,
+    TRENDLINE_FLOOR_DAMPING,
     TRENDLINE_LOG_PRICE_LIMIT,
     TRENDLINE_RECENCY_DECAY,
 )
@@ -288,6 +289,54 @@ def fit_log_trendlines(
     except (np.linalg.LinAlgError, ValueError, TypeError) as e:
         logger.debug("Trendline fitting failed: %s", e)
         return None, None, None, None
+
+
+def last_peak_days(points: list[CyclePoint]) -> int | None:
+    """
+    Days from the regression reference to the most recent realized peak.
+
+    Used as the anchor for the floor-damped forward projection: the fitted upper
+    line is trusted up to here, and only the extrapolation beyond it is bent
+    toward the floor. Prefers the structural ``max2`` cycle top; falls back to
+    any peak. Returns None when there is no peak to anchor on.
+    """
+    peaks = [p for p in points if p.point_type == "max2" and not p.projected]
+    if not peaks:
+        peaks = [p for p in points if "max" in p.point_type]
+    if not peaks:
+        return None
+    latest = max(peaks, key=lambda p: p.date)
+    return (get_regression_date(latest) - HALVING_DATES[1]).days
+
+
+def floor_damped_trendline(
+    upper_slope: float,
+    upper_intercept: float,
+    lower_slope: float,
+    anchor_days: int,
+    damping: float = TRENDLINE_FLOOR_DAMPING,
+) -> tuple[float, float]:
+    """
+    Bend the fitted upper (peak) line toward its floor for forward extrapolation.
+
+    The projected next-cycle peak should grow only as fast as the channel's
+    weakest boundary::
+
+        effective_slope = upper_slope - damping * max(0, upper_slope - lower_slope)
+
+    ``damping=0`` keeps the pure peak line; ``damping=1`` projects at
+    ``min(upper_slope, lower_slope)``. The returned line still passes through the
+    fitted upper value at ``anchor_days`` (the last realized peak), so a coin
+    whose floor keeps pace (``upper <= lower``) is unchanged while a widening /
+    parabolic channel is discounted.
+
+    Returns ``(effective_slope, effective_intercept)`` for
+    :func:`project_trendline_target`.
+    """
+    effective_slope = upper_slope - damping * max(0.0, upper_slope - lower_slope)
+    anchor_log = upper_slope * anchor_days + upper_intercept
+    effective_intercept = anchor_log - effective_slope * anchor_days
+    return effective_slope, effective_intercept
 
 
 def project_trendline_target(

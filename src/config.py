@@ -554,6 +554,20 @@ MINOR_POINT_WEIGHT = 0.33  # Weight for max1 and min2 (intermediate points)
 # early high-growth cycles from making projections overly optimistic.
 TRENDLINE_RECENCY_DECAY = 0.7
 
+# Floor-aware trendline damping.
+# The trendline target projects the NEXT cycle peak by extrapolating the fitted
+# *upper* (peak) line forward. A coin whose peaks rise faster than its floor is a
+# widening / parabolic channel — a fragile base to project a peak from — so the
+# forward slope is bent toward the floor:
+#     effective_slope = upper_slope - TRENDLINE_FLOOR_DAMPING * max(0, upper - lower)
+# - 0.0 → pure peak line (legacy behaviour).
+# - 1.0 → weakest-link: project at min(peak_slope, floor_slope).
+# Only the *forward* extrapolation is damped (the line still passes through the
+# fitted upper value at the last realized peak), so a coin whose floor keeps pace
+# (upper <= lower) is unchanged, while a parabolic one (e.g. a young SYRUP) is
+# discounted to the rate its floor can actually support.
+TRENDLINE_FLOOR_DAMPING = 1.0
+
 # Minimum lower trendline slope (floor appreciation) requirement
 # Coins with declining or stagnant floors (min points getting lower) are filtered out.
 # The slope is in log10-space per day. To convert annual percentage to slope:
@@ -747,12 +761,13 @@ PATTERN_ANALYSIS_ALWAYS_INCLUDE = ("eth", "bnb", "xrp", "sol")
 # trendline ONLY, computed as:
 #     composite = min(trendline_pct * YOUNG_COIN_COMPOSITE_SCALE,
 #                     YOUNG_COIN_MAX_COMPOSITE_PCT)
-# The SCALE strongly down-weights a sub-cycle projection (well below the 0.15
-# low-confidence scale used for mature single-cycle coins); the CAP bounds the
-# tail, since a steep sub-cycle trend extrapolated to the next halving would
-# otherwise explode (SYRUP's raw trendline projects ~+227,000%). LOW confidence.
-# See CyclePatternAnalyzer._run_projections.
-YOUNG_COIN_COMPOSITE_SCALE = 0.05
+# The SCALE down-weights a sub-cycle projection; the CAP bounds the tail. Because
+# ``TRENDLINE_FLOOR_DAMPING`` now discounts a parabolic young coin to the rate its
+# floor supports (SYRUP's raw trendline drops from ~+227,000% to ~+2,000%), the
+# scale no longer needs to be punitively small: a young coin whose floor keeps
+# pace with its peaks is damped less and can score higher than a parabolic one.
+# LOW confidence. See CyclePatternAnalyzer._run_projections.
+YOUNG_COIN_COMPOSITE_SCALE = 0.15
 YOUNG_COIN_MAX_COMPOSITE_PCT = 300.0
 
 # =============================================================================

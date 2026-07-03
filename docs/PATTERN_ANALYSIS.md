@@ -161,6 +161,14 @@ The pattern is classified based on slope relationships:
 
 Target is projected by extending the upper trendline to the expected cycle 5 peak date (~October 2029 = 2028 halving + 550 days).
 
+**Floor-aware damping.** The next-cycle peak is only projected as fast as the channel's *weakest* boundary. The forward slope is bent toward the floor:
+
+```
+effective_slope = upper_slope − TRENDLINE_FLOOR_DAMPING × max(0, upper_slope − lower_slope)
+```
+
+with `TRENDLINE_FLOOR_DAMPING = 1.0` (weakest-link → `min(upper, lower)`; `0.0` restores the pure peak line). Only the extrapolation *beyond the last realized peak* is damped — the line still passes through the fitted peak there — so a coin whose floor keeps pace (`upper ≤ lower`, e.g. a compressing XRP/ETH) is **unchanged**, while a widening / parabolic channel (peaks outrunning the floor) is discounted to the rate its floor can support. A coin making ever-weaker relative lows is not a robust base to project a peak from. On the chart the upper line **kinks** at the last peak so it lands on the target ★.
+
 ### 2. Fibonacci Extension (100%)
 
 Uses Fibonacci extension in **log-space** to respect the multiplicative nature of price movements:
@@ -450,14 +458,14 @@ The unique-price count alone is a weak staircase signal — a coin can sit right
 
 ### Young Coins (sub-cycle) — trendline-only projection
 
-A coin that has **not lived through a completed prior halving cycle** — all its structure is in the in-progress cycle (e.g. SYRUP, SIREN, HYPE) — has no past cycle to anchor a rebound projection to. The three rebound-based methods (Fibonacci extension, diminishing returns, historical peak) all assume a full-cycle rebound and, applied to a single partial cycle, over-extrapolate wildly (SYRUP's raw trendline projects **~+227,000%**). For such coins those methods are **suppressed** and the composite is the demonstrated **log-linear trendline only**, at LOW confidence:
+A coin that has **not lived through a completed prior halving cycle** — all its structure is in the in-progress cycle (e.g. SYRUP, SIREN, HYPE) — has no past cycle to anchor a rebound projection to. The three rebound-based methods (Fibonacci extension, diminishing returns, historical peak) all assume a full-cycle rebound and, applied to a single partial cycle, over-extrapolate wildly. For such coins those methods are **suppressed** and the composite is the demonstrated **log-linear trendline only**, at LOW confidence:
 
 ```
-composite = min(trendline_pct × YOUNG_COIN_COMPOSITE_SCALE,   # 0.05, strong down-weight
+composite = min(trendline_pct × YOUNG_COIN_COMPOSITE_SCALE,   # 0.15, down-weight
                 YOUNG_COIN_MAX_COMPOSITE_PCT)                  # 300% cap on the tail
 ```
 
-The `SCALE` (0.05) down-weights a sub-cycle projection far more than the 0.15 low-confidence scale used for mature single-cycle coins; the `CAP` (300%) bounds the tail so a steep extrapolation to the next halving cannot show an implausible headline number. Both are tunable constants.
+Because the **floor-aware damping** (see method 1) now discounts a parabolic young coin to the rate its floor supports — SYRUP's raw trendline drops from **~+227,000%** to **~+2,000%** — the `SCALE` no longer needs to be punitively small. At `0.15` a young coin whose floor keeps pace with its peaks (e.g. HYPE, TAG) is damped *less* and can score higher than a parabolic one (SYRUP), while the `CAP` (300%) still bounds the tail. Both are tunable constants.
 
 ### Rank Display
 

@@ -233,6 +233,8 @@ class CyclePatternAnalyzer:
 
     _fit_log_trendlines = staticmethod(projections.fit_log_trendlines)
     _project_trendline_target = staticmethod(projections.project_trendline_target)
+    _last_peak_days = staticmethod(projections.last_peak_days)
+    _floor_damped_trendline = staticmethod(projections.floor_damped_trendline)
     _calculate_fib_extension = staticmethod(projections.calculate_fib_extension)
     _calculate_diminishing_return = staticmethod(projections.calculate_diminishing_return)
     _calculate_historical_peak = staticmethod(projections.calculate_historical_peak)
@@ -274,9 +276,22 @@ class CyclePatternAnalyzer:
             result.lower_intercept = lower_int
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
-            # Expected peak ≈ halving + 550 days (same offset as DAYS_BEFORE_HALVING)
+            # Expected peak ≈ halving + 550 days (same offset as DAYS_BEFORE_HALVING).
+            # Floor-aware damping: bend the peak line toward the floor for the
+            # forward extrapolation so a widening/parabolic channel is projected
+            # at the rate its floor can support (see TRENDLINE_FLOOR_DAMPING).
             target_date = self.projected_halving + timedelta(days=DAYS_BEFORE_HALVING)
-            target = self._project_trendline_target(upper_slope, upper_int, target_date)
+            anchor_days = self._last_peak_days(result.points)
+            if lower_slope is not None and anchor_days is not None:
+                proj_slope, proj_int = self._floor_damped_trendline(
+                    upper_slope, upper_int, lower_slope, anchor_days
+                )
+                result.trend_anchor_date = HALVING_DATES[1] + timedelta(days=anchor_days)
+            else:
+                proj_slope, proj_int = upper_slope, upper_int
+            result.trend_proj_slope = proj_slope
+            result.trend_proj_intercept = proj_int
+            target = self._project_trendline_target(proj_slope, proj_int, target_date)
             if target is not None:
                 result.trendline_target = target
                 result.trendline_target_pct = (target / current_price - 1) * 100
