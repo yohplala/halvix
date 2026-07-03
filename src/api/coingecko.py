@@ -49,9 +49,7 @@ _OHLCV_COLUMNS = ["open", "high", "low", "close", "volume_from", "volume_to"]
 
 def _empty_ohlcv() -> pl.DataFrame:
     """An empty daily-OHLCV frame with the canonical (typed) schema."""
-    schema: dict[str, pl.DataType] = {"date": pl.Date}
-    schema.update(dict.fromkeys(_OHLCV_COLUMNS, pl.Float64))
-    return pl.DataFrame(schema=schema)
+    return pl.DataFrame(schema={"date": pl.Date, **dict.fromkeys(_OHLCV_COLUMNS, pl.Float64)})
 
 
 def _get_version() -> str:

@@ -33,6 +33,7 @@ Usage:
 import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 from tqdm import tqdm
@@ -859,7 +860,7 @@ class CyclePatternAnalyzer:
                 "composite_target_pct": r.composite_target_pct,
             }
 
-        data = {
+        data: dict[str, Any] = {
             "generated_at": datetime.now().isoformat(),
             "note": "Returns are calculated as % gain from current_price to target",
             "btc": None,

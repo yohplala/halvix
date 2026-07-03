@@ -694,7 +694,7 @@ class DataFetcher:
             cached = self.price_cache.get_prices(stem, vs_currency)
 
             if cached is not None and not cached.is_empty():
-                last_cached_date = cached["date"].max()
+                last_cached_date = cast("date", cached["date"].max())
 
                 # If cache is up to date, return it. (Identity is left
                 # unregistered here: a fresh cache offers no overlap to confirm
@@ -735,7 +735,7 @@ class DataFetcher:
                     overlap_days = new_data.join(
                         cached.select("date"), on="date", how="semi"
                     ).height
-                    gap_days = (new_rows["date"].min() - last_cached_date).days
+                    gap_days = (cast("date", new_rows["date"].min()) - last_cached_date).days
                     if overlap_days == 0 or gap_days > SPLICE_MAX_GAP_DAYS:
                         why = "no overlap to verify" if overlap_days == 0 else f"{gap_days}-day gap"
                         logger.warning(

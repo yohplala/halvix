@@ -40,8 +40,9 @@ import csv
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 from tqdm import tqdm
@@ -333,11 +334,12 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
         failed_coins_data: list[dict] = []
         rate_limit_hit = False  # Stop making API calls once rate limit is hit
         for coin_id in tqdm(failed_coins, desc="Checking failed coins"):
-            # Find the coin data
-            coin_data = next((c for c in coins if c.get("id") == coin_id), {})
-            coin_symbol = coin_data.get("symbol", coin_id.upper())
-            coin_name = coin_data.get("name", coin_symbol)
-            provider_id = coin_data.get("provider_id")
+            # Find the coin metadata (distinct from the per-coin fetch results
+            # bound to `coin_data` earlier in this function).
+            coin_meta = next((c for c in coins if c.get("id") == coin_id), {})
+            coin_symbol = coin_meta.get("symbol", coin_id.upper())
+            coin_name = coin_meta.get("name", coin_symbol)
+            provider_id = coin_meta.get("provider_id")
             url = coin_url(coin_symbol, provider_id)
 
             if rate_limit_hit:
@@ -618,16 +620,18 @@ def cmd_status(args: argparse.Namespace) -> int:
         for coin_id in cached_coins[:20]:
             df = price_cache.get_prices(coin_id)
             if df is not None:
-                date_range = f"{df['date'].min()} to {df['date'].max()}"
-                logger.debug("  - %s: %d days (%s)", coin_id, df.height, date_range)
+                lo = cast("date", df["date"].min())
+                hi = cast("date", df["date"].max())
+                logger.debug("  - %s: %d days (%s to %s)", coin_id, df.height, lo, hi)
         if len(cached_coins) > 20:
             logger.debug("  ... and %d more", len(cached_coins) - 20)
 
     # Check TOTAL2 index
     if TOTAL2_INDEX_FILE.exists():
         total2_df = pl.read_parquet(TOTAL2_INDEX_FILE).with_columns(pl.col("date").cast(pl.Date))
-        date_range = f"{total2_df['date'].min()} to {total2_df['date'].max()}"
-        logger.info("TOTAL2 index: %d days (%s)", total2_df.height, date_range)
+        lo = cast("date", total2_df["date"].min())
+        hi = cast("date", total2_df["date"].max())
+        logger.info("TOTAL2 index: %d days (%s to %s)", total2_df.height, lo, hi)
 
         logger.debug("Latest values:")
         for row in total2_df.tail(3).iter_rows(named=True):

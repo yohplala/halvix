@@ -77,19 +77,6 @@ poetry run python -m main status
 - **[Deployment](docs/DEPLOYMENT.md)** - Charts generation and GitHub Pages deployment workflow
 - **[Changelog](CHANGELOG.md)** - Version history and release notes
 
-## Project Status
-
-| Module | Status |
-|--------|--------|
-| Configuration | ✅ Complete |
-| Coin Filtering | ✅ Complete |
-| Price Providers (CoinGecko + CryptoCompare) | ✅ Complete |
-| Data Fetcher & Caching | ✅ Complete |
-| TOTAL2 Calculation | ✅ Complete |
-| Halving Cycle Charts | ✅ Complete |
-| Cycle Pattern Analysis | ✅ Complete |
-| GitHub Pages Docs | ✅ Complete |
-
 ## License
 
 [MIT](LICENSE)

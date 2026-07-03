@@ -8,8 +8,9 @@ This module provides the HtmlGenerator class for generating:
 """
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 
@@ -199,8 +200,8 @@ class HtmlGenerator:
             try:
                 df = pl.read_parquet(parquet_file, columns=["date"])
                 if not df.is_empty():
-                    start_date = df["date"].min()
-                    end_date = df["date"].max()
+                    start_date = cast("date", df["date"].min())
+                    end_date = cast("date", df["date"].max())
 
                     if coin_id not in summaries:
                         summaries[coin_id] = {

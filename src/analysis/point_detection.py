@@ -22,6 +22,7 @@ helpers rely on.
 """
 
 from datetime import date, timedelta
+from typing import cast
 
 import polars as pl
 
@@ -42,15 +43,21 @@ from config import (
 
 
 def _argmax_row(frame: pl.DataFrame) -> tuple[date, float]:
-    """(date, close) at the highest close — first occurrence on ties."""
-    pos = frame["close"].arg_max()
-    return frame["date"][pos], float(frame["close"][pos])
+    """(date, close) at the highest close — first occurrence on ties.
+
+    Callers only pass non-empty frames, so ``arg_max`` never returns None.
+    """
+    pos = cast("int", frame["close"].arg_max())
+    return cast("date", frame["date"][pos]), float(frame["close"][pos])
 
 
 def _argmin_row(frame: pl.DataFrame) -> tuple[date, float]:
-    """(date, close) at the lowest close — first occurrence on ties."""
-    pos = frame["close"].arg_min()
-    return frame["date"][pos], float(frame["close"][pos])
+    """(date, close) at the lowest close — first occurrence on ties.
+
+    Callers only pass non-empty frames, so ``arg_min`` never returns None.
+    """
+    pos = cast("int", frame["close"].arg_min())
+    return cast("date", frame["date"][pos]), float(frame["close"][pos])
 
 
 def identify_cycle_points(df: pl.DataFrame, halvings: list[date]) -> list[CyclePoint]:

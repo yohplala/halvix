@@ -30,6 +30,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import polars as pl
@@ -229,8 +230,8 @@ class Total2Processor:
         min_date: date | None = None
         max_date: date | None = None
         for df in price_data.values():
-            lo = df["date"].min()
-            hi = df["date"].max()
+            lo = cast("date", df["date"].min())
+            hi = cast("date", df["date"].max())
             min_date = lo if min_date is None else min(min_date, lo)
             max_date = hi if max_date is None else max(max_date, hi)
         if min_date is None or max_date is None:
@@ -377,7 +378,10 @@ class Total2Processor:
                 composition_df = composition_df.filter(pl.col("date") <= end_date)
 
         max_change, max_coin, max_date = self.calculate_max_weight_change(composition_df)
-        date_range = (index_df["date"].min(), index_df["date"].max())
+        date_range = (
+            cast("date", index_df["date"].min()),
+            cast("date", index_df["date"].max()),
+        )
 
         return Total2Result(
             index_df=index_df,
@@ -385,7 +389,9 @@ class Total2Processor:
             coins_processed=len(price_data),
             date_range=date_range,
             avg_coins_per_day=(
-                index_df["coin_count"].mean() if "coin_count" in index_df.columns else 0
+                cast("float", index_df["coin_count"].mean())
+                if "coin_count" in index_df.columns
+                else 0.0
             ),
             max_weight_change=max_change,
             max_weight_change_coin=max_coin,
@@ -428,7 +434,7 @@ class Total2Processor:
             both_valid = (close_col.fill_null(0) > 0) & (volume_df[coin_id].fill_null(0) > 0)
             if not both_valid.any():
                 continue
-            initial_first_seen = dates[both_valid.arg_max()]  # first True
+            initial_first_seen = dates[cast("int", both_valid.arg_max())]  # first True
             replacement_date = detect_symbol_replacement(
                 close_col,
                 dates,
@@ -744,7 +750,7 @@ class Total2Processor:
             valid = df.filter((pl.col("close") > 0) & (pl.col("volume_to") > 0))
             if valid.is_empty():
                 continue
-            first_seen = valid["date"].min()
+            first_seen = cast("date", valid["date"].min())
             days_since_first = (target_date - first_seen).days
             days_remaining = self.freeze_period_days - days_since_first
             statuses.append(
