@@ -1,18 +1,21 @@
 """Tests for the stem → (ticker, name, CoinGecko slug) resolver."""
 
+import json
+
 from data.coin_metadata import CoinMetadataResolver
 from data.coin_registry import CoinRegistry
 
 
 def _resolver(tmp_path, coins):
-    """Build a resolver with an isolated registry and in-memory coin list."""
+    """Build a resolver with an isolated registry + coin list (no external seed)."""
     registry = CoinRegistry(path=tmp_path / "coin_registry.json")
     # Bind the two colliding TAG assets: the CryptoCompare-era one owns "tag",
     # the CoinGecko "tagger" coin was forked to "tag-2".
     registry.set_stem("cryptocompare", "TAG", "tag")
     registry.set_stem("coingecko", "tagger", "tag-2")
     registry.set_stem("coingecko", "solana", "sol")
-    return CoinMetadataResolver(registry=registry, coins=coins)
+    # Isolate from the committed seed (point at a non-existent seed file).
+    return CoinMetadataResolver(registry=registry, coins=coins, seed_path=tmp_path / "no-seed.json")
 
 
 COINS = [
@@ -63,6 +66,38 @@ class TestResolve:
 class TestSources:
     def test_missing_coin_file_is_tolerated(self, tmp_path):
         registry = CoinRegistry(path=tmp_path / "coin_registry.json")
-        r = CoinMetadataResolver(registry=registry, coins_path=tmp_path / "absent.json")
+        r = CoinMetadataResolver(
+            registry=registry,
+            coins_path=tmp_path / "absent.json",
+            seed_path=tmp_path / "absent-seed.json",
+        )
         m = r.resolve("foo")
         assert m.ticker == "FOO"
+        assert m.slug is None
+
+    def test_seed_supplies_slug_without_registry_or_coins(self, tmp_path):
+        # The deployed-page bug: on the GitHub Pages job the runtime registry and
+        # discovery list are absent, so links must resolve from the committed
+        # slug->stem seed alone (ticker recovered by stripping the stem suffix).
+        empty_registry = CoinRegistry(path=tmp_path / "empty.json")
+        seed_path = tmp_path / "seed.json"
+        seed_path.write_text(
+            json.dumps({"coingecko": {"solana": "sol", "tagger": "tag-2"}}), encoding="utf-8"
+        )
+        r = CoinMetadataResolver(registry=empty_registry, coins=[], seed_path=seed_path)
+
+        sol = r.resolve("sol")
+        assert sol.ticker == "SOL"
+        assert sol.url == "https://www.coingecko.com/en/coins/solana"
+        tag = r.resolve("tag-2")
+        assert tag.ticker == "TAG"
+        assert tag.url == "https://www.coingecko.com/en/coins/tagger"
+
+    def test_registry_takes_precedence_over_seed(self, tmp_path):
+        registry = CoinRegistry(path=tmp_path / "coin_registry.json")
+        registry.set_stem("coingecko", "runtime-slug", "xyz")
+        seed_path = tmp_path / "seed.json"
+        seed_path.write_text(json.dumps({"coingecko": {"seed-slug": "xyz"}}), encoding="utf-8")
+        r = CoinMetadataResolver(registry=registry, coins=[], seed_path=seed_path)
+        # Runtime registry mapping wins over the seed for the same stem.
+        assert r.resolve("xyz").slug == "runtime-slug"

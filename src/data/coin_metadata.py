@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from config import COINS_TO_DOWNLOAD_JSON, coin_url
+from config import COINGECKO_IDENTITY_SEED_JSON, COINS_TO_DOWNLOAD_JSON, coin_url
 from data.coin_registry import CoinRegistry
 from utils.logging import get_logger
 
@@ -60,27 +60,49 @@ class CoinMetadataResolver:
         registry: CoinRegistry | None = None,
         coins: list[dict] | None = None,
         coins_path: Path = COINS_TO_DOWNLOAD_JSON,
+        seed_path: Path = COINGECKO_IDENTITY_SEED_JSON,
     ):
         """
         Args:
             registry: Cross-provider identity map (default: load from disk).
             coins: Pre-loaded discovery list; if None, read ``coins_path``.
             coins_path: Discovery-list JSON to read when ``coins`` is None.
+            seed_path: Committed CoinGecko slug→stem identity seed — the always-
+                available slug fallback (the runtime registry / discovery list
+                are not deployed to the GitHub Pages job).
         """
         self._registry = registry or CoinRegistry()
         self._by_stem: dict[str, dict] = {}
         self._slug_by_stem: dict[str, str] = {}
-        self._load(self._read_coins(coins_path) if coins is None else coins)
+        self._load(self._read_coins(coins_path) if coins is None else coins, seed_path)
 
-    def _load(self, coins: list[dict]) -> None:
-        # Reverse the CoinGecko slug→stem map so a stem can recover its slug even
-        # when the coin has since dropped out of the discovery list.
+    def _load(self, coins: list[dict], seed_path: Path) -> None:
+        # Reverse the CoinGecko slug→stem maps so a stem can recover its slug.
+        # The runtime registry (current, fetch-populated) takes precedence; the
+        # committed identity seed fills the rest and, crucially, is the ONLY
+        # source available in the deploy environment (the registry and discovery
+        # list live under the gitignored data/processed and are not published).
         for slug, stem in self._registry.provider_map("coingecko").items():
+            self._slug_by_stem.setdefault(stem, slug)
+        for slug, stem in self._read_seed(seed_path).items():
             self._slug_by_stem.setdefault(stem, slug)
 
         for coin in coins:
             if isinstance(coin, dict):
                 self._by_stem[self._stem_for(coin)] = coin
+
+    @staticmethod
+    def _read_seed(seed_path: Path) -> dict[str, str]:
+        """Load the committed ``{coingecko: {slug: stem}}`` identity seed."""
+        if not seed_path.exists():
+            return {}
+        try:
+            data = json.loads(seed_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError, OSError:
+            logger.warning("Could not read identity seed at %s.", seed_path)
+            return {}
+        cg = data.get("coingecko", {})
+        return {str(k): str(v) for k, v in cg.items()} if isinstance(cg, dict) else {}
 
     @staticmethod
     def _read_coins(coins_path: Path) -> list[dict]:
