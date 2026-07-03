@@ -54,10 +54,11 @@ format YYYY.MM.patch.
   the floor) is discounted to the rate its floor supports, while a compressing coin
   (floor keeping pace, e.g. XRP/ETH) is unchanged. On the chart the upper line kinks
   at the last peak onto the damped projection so it lands on the target ★.
-- **Changed:** because the damping now honestly tames parabolic young coins
-  (SYRUP's raw trendline ~+227,000% → ~+2,000%), `YOUNG_COIN_COMPOSITE_SCALE` is
-  relaxed 0.05 → 0.15 so a young coin with a floor that keeps pace (HYPE, TAG)
-  can score higher than a parabolic one.
+- **Changed:** young-coin trendline weight relaxed (`YOUNG_COIN_COMPOSITE_SCALE`
+  0.05 → 0.13) and the 300% hard cap **removed** — the damping tames parabolic
+  young coins, and the display filters (chiefly `MIN_COIN_AGE_DAYS` ≥ 1 year,
+  applied before ranking) already exclude the explosive brand-new ones, so the
+  survivors (HYPE, TAG, SYRUP) differentiate honestly by their damped trendline.
 
 **Documentation**
 

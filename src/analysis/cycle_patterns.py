@@ -64,7 +64,6 @@ from config import (
     TOTAL2_LOOKBACK_YEARS,
     UNIQUE_PRICES_WINDOW_DAYS,
     YOUNG_COIN_COMPOSITE_SCALE,
-    YOUNG_COIN_MAX_COMPOSITE_PCT,
 )
 from data.cache import PriceDataCache
 from data.price_filters import apply_round_trip_smoothing, filter_to_post_replacement
@@ -343,13 +342,11 @@ class CyclePatternAnalyzer:
                 confidence=result.confidence,
             )
         elif result.trendline_target_pct is not None:
-            # Young coin: trendline-only, strongly down-weighted, then capped —
-            # a steep sub-cycle trend extrapolated to the next halving would
-            # otherwise explode (e.g. SYRUP's raw trendline ~+227,000%).
-            result.composite_target_pct = min(
-                result.trendline_target_pct * YOUNG_COIN_COMPOSITE_SCALE,
-                YOUNG_COIN_MAX_COMPOSITE_PCT,
-            )
+            # Young coin: trendline-only, down-weighted (no hard cap). Floor
+            # damping already discounts a parabolic trend, and the age/liquidity
+            # display filters exclude the explosive brand-new coins before
+            # ranking, so survivors differentiate by their damped trendline.
+            result.composite_target_pct = result.trendline_target_pct * YOUNG_COIN_COMPOSITE_SCALE
 
         # Retracement ratio + continuous penalty
         result.retracement_ratio = self._calculate_retracement_ratio(result.points, idx)

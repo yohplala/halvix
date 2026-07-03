@@ -758,17 +758,15 @@ PATTERN_ANALYSIS_ALWAYS_INCLUDE = ("eth", "bnb", "xrp", "sol")
 # cycle, e.g. SYRUP, SIREN, HYPE) have no past cycle to anchor a rebound
 # projection to, so the rebound methods (Fibonacci / diminishing / historical
 # peak) are suppressed and their composite is the demonstrated log-linear
-# trendline ONLY, computed as:
-#     composite = min(trendline_pct * YOUNG_COIN_COMPOSITE_SCALE,
-#                     YOUNG_COIN_MAX_COMPOSITE_PCT)
-# The SCALE down-weights a sub-cycle projection; the CAP bounds the tail. Because
-# ``TRENDLINE_FLOOR_DAMPING`` now discounts a parabolic young coin to the rate its
-# floor supports (SYRUP's raw trendline drops from ~+227,000% to ~+2,000%), the
-# scale no longer needs to be punitively small: a young coin whose floor keeps
-# pace with its peaks is damped less and can score higher than a parabolic one.
-# LOW confidence. See CyclePatternAnalyzer._run_projections.
-YOUNG_COIN_COMPOSITE_SCALE = 0.15
-YOUNG_COIN_MAX_COMPOSITE_PCT = 300.0
+# trendline ONLY, down-weighted:
+#     composite = trendline_pct * YOUNG_COIN_COMPOSITE_SCALE
+# No hard cap is applied: the display filters — chiefly MIN_COIN_AGE_DAYS (a coin
+# must be ≥1 year old) plus the liquidity / ≥3-actual-extrema gates — already
+# exclude the explosive brand-new coins from the ranking (get_top_coins filters
+# BEFORE ranking), and TRENDLINE_FLOOR_DAMPING discounts the parabolic ones. The
+# young coins that survive therefore differentiate honestly by their damped
+# trendline. LOW confidence. See CyclePatternAnalyzer._run_projections.
+YOUNG_COIN_COMPOSITE_SCALE = 0.13
 
 # =============================================================================
 # CSV Export Configuration

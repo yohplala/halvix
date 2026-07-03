@@ -461,11 +461,10 @@ The unique-price count alone is a weak staircase signal — a coin can sit right
 A coin that has **not lived through a completed prior halving cycle** — all its structure is in the in-progress cycle (e.g. SYRUP, SIREN, HYPE) — has no past cycle to anchor a rebound projection to. The three rebound-based methods (Fibonacci extension, diminishing returns, historical peak) all assume a full-cycle rebound and, applied to a single partial cycle, over-extrapolate wildly. For such coins those methods are **suppressed** and the composite is the demonstrated **log-linear trendline only**, at LOW confidence:
 
 ```
-composite = min(trendline_pct × YOUNG_COIN_COMPOSITE_SCALE,   # 0.15, down-weight
-                YOUNG_COIN_MAX_COMPOSITE_PCT)                  # 300% cap on the tail
+composite = trendline_pct × YOUNG_COIN_COMPOSITE_SCALE   # 0.13, down-weight (no cap)
 ```
 
-Because the **floor-aware damping** (see method 1) now discounts a parabolic young coin to the rate its floor supports — SYRUP's raw trendline drops from **~+227,000%** to **~+2,000%** — the `SCALE` no longer needs to be punitively small. At `0.15` a young coin whose floor keeps pace with its peaks (e.g. HYPE, TAG) is damped *less* and can score higher than a parabolic one (SYRUP), while the `CAP` (300%) still bounds the tail. Both are tunable constants.
+Because the **floor-aware damping** (see method 1) now discounts a parabolic young coin to the rate its floor supports — SYRUP's raw trendline drops from **~+227,000%** to **~+2,000%** — the `SCALE` no longer needs to be punitively small, and **no hard cap** is applied. The explosive brand-new coins are excluded from the ranking by the display filters (chiefly `MIN_COIN_AGE_DAYS` ≥ 1 year, plus liquidity and ≥3-actual-extrema gates, applied *before* ranking), so the young coins that survive (e.g. HYPE, TAG, SYRUP) differentiate honestly by their damped trendline: one whose floor keeps pace with its peaks is damped *less* and scores higher than a parabolic one.
 
 ### Rank Display
 
