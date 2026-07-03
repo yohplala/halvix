@@ -758,15 +758,19 @@ PATTERN_ANALYSIS_ALWAYS_INCLUDE = ("eth", "bnb", "xrp", "sol")
 # cycle, e.g. SYRUP, SIREN, HYPE) have no past cycle to anchor a rebound
 # projection to, so the rebound methods (Fibonacci / diminishing / historical
 # peak) are suppressed and their composite is the demonstrated log-linear
-# trendline ONLY, down-weighted:
-#     composite = trendline_pct * YOUNG_COIN_COMPOSITE_SCALE
-# No hard cap is applied: the display filters — chiefly MIN_COIN_AGE_DAYS (a coin
-# must be ≥1 year old) plus the liquidity / ≥3-actual-extrema gates — already
-# exclude the explosive brand-new coins from the ranking (get_top_coins filters
-# BEFORE ranking), and TRENDLINE_FLOOR_DAMPING discounts the parabolic ones. The
-# young coins that survive therefore differentiate honestly by their damped
-# trendline. LOW confidence. See CyclePatternAnalyzer._run_projections.
-YOUNG_COIN_COMPOSITE_SCALE = 0.13
+# trendline ONLY, log-compressed:
+#     composite_pct = YOUNG_COIN_TREND_LOG_SCALE * 100 * ln(1 + trendline_pct/100)
+# i.e. a fraction of the projected LOG-growth. A single explosive cycle
+# extrapolated forward can produce a wild trendline (a >1000x multiple); a linear
+# factor can't tame that (it shrinks every coin by the same ratio, so the tail
+# stays explosive), whereas log-compressing the projected multiple crushes the
+# tail while staying gentle on modest young coins. At k=0.4 a ~1500x trendline
+# lands near ~300% and even a 10,000x monster caps under ~400%. No hard cap is
+# applied (it would cluster coins at the ceiling and destroy ordering); the
+# display filters — MIN_COIN_AGE_DAYS plus liquidity / >=3-actual-extrema gates —
+# and TRENDLINE_FLOOR_DAMPING still run first. LOW confidence. See
+# CyclePatternAnalyzer._run_projections.
+YOUNG_COIN_TREND_LOG_SCALE = 0.4
 
 # =============================================================================
 # CSV Export Configuration

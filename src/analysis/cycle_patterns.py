@@ -31,6 +31,7 @@ Usage:
 """
 
 import json
+import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -63,7 +64,7 @@ from config import (
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_LOOKBACK_YEARS,
     UNIQUE_PRICES_WINDOW_DAYS,
-    YOUNG_COIN_COMPOSITE_SCALE,
+    YOUNG_COIN_TREND_LOG_SCALE,
 )
 from data.cache import PriceDataCache
 from data.price_filters import apply_round_trip_smoothing, filter_to_post_replacement
@@ -342,11 +343,18 @@ class CyclePatternAnalyzer:
                 confidence=result.confidence,
             )
         elif result.trendline_target_pct is not None:
-            # Young coin: trendline-only, down-weighted (no hard cap). Floor
-            # damping already discounts a parabolic trend, and the age/liquidity
-            # display filters exclude the explosive brand-new coins before
-            # ranking, so survivors differentiate by their damped trendline.
-            result.composite_target_pct = result.trendline_target_pct * YOUNG_COIN_COMPOSITE_SCALE
+            # Young coin: trendline-only, log-compressed (no hard cap). A single
+            # explosive cycle extrapolated forward can yield a wild trendline; a
+            # linear factor can't tame that, so keep a fraction of the projected
+            # LOG-growth instead — this crushes the tail while staying gentle on
+            # modest young coins. Floor damping and the age/liquidity display
+            # filters still run first. See YOUNG_COIN_TREND_LOG_SCALE in config.
+            m = 1 + result.trendline_target_pct / 100
+            result.composite_target_pct = (
+                YOUNG_COIN_TREND_LOG_SCALE * 100 * math.log(m)
+                if m > 0
+                else result.trendline_target_pct
+            )
 
         # Retracement ratio + continuous penalty
         result.retracement_ratio = self._calculate_retracement_ratio(result.points, idx)

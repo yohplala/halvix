@@ -34,7 +34,7 @@ from config import (
     MIN_RETRACEMENT_LEVEL,
     RETRACEMENT_PENALTY_AT_MAX,
     TOTAL2_LOOKBACK_YEARS,
-    YOUNG_COIN_COMPOSITE_SCALE,
+    YOUNG_COIN_TREND_LOG_SCALE,
 )
 
 
@@ -3399,10 +3399,12 @@ class TestMaturityAndYoungCoinHandling:
         assert r.hist_peak_target is None
         assert r.trendline_target_pct is not None
         assert r.composite_target_pct is not None
-        # Young-coin composite = down-weighted trendline only (no hard cap; the
+        # Young-coin composite = log-compressed trendline only (no hard cap; the
         # age/liquidity display filters bound which young coins can surface).
+        m = 1 + r.trendline_target_pct / 100
+        assert m > 0
         assert r.composite_target_pct == pytest.approx(
-            r.trendline_target_pct * YOUNG_COIN_COMPOSITE_SCALE
+            YOUNG_COIN_TREND_LOG_SCALE * 100 * math.log(m)
         )
 
     def test_mature_coin_uses_rebound_methods(self):

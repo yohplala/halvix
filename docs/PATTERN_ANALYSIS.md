@@ -461,10 +461,10 @@ The unique-price count alone is a weak staircase signal — a coin can sit right
 A coin that has **not lived through a completed prior halving cycle** — all its structure is in the in-progress cycle (e.g. SYRUP, SIREN, HYPE) — has no past cycle to anchor a rebound projection to. The three rebound-based methods (Fibonacci extension, diminishing returns, historical peak) all assume a full-cycle rebound and, applied to a single partial cycle, over-extrapolate wildly. For such coins those methods are **suppressed** and the composite is the demonstrated **log-linear trendline only**, at LOW confidence:
 
 ```
-composite = trendline_pct × YOUNG_COIN_COMPOSITE_SCALE   # 0.13, down-weight (no cap)
+composite_pct = YOUNG_COIN_TREND_LOG_SCALE × 100 × ln(1 + trendline_pct/100)   # k=0.4, log-compress (no cap)
 ```
 
-Because the **floor-aware damping** (see method 1) now discounts a parabolic young coin to the rate its floor supports — SYRUP's raw trendline drops from **~+227,000%** to **~+2,000%** — the `SCALE` no longer needs to be punitively small, and **no hard cap** is applied. The explosive brand-new coins are excluded from the ranking by the display filters (chiefly `MIN_COIN_AGE_DAYS` ≥ 1 year, plus liquidity and ≥3-actual-extrema gates, applied *before* ranking), so the young coins that survive (e.g. HYPE, TAG, SYRUP) differentiate honestly by their damped trendline: one whose floor keeps pace with its peaks is damped *less* and scores higher than a parabolic one.
+The composite keeps only a fraction (`k=0.4`) of the projected **log-growth**. A single explosive cycle extrapolated forward can still yield a wild trendline (TAG's reaches **~+147,000%**), and a *linear* factor can't tame that — it shrinks every coin by the same ratio, so the tail stays explosive. **Log-compressing the projected multiple** crushes the tail while staying gentle on modest young coins: a ~1500× trendline lands near **~300%** and even a 10,000× monster caps under **~400%**. **No hard cap** is applied — it would cluster coins at the ceiling and destroy their ordering. The **floor-aware damping** (see method 1) still runs first, and the explosive brand-new coins are still excluded from the ranking by the display filters (chiefly `MIN_COIN_AGE_DAYS` ≥ 1 year, plus liquidity and ≥3-actual-extrema gates, applied *before* ranking), so the young coins that survive (e.g. HYPE, TAG, SYRUP) differentiate honestly by their damped, log-compressed trendline.
 
 ### Rank Display
 
