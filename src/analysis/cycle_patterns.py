@@ -286,7 +286,6 @@ class CyclePatternAnalyzer:
                 proj_slope, proj_int = self._floor_damped_trendline(
                     upper_slope, upper_int, lower_slope, anchor_days
                 )
-                result.trend_anchor_date = HALVING_DATES[1] + timedelta(days=anchor_days)
             else:
                 proj_slope, proj_int = upper_slope, upper_int
             result.trend_proj_slope = proj_slope

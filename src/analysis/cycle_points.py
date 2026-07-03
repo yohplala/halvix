@@ -99,11 +99,10 @@ class CoinPatternResult:
     upper_intercept: float | None = None  # For trendline visualization
     lower_intercept: float | None = None  # For trendline visualization
     # Floor-damped forward projection: the peak line bent toward the floor beyond
-    # the last realized peak. Drives the trendline target and the chart's ★, so
-    # the drawn line kinks at ``trend_anchor_date`` and passes through the target.
+    # the last realized peak. Drives the trendline target and the chart's ★ — the
+    # upper trendline is drawn straight at this slope through to the target.
     trend_proj_slope: float | None = None
     trend_proj_intercept: float | None = None
-    trend_anchor_date: date | None = None
 
     # Method 2: Fibonacci extension (100%)
     fib_target: float | None = None

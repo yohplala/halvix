@@ -213,16 +213,15 @@ def _add_trendlines(
     end_date: date,
     proj_slope: float | None = None,
     proj_intercept: float | None = None,
-    anchor_date: date | None = None,
 ) -> None:
     """
     Add dashed upper and lower trendlines to a chart.
 
-    The upper (peak) line follows the fitted slope up to ``anchor_date`` (the
-    last realized peak) and then **kinks** to the floor-damped forward projection
-    (``proj_slope``/``proj_intercept``) so it lands on the target ★ instead of the
-    raw — often off-chart — extrapolation. Without projection params it is a plain
-    straight line (legacy behaviour).
+    The upper trendline is a single straight line at the floor-damped forward
+    slope (``proj_slope``/``proj_intercept``): it passes through the last realized
+    peak and lands on the target ★, instead of the raw — often off-chart —
+    fitted-peak extrapolation. Without projection params it falls back to the
+    plain fitted peak line.
 
     Args:
         fig: Plotly figure to add traces to
@@ -232,9 +231,8 @@ def _add_trendlines(
         lower_intercept: Y-intercept of lower trendline (log scale)
         start_date: Chart start date
         end_date: Chart end date (target date)
-        proj_slope: Floor-damped forward slope; if None, no kink is drawn
+        proj_slope: Floor-damped forward slope; drawn straight through to the ★
         proj_intercept: Floor-damped forward intercept
-        anchor_date: Last realized peak — where the peak line bends to the damped one
     """
     if upper_slope is None or upper_intercept is None:
         return
@@ -252,34 +250,23 @@ def _add_trendlines(
         lower_y_start = log_line(lower_slope, lower_intercept, start_date)
         lower_y_end = log_line(lower_slope, lower_intercept, end_date)
 
-        if (
-            proj_slope is not None
-            and proj_intercept is not None
-            and anchor_date is not None
-            and start_date <= anchor_date <= end_date
-        ):
-            # Fitted peak line up to the last peak, then the floor-damped line.
-            upper_x = [start_date, anchor_date, end_date]
-            upper_y = [
-                log_line(upper_slope, upper_intercept, start_date),
-                log_line(upper_slope, upper_intercept, anchor_date),
-                log_line(proj_slope, proj_intercept, end_date),
-            ]
-        else:
-            end_slope, end_int = (
-                (proj_slope, proj_intercept)
-                if proj_slope is not None and proj_intercept is not None
-                else (upper_slope, upper_intercept)
-            )
-            upper_x = [start_date, end_date]
-            upper_y = [
-                log_line(upper_slope, upper_intercept, start_date),
-                log_line(end_slope, end_int, end_date),
-            ]
+        # Single straight upper line at the floor-damped forward slope: it runs
+        # through the last peak and lands on the target ★. Falls back to the
+        # fitted peak line when no damped projection is supplied.
+        up_slope, up_int = (
+            (proj_slope, proj_intercept)
+            if proj_slope is not None and proj_intercept is not None
+            else (upper_slope, upper_intercept)
+        )
+        upper_x = [start_date, end_date]
+        upper_y = [
+            log_line(up_slope, up_int, start_date),
+            log_line(up_slope, up_int, end_date),
+        ]
     except OverflowError, ValueError:
         return
 
-    # Draw upper trendline (kinked at the anchor to the damped projection)
+    # Draw upper trendline (straight, lands on the target ★)
     fig.add_trace(
         go.Scatter(
             x=upper_x,
@@ -686,7 +673,6 @@ def _create_pattern_chart(
         target_date,
         proj_slope=result.trend_proj_slope,
         proj_intercept=result.trend_proj_intercept,
-        anchor_date=result.trend_anchor_date,
     )
 
     # 2. Add min/max points with connecting lines
