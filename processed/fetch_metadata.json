@@ -1,0 +1,11 @@
+{
+  "coins_requested": 1200,
+  "coins_fetched": 1200,
+  "coins_no_usd_data": 0,
+  "coins_no_usd_filtered": 0,
+  "coins_no_usd_accepted": 0,
+  "coins_no_usd_capped": 0,
+  "coins_filtered": 40,
+  "coins_accepted": 1160,
+  "timestamp": "2026-09-26T08:52:18.081289"
+}
