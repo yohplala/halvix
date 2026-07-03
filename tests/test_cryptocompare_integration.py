@@ -16,7 +16,7 @@ To run integration tests:
 import time
 from datetime import date, timedelta
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from api.cryptocompare import (
@@ -177,8 +177,8 @@ class TestCryptoCompareIntegrationFullHistory:
             end_date=end_date,
         )
 
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
+        assert isinstance(df, pl.DataFrame)
+        assert not df.is_empty()
 
         # Should have close to 365 rows
         assert len(df) >= 350
@@ -201,8 +201,8 @@ class TestCryptoCompareIntegrationFullHistory:
             end_date=end_date,
         )
 
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
+        assert isinstance(df, pl.DataFrame)
+        assert not df.is_empty()
 
         # Should have close to 1100 rows
         assert len(df) >= 1000
@@ -220,11 +220,11 @@ class TestCryptoCompareIntegrationFullHistory:
             end_date=end_date,
         )
 
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
+        assert isinstance(df, pl.DataFrame)
+        assert not df.is_empty()
 
         # Should cover the entire period
-        assert df.index.min().date() <= start_date + timedelta(days=1)
+        assert df["date"].min() <= start_date + timedelta(days=1)
 
     def test_get_eth_history_from_2017(self, client):
         """Test fetching ETH data from 2017 (testing long-range historical access)."""
@@ -235,12 +235,12 @@ class TestCryptoCompareIntegrationFullHistory:
             end_date=date.today(),
         )
 
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
+        assert isinstance(df, pl.DataFrame)
+        assert not df.is_empty()
 
         # ETH existed in 2017, so we should have data back to then
         # (or close to it, as exact date availability may vary)
-        assert df.index.min().year <= 2017
+        assert df["date"].min().year <= 2017
 
 
 class TestCryptoCompareIntegrationCoinList:
@@ -309,5 +309,5 @@ class TestCryptoCompareIntegrationErrorHandling:
         )
 
         # Should still return valid data up to today
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
+        assert isinstance(df, pl.DataFrame)
+        assert not df.is_empty()

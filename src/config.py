@@ -406,7 +406,6 @@ ALLOWED_TOKENS = {
 # CryptoCompare (now CoinDesk Data) is an alternative provider, used when only
 # its API key (and no CoinGecko key) is configured. Its Data API requires a key.
 CRYPTOCOMPARE_BASE_URL = "https://min-api.cryptocompare.com"
-CRYPTOCOMPARE_COIN_URL = "https://www.cryptocompare.com/coins"
 
 # API key. The CoinDesk/CryptoCompare Data API requires an API key — requests
 # without one are rejected with HTTP 401. Provide it through the
@@ -611,9 +610,17 @@ MAX_ZERO_CHANGE_FRACTION = 0.35  # reject if > this share of window days had no 
 # - 1.0 for high confidence (no adjustment), 0.9 for medium
 # - 0.15 for low confidence (85% penalty reflecting very high uncertainty)
 #
-# Low confidence (1 cycle): historical peak dominates at 70%; trendline gets
-# a modest 10% weight for directional signal. Scale = 0.15 keeps low-confidence
-# coins below high-confidence peers.
+# Trendline weighting vs. peak count: the log-linear trendline is only a genuine
+# multi-point regression at HIGH confidence (>= 3 realized peaks). At MEDIUM (2
+# peaks) it is an exact line through two points extrapolated ~1.5 cycles forward,
+# so it carries a reduced weight there; the rebound methods (fib/diminishing),
+# anchored to realized structure, take up the slack.
+#
+# Low confidence (1 cycle): the historical-peak method is a mean-reversion anchor
+# ("distance below the prior peak") and is mechanically optimistic, so it no
+# longer dominates — its weight is capped so single-cycle coins are not ranked
+# almost entirely on how far below their ATH they trade. Scale = 0.15 keeps
+# low-confidence coins below high-confidence peers.
 COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
     "high": {
         "trendline": 0.55,
@@ -623,20 +630,26 @@ COMPOSITE_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
         "scale": 1.0,
     },
     "medium": {
-        "trendline": 0.40,
-        "fibonacci": 0.25,
+        "trendline": 0.30,
+        "fibonacci": 0.30,
         "historical": 0.20,
-        "diminishing": 0.15,
+        "diminishing": 0.20,
         "scale": 0.9,
     },
     "low": {
-        "trendline": 0.10,
-        "fibonacci": 0.08,
-        "historical": 0.70,
-        "diminishing": 0.12,
+        "trendline": 0.20,
+        "fibonacci": 0.15,
+        "historical": 0.45,
+        "diminishing": 0.20,
         "scale": 0.15,
     },
 }
+
+# Historical-peak haircut: the historical-peak method anchors on a coin's prior
+# realized peak(s). In BTC terms, altcoins rarely fully re-print a previous ATH
+# cycle-over-cycle (diminishing returns), so the raw "return to peak" target is
+# optimistic. Scale the historical-peak target by this factor (1.0 disables).
+HISTORICAL_PEAK_HAIRCUT = 0.90
 
 # Diminishing returns minimum gain floor
 # The dim returns model projects decreasing but still positive gains each cycle.

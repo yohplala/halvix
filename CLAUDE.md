@@ -57,7 +57,10 @@ halvix/
 │   │   ├── coingecko.py        # CoinGecko client (default provider)
 │   │   └── cryptocompare.py    # CryptoCompare client (alternative provider)
 │   ├── data/
-│   │   ├── cache.py            # File-based caching
+│   │   ├── cache.py            # File-based caching (polars parquet read/write)
+│   │   ├── coin_registry.py    # Cross-provider coin-identity map (native id → parquet stem)
+│   │   ├── coingecko_identity_seed.json  # Committed CoinGecko slug → stem identity seed
+│   │   ├── coin_metadata.py    # Stem → {ticker, name, CoinGecko slug} resolver (for display + links)
 │   │   ├── fetcher.py          # Data retrieval
 │   │   ├── price_filters.py    # Volume outlier detection, SMA, round-trip & symbol-replacement smoothing
 │   │   └── processor.py        # Total2Processor + factory + result dataclass
@@ -114,12 +117,11 @@ provider = get_price_provider()          # auto-selects backend from configured 
 coins = provider.get_top_coins_by_market_cap(n=300)
 ```
 
-The backend is auto-selected from whichever API key is set (`api._default_provider`):
-- `COINGECKO_API_KEY` set → **CoinGecko** (`api/coingecko.py`) — preferred; full
-  coin coverage, native market-cap ranking, price+volume vs BTC/USD.
-- only `CRYPTOCOMPARE_API_KEY` → **CryptoCompare** (`api/cryptocompare.py`).
-- neither → CoinGecko keyless (throttled). `get_price_provider("cryptocompare")`
-  still forces a backend explicitly.
+The backend is auto-selected from whichever API key is set — CoinGecko key →
+CoinGecko (`api/coingecko.py`, preferred); only a CryptoCompare key →
+CryptoCompare (`api/cryptocompare.py`); neither → CoinGecko keyless (throttled).
+`get_price_provider("cryptocompare")` forces a specific backend. Full selection
+rules and the provider comparison live in [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
 
 Keys are read from the environment or a gitignored `.env` at the repo root
 (`config._load_local_env`; copy `.env.example` to `.env`). Real env vars / CI

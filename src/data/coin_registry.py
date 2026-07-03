@@ -70,6 +70,10 @@ class CoinRegistry:
         """Every stem currently registered (across all providers)."""
         return {stem for mapping in self._data.values() for stem in mapping.values()}
 
+    def provider_map(self, provider: str) -> dict[str, str]:
+        """Return a copy of a provider's ``{native_id: stem}`` mapping (empty if unseen)."""
+        return dict(self._data.get(provider, {}))
+
     def allocate_stem(self, symbol: str, reserved: set[str] | None = None) -> str:
         """
         Pick a free stem for a (new) asset with the given symbol.

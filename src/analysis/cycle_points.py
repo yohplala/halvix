@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-import pandas as pd
+import polars as pl
 
 from config import MIN_RETRACEMENT_LEVEL
 
@@ -82,9 +82,14 @@ class CoinPatternResult:
     instance gets its own empty list instead of sharing a single list across all instances.
     """
 
-    coin_id: str
+    coin_id: str  # on-disk parquet stem (cache key), e.g. "tag-2"
     points: list[CyclePoint] = field(default_factory=list)
     num_cycles: int = 0
+
+    # Display identity, resolved from the stem via CoinMetadataResolver. Left
+    # None for standalone/test callers; renderers then fall back to the stem.
+    display_ticker: str | None = None  # e.g. "TAG" (not the "TAG-2" stem)
+    display_url: str | None = None  # CoinGecko coin page for the ticker
 
     # Method 1: Trendline projection
     trendline_target: float | None = None
@@ -148,13 +153,12 @@ class SegmentData:
     effective_end: date  # min(seg_end, last_price_date) for last segment
     prev_cycle: int  # cycle number of seg_start halving
     curr_cycle: int  # cycle number of seg_end halving
-    data: pd.DataFrame  # price data for this segment (may include zeros)
-    valid_data: pd.DataFrame  # price data with close > 0
+    data: pl.DataFrame  # price data for this segment (may include zeros)
+    valid_data: pl.DataFrame  # price data with close > 0
     is_last: bool  # whether this is the last halving-delimited segment
     # Populated by Pass 1:
     max2_date: date | None = None
     max2_price: float | None = None
-    max2_idx: object = None  # pandas Timestamp index
     # Populated by Pass 2:
     min2_date: date | None = None
     min2_price: float | None = None

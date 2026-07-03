@@ -12,7 +12,7 @@ import time
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from api.cryptocompare import (
@@ -250,8 +250,8 @@ class TestCryptoCompareClientDailyHistory:
                 end_date=date(2024, 1, 2),
             )
 
-            assert isinstance(df, pd.DataFrame)
-            assert not df.empty
+            assert isinstance(df, pl.DataFrame)
+            assert not df.is_empty()
             assert "close" in df.columns
             assert len(df) == 2
 
@@ -305,7 +305,7 @@ class TestCryptoCompareClientDailyHistory:
 
             # Should have made multiple requests
             assert mock_request.call_count >= 1
-            assert not df.empty
+            assert not df.is_empty()
 
 
 class TestCryptoCompareClientPing:

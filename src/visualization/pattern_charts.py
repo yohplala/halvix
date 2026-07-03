@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import plotly.graph_objects as go
+import polars as pl
 
 from analysis.cycle_patterns import CoinPatternResult, CyclePatternAnalyzer
 from config import (
@@ -33,7 +34,8 @@ from config import (
     coin_url,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_symbol_replacement, smooth_round_trips_on_series
+from data.coin_metadata import CoinMetadataResolver
+from data.price_filters import apply_round_trip_smoothing, filter_to_post_replacement
 from utils.logging import get_logger
 from visualization._layout import (
     _get_base_css,
@@ -41,6 +43,7 @@ from visualization._layout import (
     _get_footer_html,
     _get_header_css,
     _get_header_html,
+    render_chart_page,
 )
 
 logger = get_logger(__name__)
@@ -599,57 +602,41 @@ def _create_pattern_chart(
         marker_price_tmpl = "Price: ${price:,.2f}"
         yaxis_title = "Price (USD)"
     else:
-        pair_label = f"{result.coin_id.upper()}/BTC"
-        hover_price_fmt = (
-            f"<b>{result.coin_id.upper()}/BTC</b><br>Price: %{{y:.8f}} BTC<extra></extra>"
-        )
+        ticker = result.display_ticker or result.coin_id.upper()
+        pair_label = f"{ticker}/BTC"
+        hover_price_fmt = f"<b>{ticker}/BTC</b><br>Price: %{{y:.8f}} BTC<extra></extra>"
         marker_price_tmpl = "Price: {price:.8f} BTC"
         yaxis_title = "Price (BTC)"
 
     # Load price data
     if is_btc:
         price_df = price_cache.get_prices("btc", "USD")
-        if price_df is None or price_df.empty:
+        if price_df is None or price_df.is_empty():
             raise ValueError("BTC-USD data not available")
     else:
         price_df = price_cache.get_prices(result.coin_id, "BTC")
-        if price_df is None or price_df.empty:
+        if price_df is None or price_df.is_empty():
             raise ValueError(f"{pair_label} data not available")
-        # Apply symbol replacement detection (same filtering as analysis)
-        if "close" in price_df.columns:
-            replacement_date = detect_symbol_replacement(price_df["close"])
-            if replacement_date is not None:
-                logger.info(
-                    "Symbol replacement detected for %s at %s, filtering chart data",
-                    result.coin_id,
-                    replacement_date,
-                )
-                price_df = price_df[price_df.index >= replacement_date]
+        # Drop pre-symbol-replacement history (same filtering as analysis).
+        price_df = filter_to_post_replacement(price_df)
 
-    # Smooth single-day round-trip glitches on the close series so the chart
-    # matches what the projections were computed on (analyze_btc and
-    # analyze_coin both apply this), instead of showing un-corrected raw spikes.
-    # No logging here — the analyzer already logged these events when it ran
-    # the same smoothing on the same series; re-logging at chart-render time
-    # would just duplicate the same line per coin.
-    if "close" in price_df.columns:
-        corrected, events = smooth_round_trips_on_series(price_df["close"])
-        if events:
-            price_df = price_df.copy()
-            price_df["close"] = corrected
+    # Smooth round-trip glitches on the close series so the chart matches what
+    # the projections were computed on (analyze_btc/analyze_coin apply the same),
+    # instead of showing un-corrected raw spikes. No logging here — the analyzer
+    # already logged these events on the same series in this run.
+    price_df = apply_round_trip_smoothing(price_df)
 
     # Filter to time range
     start_date, end_date = _get_time_range()
-    mask = (price_df.index.date >= start_date) & (price_df.index.date <= end_date)
-    plot_df = price_df[mask]
+    plot_df = price_df.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
 
     fig = go.Figure()
 
     # 1. Full price curve in light grey
     fig.add_trace(
         go.Scatter(
-            x=plot_df.index,
-            y=plot_df["close"],
+            x=plot_df["date"].to_list(),
+            y=plot_df["close"].to_list(),
             mode="lines",
             name=pair_label,
             line={"color": CURVE_COLOR, "width": 1},
@@ -890,7 +877,7 @@ def _create_pattern_chart(
 
     # Calculate y-axis range from actual visible data (excludes trendlines)
     y_range = _calculate_y_axis_range(
-        price_series=list(plot_df["close"].dropna()),
+        price_series=plot_df["close"].drop_nulls().to_list(),
         point_prices=[p.price for p in visible_points],
         target_prices=[t[1] for t in targets] if targets else [],
         hist_peak=result.hist_peak_target,
@@ -952,60 +939,13 @@ def _create_pattern_chart(
 
 
 def _write_pattern_chart(fig: go.Figure, output_path: Path, title: str) -> None:
-    """Write a pattern chart to HTML with template wrapper."""
-    base_css = _get_base_css()
-    header_css = _get_header_css()
-    footer_css = _get_footer_css()
-    header_html = _get_header_html(back_link="../pattern_analysis.html")
-    footer_html = _get_footer_html()
-
-    chart_css = """
-        .chart-container {
-            width: 100%;
-            padding: 0.75rem;
-        }
-
-        @media (max-width: 768px) {
-            header h1 {
-                font-size: 0.9rem;
-            }
-            header {
-                padding: 0.4rem 1rem;
-            }
-        }
-    """
-
+    """Write a single pattern chart to HTML with the shared chart-page wrapper."""
     chart_html = fig.to_html(
         full_html=False,
         include_plotlyjs="cdn",
         config={"responsive": True},
     )
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title} - Halvix</title>
-    <style>
-        {base_css}
-        {header_css}
-        {footer_css}
-        {chart_css}
-    </style>
-</head>
-<body>
-    {header_html}
-
-    <div class="chart-container">
-        {chart_html}
-    </div>
-
-    {footer_html}
-</body>
-</html>
-"""
-
+    html = render_chart_page(title, chart_html, back_link="../pattern_analysis.html")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -1215,11 +1155,13 @@ def generate_pattern_analysis_page(
         composite_class = "positive" if (coin.composite_target_pct or 0) > 0 else "negative"
         confidence_class = f"badge-{coin.confidence}"
         rank_display = coin.rank if coin.rank is not None else "-"
+        coin_ticker = coin.display_ticker or coin.coin_id.upper()
+        coin_link = coin.display_url or coin_url(coin.coin_id)
 
         row = f"""
             <tr>
                 <td>{rank_display}</td>
-                <td class="coin-name"><a href="{coin_url(coin.coin_id)}" target="_blank">{coin.coin_id.upper()}</a> <span class="pair-type">(/BTC)</span></td>
+                <td class="coin-name"><a href="{coin_link}" target="_blank">{coin_ticker}</a> <span class="pair-type">(/BTC)</span></td>
                 <td><span class="chart-badge {confidence_class}">{coin.confidence.upper()}</span></td>
                 <td class="number">{coin.num_cycles}</td>
                 <td class="number target-value {composite_class}">{_format_pct(coin.composite_target_pct or 0.0, 1)}</td>
@@ -1374,6 +1316,13 @@ def generate_pattern_analysis_page(
     return output_path
 
 
+def _set_display_identity(result: CoinPatternResult, resolver: CoinMetadataResolver) -> None:
+    """Resolve a result's stem to its display ticker + CoinGecko coin link."""
+    meta = resolver.resolve(result.coin_id)
+    result.display_ticker = meta.ticker
+    result.display_url = meta.url
+
+
 def generate_all_pattern_charts(
     output_dir: Path,
     top_n: int = PATTERN_ANALYSIS_TOP_N,
@@ -1397,10 +1346,12 @@ def generate_all_pattern_charts(
     # Initialize analyzer and cache
     price_cache = PriceDataCache()
     analyzer = CyclePatternAnalyzer(price_cache=price_cache, min_cycles=1)
+    resolver = CoinMetadataResolver()
 
     # Analyze BTC
     btc_result = analyzer.analyze_btc()
     if btc_result:
+        _set_display_identity(btc_result, resolver)
         btc_chart_path = output_dir / "charts" / "pattern_btc.html"
         create_btc_pattern_chart(btc_result, price_cache, btc_chart_path)
         paths["btc"] = btc_chart_path
@@ -1417,9 +1368,10 @@ def generate_all_pattern_charts(
     # Get top N (filtered to positive trendline predictions, sorted by composite target)
     top_coins = analyzer.get_top_coins(coin_results, n=top_n, include=include_set)
 
-    # Set rank for each coin (1-indexed, based on composite score)
+    # Set rank + display identity (ticker/CoinGecko link) for each coin
     for i, coin in enumerate(top_coins, 1):
         coin.rank = i
+        _set_display_identity(coin, resolver)
 
     # Generate chart for each top coin
     for coin in top_coins:

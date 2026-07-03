@@ -21,7 +21,7 @@ from datetime import UTC, date, datetime, timedelta
 from importlib.metadata import version
 from typing import Any
 
-import pandas as pd
+import polars as pl
 import requests
 from tenacity import (
     retry,
@@ -45,6 +45,13 @@ logger = get_logger(__name__)
 # Standard OHLCV column order, shared with the CryptoCompare backend so cached
 # parquet files stay schema-compatible across providers.
 _OHLCV_COLUMNS = ["open", "high", "low", "close", "volume_from", "volume_to"]
+
+
+def _empty_ohlcv() -> pl.DataFrame:
+    """An empty daily-OHLCV frame with the canonical (typed) schema."""
+    schema: dict[str, pl.DataType] = {"date": pl.Date}
+    schema.update(dict.fromkeys(_OHLCV_COLUMNS, pl.Float64))
+    return pl.DataFrame(schema=schema)
 
 
 def _get_version() -> str:
@@ -253,7 +260,7 @@ class CoinGeckoClient:
         end_date: date | None = None,
         show_progress: bool = False,
         provider_id: str | None = None,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """
         Get daily OHLCV history for a coin, resampled from CoinGecko's intraday
         market_chart series.
@@ -271,7 +278,7 @@ class CoinGeckoClient:
         CoinGecko plan).
 
         Returns:
-            DataFrame indexed by date with the standard OHLCV columns
+            DataFrame with a ``date`` column and the standard OHLCV columns
             (empty if no data).
         """
         coin_id = self._resolve_id(symbol, provider_id)
@@ -297,49 +304,65 @@ class CoinGeckoClient:
         prices = data.get("prices") or []
         volumes = data.get("total_volumes") or []
         if not prices:
-            return pd.DataFrame(columns=_OHLCV_COLUMNS)
+            return _empty_ohlcv()
 
         df = self._to_daily_ohlcv(prices, volumes)
-        if df.empty:
+        if df.is_empty():
             return df
 
         # Keep only complete days within the requested window.
-        df = df[df.index.date < today]
+        df = df.filter(pl.col("date") < today)
         if start_date is not None:
-            df = df[df.index.date >= start_date]
+            df = df.filter(pl.col("date") >= start_date)
         if end_date is not None:
-            df = df[df.index.date <= end_date]
+            df = df.filter(pl.col("date") <= end_date)
         return df
 
     @staticmethod
-    def _to_daily_ohlcv(prices: list[list], volumes: list[list]) -> pd.DataFrame:
+    def _to_daily_ohlcv(prices: list[list], volumes: list[list]) -> pl.DataFrame:
         """
         Aggregate intraday [timestamp_ms, value] points into daily OHLCV bars.
 
+        Timestamps are UTC epoch-ms; days are bucketed by UTC calendar date.
         open/high/low/close come from the intraday prices; volume_to is the last
         24h-volume reading of the day (CoinGecko volume is denominated in the
         quote currency); volume_from is the implied base-asset volume.
         """
-        price_series = pd.Series(
-            [p[1] for p in prices],
-            index=pd.to_datetime([p[0] for p in prices], unit="ms", utc=True),
-        ).sort_index()
-        vol_series = pd.Series(
-            [v[1] for v in volumes],
-            index=pd.to_datetime([v[0] for v in volumes], unit="ms", utc=True),
-        ).sort_index()
-
-        daily = price_series.resample("1D").agg(["first", "max", "min", "last"])
-        daily.columns = ["open", "high", "low", "close"]
-        daily["volume_to"] = vol_series.resample("1D").last()
-        daily = daily.dropna(subset=["close"])
-        daily["volume_to"] = daily["volume_to"].fillna(0.0)
-        daily["volume_from"] = daily.apply(
-            lambda r: r["volume_to"] / r["close"] if r["close"] else 0.0, axis=1
+        price_df = (
+            pl.DataFrame({"ts": [p[0] for p in prices], "price": [float(p[1]) for p in prices]})
+            .with_columns(pl.from_epoch("ts", time_unit="ms").alias("dt"))
+            .sort("dt")
         )
-        daily.index = daily.index.tz_localize(None)
-        daily.index.name = "date"
-        return daily[_OHLCV_COLUMNS]
+        daily = price_df.group_by_dynamic("dt", every="1d").agg(
+            pl.col("price").first().alias("open"),
+            pl.col("price").max().alias("high"),
+            pl.col("price").min().alias("low"),
+            pl.col("price").last().alias("close"),
+        )
+
+        if volumes:
+            vol_daily = (
+                pl.DataFrame({"ts": [v[0] for v in volumes], "vol": [float(v[1]) for v in volumes]})
+                .with_columns(pl.from_epoch("ts", time_unit="ms").alias("dt"))
+                .sort("dt")
+                .group_by_dynamic("dt", every="1d")
+                .agg(pl.col("vol").last().alias("volume_to"))
+            )
+            daily = daily.join(vol_daily, on="dt", how="left")
+        else:
+            daily = daily.with_columns(pl.lit(None, dtype=pl.Float64).alias("volume_to"))
+
+        daily = daily.drop_nulls(subset=["close"]).with_columns(
+            pl.col("volume_to").fill_null(0.0),
+            pl.col("dt").dt.date().alias("date"),
+        )
+        daily = daily.with_columns(
+            pl.when(pl.col("close") != 0)
+            .then(pl.col("volume_to") / pl.col("close"))
+            .otherwise(0.0)
+            .alias("volume_from")
+        )
+        return daily.select(["date", *_OHLCV_COLUMNS])
 
     # ------------------------------------------------------------------ #
     # Health / availability
@@ -383,5 +406,7 @@ class CoinGeckoClient:
             }
         except CoinGeckoRateLimitError as e:
             return {"available": "", "reason": f"Rate limit exceeded: {e}"}
-        except Exception as e:  # noqa: BLE001 - report any failure as the reason
+        except (CoinGeckoError, ValueError) as e:
+            # CoinGeckoError covers request/HTTP failures; ValueError covers a
+            # non-JSON response body (requests' JSONDecodeError subclasses it).
             return {"available": "", "reason": f"Error checking pair: {e}"}

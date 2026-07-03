@@ -31,10 +31,10 @@ Usage:
 """
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 from tqdm import tqdm
 
 from analysis import point_detection, projections
@@ -43,9 +43,8 @@ from analysis.cycle_points import (
     CyclePoint,
     _to_date,
     build_points_index,
-    count_min1_cycles,  # noqa: F401  (re-exported for tests)
+    count_min1_cycles,
     count_peak_cycles,
-    fib_retracement_ratio,  # noqa: F401  (re-exported for tests)
 )
 from config import (
     DAYS_BEFORE_HALVING,
@@ -67,7 +66,7 @@ from config import (
     YOUNG_COIN_MAX_COMPOSITE_PCT,
 )
 from data.cache import PriceDataCache
-from data.price_filters import detect_symbol_replacement, smooth_round_trips_on_series
+from data.price_filters import apply_round_trip_smoothing, filter_to_post_replacement
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -122,7 +121,7 @@ class CyclePatternAnalyzer:
         self.projected_halving = HALVING_DATES[-1]
 
         # Load TOTAL2 composition for filtering
-        self._total2_composition: pd.DataFrame | None = None
+        self._total2_composition: pl.DataFrame | None = None
         self._total2_coins: set[str] | None = None
 
         # Early-pipeline counts populated by analyze_all_coins() and consumed
@@ -132,17 +131,18 @@ class CyclePatternAnalyzer:
         self._pipeline_cached_coins: int | None = None
         self._pipeline_total2_coins: int | None = None
 
-    def _load_total2_composition(self) -> pd.DataFrame | None:
-        """Load TOTAL2 composition data."""
+    def _load_total2_composition(self) -> pl.DataFrame | None:
+        """Load TOTAL2 composition data (``date`` cast to ``pl.Date``)."""
         if self._total2_composition is not None:
             return self._total2_composition
 
         if TOTAL2_COMPOSITION_FILE.exists():
             try:
-                self._total2_composition = pd.read_parquet(TOTAL2_COMPOSITION_FILE)
+                comp = pl.read_parquet(TOTAL2_COMPOSITION_FILE)
+                self._total2_composition = comp.with_columns(pl.col("date").cast(pl.Date))
                 logger.info(
                     "Loaded TOTAL2 composition: %d records",
-                    len(self._total2_composition),
+                    self._total2_composition.height,
                 )
             except Exception as e:
                 logger.warning("Could not load TOTAL2 composition: %s", e)
@@ -166,16 +166,11 @@ class CyclePatternAnalyzer:
 
         comp_df = self._load_total2_composition()
         if comp_df is not None:
-            # Filter to coins that were in TOTAL2 within the lookback period
-            lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
-
-            # Convert date column if needed
             if "date" in comp_df.columns:
-                comp_df_dates = pd.to_datetime(comp_df["date"]).dt.date
-
-                recent_mask = comp_df_dates >= lookback_cutoff
-                recent_coins = comp_df[recent_mask]["coin_id"].str.lower().unique()
-                self._total2_coins = set(recent_coins)
+                # Filter to coins that were in TOTAL2 within the lookback period
+                lookback_cutoff = date.today() - timedelta(days=TOTAL2_LOOKBACK_YEARS * 365)
+                recent = comp_df.filter(pl.col("date") >= lookback_cutoff)
+                self._total2_coins = set(recent["coin_id"].str.to_lowercase().unique().to_list())
 
                 logger.info(
                     "Found %d coins in TOTAL2 within past %d years (from %s)",
@@ -184,7 +179,7 @@ class CyclePatternAnalyzer:
                     lookback_cutoff.isoformat(),
                 )
             else:
-                self._total2_coins = set(comp_df["coin_id"].str.lower().unique())
+                self._total2_coins = set(comp_df["coin_id"].str.to_lowercase().unique().to_list())
                 logger.info(
                     "Found %d coins in TOTAL2 history (no date filtering)", len(self._total2_coins)
                 )
@@ -205,8 +200,8 @@ class CyclePatternAnalyzer:
         if comp_df is None:
             return set()
 
-        coin_data = comp_df[comp_df["coin_id"] == coin_id]
-        if coin_data.empty:
+        coin_data = comp_df.filter(pl.col("coin_id") == coin_id)
+        if coin_data.is_empty():
             return set()
 
         # Convert to set of dates
@@ -221,7 +216,7 @@ class CyclePatternAnalyzer:
     # Only wrappers actually referenced externally are kept.
     # ────────────────────────────────────────────────────────────────
 
-    def _identify_cycle_points(self, df: pd.DataFrame) -> list[CyclePoint]:
+    def _identify_cycle_points(self, df: pl.DataFrame) -> list[CyclePoint]:
         """Detect cycle min/max points across all halving-delimited segments."""
         return point_detection.identify_cycle_points(df, self.all_halvings)
 
@@ -355,48 +350,18 @@ class CyclePatternAnalyzer:
             result.composite_target_pct *= penalty
 
     @staticmethod
-    def _smooth_round_trips(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    def _smooth_round_trips(df: pl.DataFrame, label: str) -> pl.DataFrame:
         """
         Smooth spike-and-revert glitches (single-day or multi-day) in df['close'].
 
-        Cycle min/max detection (idxmax/idxmin over halving segments) and the
+        Cycle min/max detection (arg_max/arg_min over halving segments) and the
         log-linear trendline regression both read close prices directly, so a
         transient pump-dump (e.g. SIREN 2026-04-16 at 2.49x reverting next day)
-        can produce a false max1/max2 or skew the trendline. Mirrors the
-        round-trip correction applied in the TOTAL2 processor, keeping the
-        close-series guards in sync between the two pipelines.
-
-        Returns the input df with df['close'] mutated on every elevated day in
-        each detected span (set to the pre-spike close). df is copied first to
-        avoid mutating the cache layer. Logs one line per event in the same
-        format used by the analyzer pipeline.
+        can produce a false max1/max2 or skew the trendline. Delegates to the
+        shared ``apply_round_trip_smoothing`` used by the TOTAL2 processor and
+        the chart path, keeping the close-series guards in sync.
         """
-        if df.empty or "close" not in df.columns:
-            return df
-        corrected, events = smooth_round_trips_on_series(df["close"])
-        if not events:
-            return df
-        df = df.copy()
-        df["close"] = corrected
-        for ev in events:
-            span_str = (
-                f"{ev['smoothed_dates'][0].date()}"
-                if len(ev["smoothed_dates"]) == 1
-                else f"{ev['smoothed_dates'][0].date()}..{ev['smoothed_dates'][-1].date()}"
-            )
-            logger.info(
-                "%s: round-trip glitch on %s smoothed: peak %.3e → %.3e (jump %.2fx, "
-                "revert %.2fx after %dd, %s)",
-                label,
-                span_str,
-                ev["jump_price"],
-                ev["pre_price"],
-                ev["jump_ratio"],
-                ev["revert_ratio"],
-                ev["days_to_revert"],
-                ev["direction"],
-            )
-        return df
+        return apply_round_trip_smoothing(df, log_label=label)
 
     def analyze_btc(self) -> CoinPatternResult | None:
         """
@@ -407,7 +372,7 @@ class CyclePatternAnalyzer:
         """
         btc_df = self.price_cache.get_prices("btc", "USD")
 
-        if btc_df is None or btc_df.empty:
+        if btc_df is None or btc_df.is_empty():
             logger.warning("BTC-USD data not available")
             return None
 
@@ -421,8 +386,8 @@ class CyclePatternAnalyzer:
             return None
 
         result.num_cycles = self._count_min1_cycles(result.points)
-        result.current_price = float(btc_df["close"].iloc[-1])
-        result.current_date = btc_df.index[-1].date()
+        result.current_price = float(btc_df["close"][-1])
+        result.current_date = btc_df["date"][-1]
 
         if result.current_price <= 0:
             logger.warning(
@@ -452,25 +417,16 @@ class CyclePatternAnalyzer:
         # Load coin price data (vs BTC)
         df = self.price_cache.get_prices(coin_id, "BTC")
 
-        if df is None or df.empty:
+        if df is None or df.is_empty():
             logger.debug("%s: No BTC price data available", coin_id.upper())
             return None
 
-        # Detect symbol replacement (e.g., old MOVE token replaced by Movement Labs MOVE)
-        # If detected, filter price data to only include the new token's data
-        if "close" in df.columns:
-            replacement_date = detect_symbol_replacement(df["close"])
-            if replacement_date is not None:
-                logger.info(
-                    "%s: Symbol replacement detected on %s, filtering to post-replacement data",
-                    coin_id.upper(),
-                    replacement_date.date(),
-                )
-                df = df[df.index >= replacement_date]
-
-                if df.empty:
-                    logger.debug("%s: No data after symbol replacement date", coin_id.upper())
-                    return None
+        # Detect symbol replacement (e.g., old MOVE token replaced by Movement
+        # Labs MOVE) and, if found, drop the old token's pre-replacement history.
+        df = filter_to_post_replacement(df, log_label=coin_id.upper())
+        if df.is_empty():
+            logger.debug("%s: No data after symbol replacement date", coin_id.upper())
+            return None
 
         # Smooth spike-and-revert glitches (single-day or multi-day) on the
         # close series so they cannot become false max1/max2/min1/min2 points
@@ -532,9 +488,9 @@ class CyclePatternAnalyzer:
             return None
 
         # Get current price and price quality info
-        result.current_price = float(df["close"].iloc[-1])
-        result.current_date = df.index[-1].date()
-        result.first_price_date = df.index[0].date()
+        result.current_price = float(df["close"][-1])
+        result.current_date = df["date"][-1]
+        result.first_price_date = df["date"][0]
 
         # Guard against a zero (or negative) latest close. This would only
         # happen for a delisted coin or a feed gap that survived earlier
@@ -549,16 +505,16 @@ class CyclePatternAnalyzer:
             return None
 
         unique_window_start = result.current_date - timedelta(days=UNIQUE_PRICES_WINDOW_DAYS)
-        recent_prices = df[df.index.date >= unique_window_start]
-        recent_close = recent_prices["close"] if not recent_prices.empty else None
-        result.unique_price_count = recent_close.nunique() if recent_close is not None else 0
+        recent_prices = df.filter(pl.col("date") >= unique_window_start)
+        recent_close = recent_prices["close"] if not recent_prices.is_empty() else None
+        result.unique_price_count = recent_close.n_unique() if recent_close is not None else 0
         result.max_flat_run, result.zero_change_fraction = self._staircase_metrics(recent_close)
 
         self._run_projections(result)
         return result
 
     @staticmethod
-    def _staircase_metrics(recent_close: pd.Series | None) -> tuple[int, float]:
+    def _staircase_metrics(recent_close: pl.Series | None) -> tuple[int, float]:
         """Longest run of identical consecutive closes + fraction of zero-change days.
 
         Robust low-liquidity signals over the recent window: a liquid coin moves
@@ -904,7 +860,7 @@ class CyclePatternAnalyzer:
             }
 
         data = {
-            "generated_at": pd.Timestamp.now().isoformat(),
+            "generated_at": datetime.now().isoformat(),
             "note": "Returns are calculated as % gain from current_price to target",
             "btc": None,
             "altcoins": {},

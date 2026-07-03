@@ -40,9 +40,10 @@ import csv
 import json
 import logging
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
+import polars as pl
 from tqdm import tqdm
 
 from api import get_price_provider
@@ -106,66 +107,6 @@ def _save_failed_coins(failed_coins: list[dict]) -> None:
                     coin.get("url", ""),
                 ]
             )
-
-
-def _append_insufficient_history_to_skipped(
-    removed_coins: list[dict],
-    price_cache: PriceDataCache,
-    min_data_date: date,
-) -> None:
-    """
-    Append coins with insufficient historical data to download_skipped.csv.
-
-    Args:
-        removed_coins: List of coin dicts that were removed due to insufficient history
-        price_cache: Price data cache to get actual start dates
-        min_data_date: The minimum data date requirement
-    """
-    if not removed_coins:
-        return
-
-    # Load existing skipped coins to avoid duplicates
-    existing_ids = set()
-    if DOWNLOAD_SKIPPED_CSV.exists():
-        with open(DOWNLOAD_SKIPPED_CSV, encoding="utf-8") as f:
-            lines = f.readlines()
-            for line in lines[1:]:  # Skip header
-                parts = line.strip().split(";")
-                if parts:
-                    existing_ids.add(parts[0].lower())
-
-    # Prepare new entries
-    new_entries = []
-    for coin in removed_coins:
-        coin_id = coin.get("id", "")
-        if coin_id.lower() in existing_ids:
-            continue  # Skip if already in skipped list
-
-        symbol = coin.get("symbol", coin_id.upper())
-        name = coin.get("name", symbol)
-        url = coin_url(symbol)
-
-        # Get actual start date for the reason message
-        df = price_cache.get_prices(coin_id)
-        if df is not None and not df.empty:
-            start_date = df.index.min().date()
-            reason = f"Insufficient historical data (starts {start_date})"
-        else:
-            reason = "No price data available"
-
-        new_entries.append([coin_id, name, symbol, reason, url])
-
-    if not new_entries:
-        return
-
-    # Append to CSV file
-    file_exists = DOWNLOAD_SKIPPED_CSV.exists()
-    with open(DOWNLOAD_SKIPPED_CSV, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=CSV_DELIMITER)
-        if not file_exists:
-            writer.writerow(["Coin ID", "Name", "Symbol", "Reason", "URL"])
-        for entry in new_entries:
-            writer.writerow(entry)
 
 
 # =============================================================================
@@ -372,7 +313,7 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
     for coin in coins:
         coin_id = coin["id"]
         coin_data = results.get(coin_id, {})
-        has_data = any(not df.empty for df in coin_data.values())
+        has_data = any(not df.is_empty() for df in coin_data.values())
 
         if has_data:
             successful_coins.append(coin_id)
@@ -458,11 +399,6 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     logger.info("Price data saved to: %s", fetcher.price_cache.prices_dir)
 
-    # Migrate legacy files to pair format if needed
-    migrated = fetcher.price_cache.migrate_to_pair_format()
-    if migrated > 0:
-        logger.info("Migrated %d legacy files to pair format", migrated)
-
     # Generate documentation automatically
     logger.info("-" * 60)
     logger.info("Generating documentation...")
@@ -514,18 +450,20 @@ def cmd_calculate_total2(args: argparse.Namespace) -> int:
         logger.info("  Avg coins per day:   %.1f", result.avg_coins_per_day)
 
         # Show sample of index
-        if not result.index_df.empty:
+        if not result.index_df.is_empty():
             logger.info("Latest TOTAL2 values:")
-            latest = result.index_df.tail(5)
-            for idx, row in latest.iterrows():
+            for row in result.index_df.tail(5).iter_rows(named=True):
                 logger.info(
-                    "  %s: %.8f BTC (%d coins)", idx.date(), row["total2_price"], row["coin_count"]
+                    "  %s: %.8f BTC (%d coins)",
+                    row["date"],
+                    row["total2_price"],
+                    row["coin_count"],
                 )
 
         # Show max weight change (important for detecting sudden composition changes)
-        # Only tracked after 2017-11-01 when TOTAL2 has 50 coins
+        # Only tracked after 2016-07-04, when the index first had 30 coins.
         logger.info("-" * 60)
-        logger.info("WEIGHT CHANGE ANALYSIS (after 2017-11-01)")
+        logger.info("WEIGHT CHANGE ANALYSIS (after 2016-07-04)")
         logger.info("-" * 60)
         logger.info("  Purpose: Ensure curve variations reflect price, not weight changes")
         if result.max_weight_change is not None:
@@ -537,12 +475,13 @@ def cmd_calculate_total2(args: argparse.Namespace) -> int:
             )
             if abs(result.max_weight_change) > 0.5:
                 logger.warning(
-                    "  ⚠️  Weight change exceeds 0.5%% threshold - consider increasing VOLUME_SMA_WINDOW"
+                    "  ⚠️  Weight change exceeds 0.5% threshold - consider increasing "
+                    "VOLUME_SMA_WINDOW"
                 )
             else:
-                logger.info("  ✓ Weight change within acceptable range (< 0.5%%)")
+                logger.info("  ✓ Weight change within acceptable range (< 0.5%)")
         else:
-            logger.info("  No weight change data available (not enough data after 2017-11-01)")
+            logger.info("  No weight change data available (not enough data after 2016-07-04)")
 
         # Save results
         if not args.dry_run:
@@ -679,22 +618,20 @@ def cmd_status(args: argparse.Namespace) -> int:
         for coin_id in cached_coins[:20]:
             df = price_cache.get_prices(coin_id)
             if df is not None:
-                date_range = f"{df.index.min().date()} to {df.index.max().date()}"
-                logger.debug("  - %s: %d days (%s)", coin_id, len(df), date_range)
+                date_range = f"{df['date'].min()} to {df['date'].max()}"
+                logger.debug("  - %s: %d days (%s)", coin_id, df.height, date_range)
         if len(cached_coins) > 20:
             logger.debug("  ... and %d more", len(cached_coins) - 20)
 
     # Check TOTAL2 index
     if TOTAL2_INDEX_FILE.exists():
-        import pandas as pd
-
-        total2_df = pd.read_parquet(TOTAL2_INDEX_FILE)
-        date_range = f"{total2_df.index.min().date()} to {total2_df.index.max().date()}"
-        logger.info("TOTAL2 index: %d days (%s)", len(total2_df), date_range)
+        total2_df = pl.read_parquet(TOTAL2_INDEX_FILE).with_columns(pl.col("date").cast(pl.Date))
+        date_range = f"{total2_df['date'].min()} to {total2_df['date'].max()}"
+        logger.info("TOTAL2 index: %d days (%s)", total2_df.height, date_range)
 
         logger.debug("Latest values:")
-        for idx, row in total2_df.tail(3).iterrows():
-            logger.debug("  %s: %.8f BTC", idx.date(), row["total2_price"])
+        for row in total2_df.tail(3).iter_rows(named=True):
+            logger.debug("  %s: %.8f BTC", row["date"], row["total2_price"])
     else:
         logger.info("TOTAL2 index: Not calculated yet")
         logger.info("  Run 'python -m main calculate-total2' to generate")

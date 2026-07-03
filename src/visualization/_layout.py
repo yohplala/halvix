@@ -174,3 +174,60 @@ def _get_footer_html(last_updated: str | None = None) -> str:
         </p>
     </footer>
     """
+
+
+def render_chart_page(title: str, chart_html: str, back_link: str = "../index.html") -> str:
+    """
+    Assemble a full HTML page wrapping a single embedded Plotly chart.
+
+    Shared by the cycle-chart and pattern-chart writers so the page skeleton
+    (doctype, shared CSS/header/footer, chart container) lives in one place.
+
+    Args:
+        title: Page title for the browser tab.
+        chart_html: The embedded Plotly chart HTML (div + script, not a full page).
+        back_link: URL for the header back arrow.
+
+    Returns:
+        A complete standalone HTML page.
+    """
+    chart_css = """
+        .chart-container {
+            width: 100%;
+            padding: 0.75rem;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 0.9rem;
+            }
+            header {
+                padding: 0.4rem 1rem;
+            }
+        }
+    """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} - Halvix</title>
+    <style>
+        {_get_base_css()}
+        {_get_header_css()}
+        {_get_footer_css()}
+        {chart_css}
+    </style>
+</head>
+<body>
+    {_get_header_html(back_link)}
+
+    <div class="chart-container">
+        {chart_html}
+    </div>
+
+    {_get_footer_html()}
+</body>
+</html>
+"""

@@ -14,6 +14,49 @@ format YYYY.MM.patch.
 
 ### [Unreleased]
 
+**pandas → polars migration**
+
+- **Changed:** The entire data pipeline now uses **polars** (with its native
+  Rust Arrow implementation) instead of pandas + pyarrow. Price frames carry an
+  explicit `date` column (polars has no index); parquet I/O uses
+  `pl.read_parquet` / `write_parquet`. Verified bit-for-bit identical TOTAL2
+  index/composition and cycle-pattern targets against the pandas baseline.
+- **Removed:** `pandas`, `pyarrow`, and the unused `scipy` from dependencies.
+- **Removed (dead code):** legacy non-pair parquet format + `migrate_to_pair_format`;
+  `FileCache.get_parquet`/`set_parquet`/`invalidate`; `PriceDataCache.get_last_date`;
+  `extract_calls`, `_append_insufficient_history_to_skipped`, `get_template`,
+  `CRYPTOCOMPARE_COIN_URL`; two unused test fixtures.
+- **Refactored:** factored the stem sanitizer, round-trip smoothing, symbol-replacement
+  filtering, and the chart-page HTML skeleton into shared helpers.
+
+**Coin display + CoinGecko links**
+
+- **Fixed:** Pages showed the parquet *stem* (e.g. `TAG-2`) as the coin name and
+  linked to a symbol search instead of the coin page. A new
+  `data.coin_metadata.CoinMetadataResolver` maps each stem to its real ticker,
+  name and CoinGecko slug, so coins now render by ticker (`TAG`) and link to the
+  right page (`/en/coins/tagger`, `/en/coins/solana`, …) across the pattern
+  analysis, TOTAL2 statistics, composition viewer and data-status pages.
+
+**Cycle-pattern methodology**
+
+- **Changed:** diminishing-returns factor now uses the geometric mean of cycle-gain
+  ratios (was arithmetic for the common 2-cycle case, which biased upward);
+  historical-peak targets get a `HISTORICAL_PEAK_HAIRCUT` (0.90); the LOW-confidence
+  historical weight is capped (0.70 → 0.45) and the MEDIUM-confidence trendline
+  weight reduced (0.40 → 0.30), so single-cycle coins aren't ranked almost entirely
+  on distance-below-ATH and 2-peak coins lean less on a 2-point extrapolation.
+- **Fixed:** added an overflow guard to the Fibonacci extension (mirrors the
+  trendline guard); documented the effective (squared) `polyfit` recency weighting.
+
+**Documentation**
+
+- **Fixed:** stale daily-job cron (`0 6` → `0 4`), `COINGECKO_MAX_DAYS_PER_REQUEST`
+  (360 → 365), the `main.py` weight-change banner (2017-11-01/50 coins →
+  2016-07-04/30 coins), the project-structure tree (added `coin_registry.py`,
+  `coin_metadata.py`, `coingecko_identity_seed.json`), and the projected-min1 /
+  weight-profile / recency-weight descriptions in PATTERN_ANALYSIS.md.
+
 **TOTAL2 "bart" fix — stale-entry re-anchor**
 
 - **Fixed:** A ~4x spike-and-crash in TOTAL2b over 2026-05..06 (index ≈0.28 →

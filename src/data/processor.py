@@ -28,10 +28,11 @@ Module exports:
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
+import numpy as np
+import polars as pl
 from tqdm import tqdm
 
 from analysis.filters import CoinFilter
@@ -49,9 +50,9 @@ from config import (
     TOTAL2B_ENTRY_FREEZE_PERIOD_DAYS,
     TOTAL2B_MIN_COINS_FOR_SCALING,
     VOLUME_SMA_WINDOW,
-    coin_url,
 )
 from data.cache import PriceDataCache
+from data.coin_metadata import CoinMetadataResolver
 from data.price_filters import (
     DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK,
     DEFAULT_OUTLIER_WINDOW_DAYS,
@@ -78,9 +79,9 @@ class NoDataError(ProcessorError):
 class Total2Result:
     """Complete result of a TOTAL2 calculation."""
 
-    index_df: pd.DataFrame  # Daily index values (date, total2_price, total_volume, coin_count)
+    index_df: pl.DataFrame  # Daily index values (date, total2_price, total_volume, coin_count)
     composition_df: (
-        pd.DataFrame
+        pl.DataFrame
     )  # Daily composition (date, rank, coin_id, volume, weight, price_btc)
     coins_processed: int
     date_range: tuple[date, date]
@@ -158,7 +159,7 @@ class Total2Processor:
         coin_ids: list[str] | None = None,
         show_progress: bool = True,
         columns: list[str] | None = None,
-    ) -> dict[str, pd.DataFrame]:
+    ) -> dict[str, pl.DataFrame]:
         """
         Load price data for all cached coins.
 
@@ -183,7 +184,7 @@ class Total2Processor:
 
         for coin_id in iterator:
             df = self.price_cache.get_prices(coin_id, self.quote_currency, columns=columns)
-            if df is not None and not df.empty:
+            if df is not None and not df.is_empty():
                 data[coin_id] = df
             else:
                 skipped_coins.append(coin_id)
@@ -212,33 +213,49 @@ class Total2Processor:
 
     def build_aligned_dataframes(
         self,
-        price_data: dict[str, pd.DataFrame],
+        price_data: dict[str, pl.DataFrame],
         show_progress: bool = True,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
+    ) -> tuple[pl.DataFrame, pl.DataFrame, list[dict]]:
         """
-        Build aligned price and volume DataFrames for vectorized calculation.
+        Build aligned wide (dates × coins) close/volume frames for calculation.
 
-        Also detects and corrects volume outliers from bad data.
+        Each coin's series is left-joined onto a contiguous daily ``date`` spine
+        (missing days become null). Also detects and corrects volume outliers.
 
         Returns:
-            Tuple of (close_df, volume_df, volume_outliers)
+            Tuple of (close_df, volume_df, volume_outliers). Both wide frames
+            carry a leading ``date`` column then one column per coin.
         """
-        all_dates = set()
+        min_date: date | None = None
+        max_date: date | None = None
         for df in price_data.values():
-            all_dates.update(df.index)
-        if not all_dates:
+            lo = df["date"].min()
+            hi = df["date"].max()
+            min_date = lo if min_date is None else min(min_date, lo)
+            max_date = hi if max_date is None else max(max_date, hi)
+        if min_date is None or max_date is None:
             raise NoDataError("No dates found in price data")
 
-        date_index = pd.date_range(start=min(all_dates), end=max(all_dates), freq="D")
+        # Contiguous daily spine; one left-joined column per coin (null on gaps).
+        spine = pl.DataFrame({"date": pl.date_range(min_date, max_date, interval="1d", eager=True)})
+        coin_ids = list(price_data.keys())
+        long = pl.concat(
+            df.select(
+                pl.col("date"),
+                pl.lit(coin_id).alias("coin_id"),
+                pl.col("close"),
+                pl.col("volume_to"),
+            )
+            for coin_id, df in price_data.items()
+        )
+        close_wide = long.pivot(values="close", index="date", on="coin_id")
+        volume_wide = long.pivot(values="volume_to", index="date", on="coin_id")
 
-        close_data = {}
-        volume_data = {}
-        for coin_id, df in price_data.items():
-            close_data[coin_id] = df["close"].reindex(date_index)
-            volume_data[coin_id] = df["volume_to"].reindex(date_index)
-
-        close_df = pd.DataFrame(close_data, index=date_index)
-        volume_df = pd.DataFrame(volume_data, index=date_index)
+        # Align to the full spine and pin column order to price_data order so the
+        # top-N volume tie-break is deterministic (matches the legacy path).
+        order = ["date", *coin_ids]
+        close_df = spine.join(close_wide, on="date", how="left").sort("date").select(order)
+        volume_df = spine.join(volume_wide, on="date", how="left").sort("date").select(order)
 
         volume_df, volume_outliers = self._apply_volume_corrections(
             volume_df, show_progress=show_progress
@@ -247,9 +264,9 @@ class Total2Processor:
 
     def _apply_volume_corrections(
         self,
-        volume_df: pd.DataFrame,
+        volume_df: pl.DataFrame,
         show_progress: bool = True,
-    ) -> tuple[pd.DataFrame, list[dict]]:
+    ) -> tuple[pl.DataFrame, list[dict]]:
         """Detect and cap volume outliers using past-only rolling medians."""
         return apply_volume_corrections_to_dataframe(
             volume_df,
@@ -260,7 +277,7 @@ class Total2Processor:
             show_progress=show_progress,
         )
 
-    def apply_volume_sma_smoothing(self, volume_df: pd.DataFrame) -> pd.DataFrame:
+    def apply_volume_sma_smoothing(self, volume_df: pl.DataFrame) -> pl.DataFrame:
         """
         Apply SMA smoothing to volume with zero padding for warmup.
 
@@ -343,23 +360,24 @@ class Total2Processor:
         )
 
         if start_date:
-            index_df = index_df[index_df.index >= pd.Timestamp(start_date)]
+            index_df = index_df.filter(pl.col("date") >= start_date)
         if end_date:
-            index_df = index_df[index_df.index <= pd.Timestamp(end_date)]
-        index_df = index_df.dropna(subset=["total2_price"])
-        if index_df.empty:
+            index_df = index_df.filter(pl.col("date") <= end_date)
+        index_df = index_df.drop_nulls(subset=["total2_price"])
+        if index_df.is_empty():
             raise ProcessorError("No valid index values after filtering")
 
-        composition_df = pd.DataFrame(composition_records)
-        if not composition_df.empty:
-            composition_df["date"] = pd.to_datetime(composition_df["date"])
+        composition_df = (
+            pl.DataFrame(composition_records) if composition_records else pl.DataFrame()
+        )
+        if not composition_df.is_empty():
             if start_date:
-                composition_df = composition_df[composition_df["date"] >= pd.Timestamp(start_date)]
+                composition_df = composition_df.filter(pl.col("date") >= start_date)
             if end_date:
-                composition_df = composition_df[composition_df["date"] <= pd.Timestamp(end_date)]
+                composition_df = composition_df.filter(pl.col("date") <= end_date)
 
         max_change, max_coin, max_date = self.calculate_max_weight_change(composition_df)
-        date_range = (index_df.index.min().date(), index_df.index.max().date())
+        date_range = (index_df["date"].min(), index_df["date"].max())
 
         return Total2Result(
             index_df=index_df,
@@ -382,10 +400,10 @@ class Total2Processor:
 
     def _calculate_first_seen_dates(
         self,
-        close_df: pd.DataFrame,
-        volume_df: pd.DataFrame,
+        close_df: pl.DataFrame,
+        volume_df: pl.DataFrame,
         show_progress: bool = True,
-    ) -> tuple[dict[str, pd.Timestamp], list[dict]]:
+    ) -> tuple[dict[str, date], list[dict]]:
         """
         First date each coin appears with both close > 0 and volume > 0.
 
@@ -396,34 +414,39 @@ class Total2Processor:
         Returns the first-seen map and the list of detected replacement events
         (also logged when show_progress=True).
         """
-        first_seen: dict[str, pd.Timestamp] = {}
+        first_seen: dict[str, date] = {}
         symbol_replacements: list[dict] = []
 
-        for coin_id in close_df.columns:
+        dates = close_df["date"].to_list()
+        date_pos = {d: i for i, d in enumerate(dates)}
+        coin_cols = [c for c in close_df.columns if c != "date"]
+
+        for coin_id in coin_cols:
             if coin_id not in volume_df.columns:
                 continue
-            price_valid = (close_df[coin_id] > 0) & close_df[coin_id].notna()
-            volume_valid = (volume_df[coin_id] > 0) & volume_df[coin_id].notna()
-            both_valid = price_valid & volume_valid
+            close_col = close_df[coin_id]
+            both_valid = (close_col.fill_null(0) > 0) & (volume_df[coin_id].fill_null(0) > 0)
             if not both_valid.any():
                 continue
-            initial_first_seen = both_valid.idxmax()
+            initial_first_seen = dates[both_valid.arg_max()]  # first True
             replacement_date = detect_symbol_replacement(
-                close_df[coin_id],
+                close_col,
+                dates,
                 increase_threshold=self.symbol_replacement_increase_threshold,
                 decrease_threshold=self.symbol_replacement_decrease_threshold,
                 first_seen=initial_first_seen,
             )
             if replacement_date is not None:
+                close_vals = close_col.to_numpy()
                 symbol_replacements.append(
                     {
                         "coin": coin_id.upper(),
-                        "original_first_seen": str(initial_first_seen.date()),
-                        "replacement_date": str(replacement_date.date()),
+                        "original_first_seen": str(initial_first_seen),
+                        "replacement_date": str(replacement_date),
                         "price_before": float(
-                            close_df.loc[replacement_date - pd.Timedelta(days=1), coin_id]
+                            close_vals[date_pos[replacement_date - timedelta(days=1)]]
                         ),
-                        "price_after": float(close_df.loc[replacement_date, coin_id]),
+                        "price_after": float(close_vals[date_pos[replacement_date]]),
                     }
                 )
                 first_seen[coin_id] = replacement_date
@@ -446,37 +469,39 @@ class Total2Processor:
 
     def _build_eligibility_mask(
         self,
-        close_df: pd.DataFrame,
-        smoothed_volume_df: pd.DataFrame,
-        first_seen_dates: dict[str, pd.Timestamp],
-    ) -> pd.DataFrame:
+        close_m: np.ndarray,
+        volume_m: np.ndarray,
+        coin_ids: list[str],
+        dates: list[date],
+        first_seen_dates: dict[str, date],
+    ) -> np.ndarray:
         """
-        Pre-compute (dates × coins) boolean mask: True where a coin is eligible.
+        Pre-compute (days × coins) boolean matrix: True where a coin is eligible.
 
         Eligibility = freeze period passed AND close > 0 AND smoothed volume > 0.
-        Vectorising this once at the start beats a per-date inner loop.
+        Null closes/volumes read back as NaN, and ``NaN > 0`` is False — matching
+        the previous ``> 0 & notna`` guard.
         """
-        price_valid = (close_df > 0) & close_df.notna()
-        volume_valid = (smoothed_volume_df > 0) & smoothed_volume_df.notna()
-        base_eligible = price_valid & volume_valid
+        base_eligible = (close_m > 0) & (volume_m > 0)
 
-        freeze_mask = pd.DataFrame(False, index=close_df.index, columns=close_df.columns)
-        for coin_id in close_df.columns:
+        freeze = np.zeros(base_eligible.shape, dtype=bool)
+        dates_arr = np.array(dates, dtype=object)
+        for j, coin_id in enumerate(coin_ids):
             first_seen = first_seen_dates.get(coin_id)
             if first_seen is None:
                 continue
-            eligibility_date = first_seen + pd.Timedelta(days=self.freeze_period_days)
-            freeze_mask[coin_id] = close_df.index >= eligibility_date
+            eligibility_date = first_seen + timedelta(days=self.freeze_period_days)
+            freeze[:, j] = dates_arr >= eligibility_date
 
-        return base_eligible & freeze_mask
+        return base_eligible & freeze
 
     def _calculate_total2_iterative(
         self,
-        close_df: pd.DataFrame,
-        smoothed_volume_df: pd.DataFrame,
-        first_seen_dates: dict[str, pd.Timestamp],
+        close_df: pl.DataFrame,
+        smoothed_volume_df: pl.DataFrame,
+        first_seen_dates: dict[str, date],
         show_progress: bool = True,
-    ) -> tuple[pd.DataFrame, list[dict], list[dict], list[dict]]:
+    ) -> tuple[pl.DataFrame, list[dict], list[dict], list[dict]]:
         """
         Per-day pass over the eligibility-masked close/volume matrices.
 
@@ -511,11 +536,14 @@ class Total2Processor:
         Returns:
             (index_df, composition_records, scaling_events, stale_entry_reanchors)
         """
-        eligibility_mask = self._build_eligibility_mask(
-            close_df, smoothed_volume_df, first_seen_dates
+        coin_ids = [c for c in close_df.columns if c != "date"]
+        dates = close_df["date"].to_list()
+        close_values = close_df.select(coin_ids).to_numpy()
+        volume_values = smoothed_volume_df.select(coin_ids).to_numpy()
+        eligibility_values = self._build_eligibility_mask(
+            close_values, volume_values, coin_ids, dates, first_seen_dates
         )
 
-        dates = close_df.index
         index_records: list[dict] = []
         composition_records: list[dict] = []
         scaling_events: list[dict] = []
@@ -527,11 +555,6 @@ class Total2Processor:
         prev_total2: float | None = None
 
         reanchor_ratio = self.stale_entry_reanchor_ratio
-
-        close_values = close_df.values
-        volume_values = smoothed_volume_df.values
-        eligibility_values = eligibility_mask.values
-        coin_ids = close_df.columns.tolist()
         coin_to_idx = {coin: i for i, coin in enumerate(coin_ids)}
 
         iterator = (
@@ -563,7 +586,7 @@ class Total2Processor:
                         coin_scaling_factors[coin_id] = scaling_factor
                         scaling_events.append(
                             {
-                                "date": str(dt.date()),
+                                "date": str(dt),
                                 "type": "price_scaling",
                                 "coin": coin_id.upper(),
                                 "original": float(raw_price_at_entry),
@@ -603,7 +626,7 @@ class Total2Processor:
                         coin_scaling_factors[coin_id] = prev_total2 / raw_price
                         stale_entry_reanchors.append(
                             {
-                                "date": str(dt.date()),
+                                "date": str(dt),
                                 "coin": coin_id.upper(),
                                 "stale_scaled_price": float(scaled),
                                 "reanchored_to": float(prev_total2),
@@ -645,7 +668,7 @@ class Total2Processor:
             for rank, (coin_id, vol, price) in enumerate(volumes, start=1):
                 composition_records.append(
                     {
-                        "date": dt.date(),
+                        "date": dt,
                         "rank": rank,
                         "coin_id": coin_id,
                         "volume": vol,
@@ -655,9 +678,16 @@ class Total2Processor:
                 )
 
         if not index_records:
-            index_df = pd.DataFrame(columns=["total2_price", "total_volume", "coin_count"])
+            index_df = pl.DataFrame(
+                schema={
+                    "date": pl.Date,
+                    "total2_price": pl.Float64,
+                    "total_volume": pl.Float64,
+                    "coin_count": pl.Int64,
+                }
+            )
         else:
-            index_df = pd.DataFrame(index_records).set_index("date")
+            index_df = pl.DataFrame(index_records)
 
         if show_progress and scaling_events:
             logger.info("  Applied scaling to %d new coin entries:", len(scaling_events))
@@ -694,7 +724,7 @@ class Total2Processor:
 
     def get_freeze_period_status(
         self,
-        price_data: dict[str, pd.DataFrame] | None = None,
+        price_data: dict[str, pl.DataFrame] | None = None,
         target_date: date | None = None,
     ) -> list[dict]:
         """
@@ -706,27 +736,21 @@ class Total2Processor:
             price_data = self.load_all_price_data(show_progress=False)
         if target_date is None:
             target_date = date.today()
-        target_ts = pd.Timestamp(target_date)
 
         statuses: list[dict] = []
         for coin_id, df in price_data.items():
             if "close" not in df.columns or "volume_to" not in df.columns:
                 continue
-            valid_mask = (
-                (df["close"] > 0)
-                & df["close"].notna()
-                & (df["volume_to"] > 0)
-                & df["volume_to"].notna()
-            )
-            if not valid_mask.any():
+            valid = df.filter((pl.col("close") > 0) & (pl.col("volume_to") > 0))
+            if valid.is_empty():
                 continue
-            first_seen = df.index[valid_mask].min()
-            days_since_first = (target_ts - first_seen).days
+            first_seen = valid["date"].min()
+            days_since_first = (target_date - first_seen).days
             days_remaining = self.freeze_period_days - days_since_first
             statuses.append(
                 {
                     "coin_id": coin_id.upper(),
-                    "first_seen": str(first_seen.date()),
+                    "first_seen": str(first_seen),
                     "days_since_first": days_since_first,
                     "days_remaining": max(0, days_remaining),
                     "eligible": days_remaining <= 0,
@@ -741,7 +765,7 @@ class Total2Processor:
 
     def calculate_max_weight_change(
         self,
-        composition_df: pd.DataFrame,
+        composition_df: pl.DataFrame,
         min_date: date | None = None,
     ) -> tuple[float | None, str | None, date | None]:
         """
@@ -751,35 +775,41 @@ class Total2Processor:
         rather than actual price moves. Default min_date = 2016-07-04 (the day
         the index first had 30 coins; weights are noisy before that).
         """
-        if composition_df.empty:
+        if composition_df.is_empty():
             return None, None, None
         if min_date is None:
             min_date = date(2016, 7, 4)
 
-        filtered_df = composition_df[composition_df["date"] >= pd.Timestamp(min_date)]
-        if filtered_df.empty:
+        filtered_df = composition_df.filter(pl.col("date") >= min_date)
+        if filtered_df.is_empty():
             return None, None, None
 
-        weight_pivot = filtered_df.pivot_table(
-            index="date", columns="coin_id", values="weight", aggfunc="first"
+        # Wide weights (dates × coins) as percentages; absent coin-days are 0.
+        wide = filtered_df.sort("date").pivot(
+            values="weight", index="date", on="coin_id", aggregate_function="first"
         )
-        weight_pivot = weight_pivot.fillna(0) * 100
-        weight_diff = weight_pivot.diff().iloc[1:]
-        if weight_diff.empty:
+        coin_cols = [c for c in wide.columns if c != "date"]
+        wide = wide.with_columns((pl.col(c).fill_null(0.0) * 100) for c in coin_cols)
+
+        # Day-over-day diff per coin, drop the first (all-null) row, then find the
+        # single largest |change| across the whole matrix via a long form.
+        diff = wide.select(pl.col("date"), *(pl.col(c).diff().alias(c) for c in coin_cols)).slice(1)
+        if diff.is_empty():
             return None, None, None
-
-        abs_diff = weight_diff.abs()
-        max_change = abs_diff.max().max()
-        if pd.isna(max_change):
+        long = (
+            diff.unpivot(index="date", on=coin_cols, variable_name="coin_id", value_name="change")
+            .drop_nulls("change")
+            .with_columns(pl.col("change").abs().alias("abs_change"))
+        )
+        if long.is_empty():
             return None, None, None
+        # Tie-break by earliest date then coin order to match the legacy argmax.
+        top = long.sort(["abs_change", "date", "coin_id"], descending=[True, False, False]).row(
+            0, named=True
+        )
+        return float(top["change"]), top["coin_id"], top["date"]
 
-        abs_stacked = abs_diff.stack()
-        dt, coin_id = abs_stacked.idxmax()
-        actual_change = weight_diff.loc[dt, coin_id]
-        change_date = dt.date() if hasattr(dt, "date") else dt
-        return float(actual_change), coin_id, change_date
-
-    def calculate_coin_statistics(self, composition_df: pd.DataFrame) -> list[dict]:
+    def calculate_coin_statistics(self, composition_df: pl.DataFrame) -> list[dict]:
         """
         Per-coin participation stats, ranked by days_in_total2 descending.
 
@@ -787,46 +817,50 @@ class Total2Processor:
         date, first/last price+weight, min/max price+weight, total days, and
         whether the coin is still in the index on the latest date.
         """
-        if composition_df.empty:
+        if composition_df.is_empty():
             return []
 
+        resolver = CoinMetadataResolver()
         latest_date = composition_df["date"].max()
         latest_coins = set(
-            composition_df[composition_df["date"] == latest_date]["coin_id"].tolist()
+            composition_df.filter(pl.col("date") == latest_date)["coin_id"].to_list()
         )
 
-        sorted_df = composition_df.sort_values("date")
-        grouped = sorted_df.groupby("coin_id")
-        agg = grouped.agg(
-            first_date=("date", "first"),
-            first_price=("price_btc", "first"),
-            first_weight=("weight", "first"),
-            last_date=("date", "last"),
-            last_price=("price_btc", "last"),
-            last_weight=("weight", "last"),
-            min_price=("price_btc", "min"),
-            max_price=("price_btc", "max"),
-            min_weight=("weight", "min"),
-            max_weight=("weight", "max"),
-            days_in_total2=("date", "count"),
+        # first/last are order-based → sort by date so they mean earliest/latest.
+        agg = (
+            composition_df.sort("date")
+            .group_by("coin_id")
+            .agg(
+                pl.col("date").first().alias("first_date"),
+                pl.col("price_btc").first().alias("first_price"),
+                pl.col("weight").first().alias("first_weight"),
+                pl.col("date").last().alias("last_date"),
+                pl.col("price_btc").last().alias("last_price"),
+                pl.col("weight").last().alias("last_weight"),
+                pl.col("price_btc").min().alias("min_price"),
+                pl.col("price_btc").max().alias("max_price"),
+                pl.col("weight").min().alias("min_weight"),
+                pl.col("weight").max().alias("max_weight"),
+                pl.len().alias("days_in_total2"),
+            )
+            # days desc, coin_id asc tie-break matches the legacy stable sort.
+            .sort(["days_in_total2", "coin_id"], descending=[True, False])
+            .with_row_index("rank", offset=1)
         )
-        agg = agg.sort_values("days_in_total2", ascending=False)
-        agg["rank"] = range(1, len(agg) + 1)
 
         coin_stats: list[dict] = []
-        for coin_id, row in agg.iterrows():
-            fd = row["first_date"]
-            ld = row["last_date"]
+        for row in agg.iter_rows(named=True):
+            meta = resolver.resolve(row["coin_id"])
             coin_stats.append(
                 {
-                    "coin_id": coin_id.upper(),
-                    "url": coin_url(coin_id),
+                    "coin_id": meta.ticker,
+                    "url": meta.url,
                     "days_in_total2": int(row["days_in_total2"]),
-                    "still_present": coin_id in latest_coins,
-                    "first_date": str(fd.date() if hasattr(fd, "date") else fd),
+                    "still_present": row["coin_id"] in latest_coins,
+                    "first_date": str(row["first_date"]),
                     "first_price": float(row["first_price"]),
                     "first_weight": float(row["first_weight"]) * 100,
-                    "last_date": str(ld.date() if hasattr(ld, "date") else ld),
+                    "last_date": str(row["last_date"]),
                     "last_price": float(row["last_price"]),
                     "last_weight": float(row["last_weight"]) * 100,
                     "min_price": float(row["min_price"]),
@@ -849,9 +883,9 @@ class Total2Processor:
         composition_path = composition_path or TOTAL2_COMPOSITION_FILE
 
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        result.index_df.to_parquet(index_path)
-        if not result.composition_df.empty:
-            result.composition_df.to_parquet(composition_path, index=False)
+        result.index_df.write_parquet(index_path)
+        if not result.composition_df.is_empty():
+            result.composition_df.write_parquet(composition_path)
 
         coin_statistics = self.calculate_coin_statistics(result.composition_df)
         max_weight_info = {

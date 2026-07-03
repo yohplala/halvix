@@ -69,11 +69,18 @@ For cycle 5, min1 can be either **actual** or **projected**, depending on whethe
 | Retracement ≥ 23.6% | **Actual** | Detected minimum | Actual date of minimum | Solid circle |
 | Retracement < 23.6% | **Projected** | 23.6% retracement level | Approximated: halving − 520 days (~Oct 2026) | Open circle |
 
-For **projected min1**, the approximated date:
-- Places min1 within the typical window `[halving-550, halving]`
-- Provides a stable x-coordinate since the true bottom hasn't occurred yet
-- Is used for **both** chart display and trendline regression (ensuring visual alignment)
-- Only affects trendline regression; Fibonacci and Diminishing Returns use the actual price only
+For **projected min1**, the approximated *date* is used for **both** chart display
+and trendline regression (ensuring visual alignment) — it places min1 within the
+typical window `[halving-550, halving]` and provides a stable x-coordinate since
+the true bottom hasn't occurred yet.
+
+The projected min1 *price* (the assumed 23.6% retracement level) is the
+in-progress cycle's anchor for the **rebound methods too**: it is the `C` low in
+the Fibonacci extension and the base low for Diminishing Returns. The alternative
+— skipping Fib/Diminishing for every coin whose current-cycle bottom hasn't yet
+printed — would discard those methods for all in-progress coins, so the assumed
+low is used as a deliberate modelling choice (only the *actual* extrema feed the
+quality filters below).
 
 For **actual min1**, the detected date is used everywhere (chart, regression, all methods).
 
@@ -115,13 +122,15 @@ In addition to point-type weights, a **recency decay factor** (`TRENDLINE_RECENC
 final_weight = type_weight × recency_decay ^ (max_cycle - point_cycle)
 ```
 
-| Cycle Age | Recency Multiplier | Effect |
+| Cycle Age | Recency Multiplier (nominal) | Effective (in the fit) |
 |-----------|-------------------|--------|
-| Most recent | 1.0 | Full weight |
-| One cycle back | 0.7 | 70% of type weight |
-| Two cycles back | 0.49 | 49% of type weight |
+| Most recent | 1.0 | 1.0 |
+| One cycle back | 0.7 | ≈ 0.49 |
+| Two cycles back | 0.49 | ≈ 0.24 |
 
 This prevents early high-growth cycles from making projections overly optimistic, especially for BTC where cycle-over-cycle returns are diminishing.
+
+> **Note on effective weights:** `numpy.polyfit(w=…)` minimises `Σ (w·residual)²`, so a point's leverage on the fitted line scales with **w²**, not w. The nominal recency factors above therefore behave *squared* in practice (the "Effective" column). This downweights older cycles more aggressively than the raw `0.7`/`0.49` factors suggest — which reinforces the intent of keeping early high-growth cycles from over-inflating the trend, so it is kept as-is. (With only two points per side the weights have no effect at all — the line is uniquely determined.)
 
 **Note**: With only 2 points per category, weights have no effect since a line through 2 points is uniquely determined. Weights only affect the regression when 3 or more points are available.
 
@@ -279,7 +288,7 @@ The historical peak method provides an anchor based on actual achieved prices:
 
 ## Confidence Levels
 
-The displayed **cycle count** and the confidence level are both driven by the number of halving cycles in which the coin printed a realized **peak** (`max2`) — i.e. cycle tops the coin actually reached (`count_peak_cycles`).
+For altcoins, the displayed **cycle count** and the confidence level are both driven by the number of halving cycles in which the coin printed a realized **peak** (`max2`) — i.e. cycle tops the coin actually reached (`count_peak_cycles`). (The BTC baseline card instead counts cycles with a realized bottom, `count_min1_cycles`.)
 
 | Level | Cycles with a peak (max2) | Description |
 |-------|---------------------------|-------------|
@@ -296,23 +305,26 @@ Instead of separate code paths for different confidence levels, a **single weigh
 | Confidence | Trendline | Fibonacci | Historical | Diminishing | Scale | Notes |
 |------------|-----------|-----------|------------|-------------|-------|-------|
 | **HIGH** (3+ cycles) | 55% | 19% | 15% | 11% | 1.0 | Trendline-dominant, no penalty |
-| **MEDIUM** (2 cycles) | 40% | 25% | 20% | 15% | **0.9** | 10% penalty for limited data |
-| **LOW** (1 cycle) | 10% | 8% | **70%** | 12% | **0.15** | Historical peak dominates, 85% penalty |
+| **MEDIUM** (2 cycles) | 30% | 30% | 20% | 20% | **0.9** | Trendline down-weighted (2-point extrapolation); 10% penalty |
+| **LOW** (1 cycle) | 20% | 15% | **45%** | 20% | **0.15** | Historical largest but capped; 85% penalty |
 
 All profiles sum to 100%.
 
 **High confidence weight rationale:**
-- **Trendline (55%)**: Captures structural multi-cycle trend direction; strongest signal with 3+ cycles. High weight rewards coins with positive structural trends.
+- **Trendline (55%)**: With **3+ realized peaks** the log-linear fit is a genuine multi-point regression, so it captures structural multi-cycle trend direction and earns the top weight.
 - **Fibonacci (19%)**: Technical projection based on previous cycle move
 - **Historical Peak (15%)**: Reality anchor based on achieved valuations
 - **Diminishing Returns (11%)**: Most volatile; sensitive to outlier launch cycles
 
+**Medium confidence rationale:**
+- **Trendline (30%, down from higher)**: With only 2 peaks the trendline is an *exact* line through two points extrapolated ~1.5 cycles forward — fragile — so it is down-weighted and the rebound methods (fib/diminishing), anchored to realized structure, take up the slack.
+
 **Low confidence rationale:**
-- **Historical Peak (70%)**: The dominant method — it uses actually achieved prices, making it the most trustworthy signal for single-cycle coins.
-- **Trendline (10%)**: A modest weight gives directional signal even with limited data, rather than ignoring it entirely.
-- **Diminishing (12%)**: Small contribution from the diminishing returns model.
-- **Fibonacci (8%)**: Log-space Fibonacci can produce extreme projections with limited data, so it receives the smallest weight.
+- **Historical Peak (45%, capped)**: Still the largest single weight — it uses actually achieved prices — but it is a mean-reversion anchor ("distance below the prior peak") that is mechanically optimistic, so it no longer *dominates* the composite for single-cycle coins.
+- **Trendline (20%) / Diminishing (20%) / Fibonacci (15%)**: Broadened so a single-cycle coin is not ranked almost entirely on how far below its ATH it trades.
 - **Scale = 0.15**: An 85% penalty reflects the very high uncertainty of projections based on a single cycle, while still giving low-confidence coins meaningful composite scores.
+
+The historical-peak target is additionally scaled by `HISTORICAL_PEAK_HAIRCUT` (default 0.90): in BTC terms altcoins rarely fully re-print a prior ATH cycle-over-cycle.
 
 When a method is unavailable (returns None), its weight is excluded and the remaining weights are **renormalized** (scaled to sum to 1.0) before applying the scale factor.
 

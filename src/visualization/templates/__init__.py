@@ -33,16 +33,3 @@ def render_template(template_name: str, **context) -> str:
     """
     template = _env.get_template(template_name)
     return template.render(**context)
-
-
-def get_template(template_name: str):
-    """
-    Get a Jinja2 template object.
-
-    Args:
-        template_name: Name of the template file
-
-    Returns:
-        Jinja2 Template object
-    """
-    return _env.get_template(template_name)

@@ -127,7 +127,7 @@ Contains calculated TOTAL2 index data:
 
 The **Daily Update** workflow runs the complete pipeline automatically every day at **4:00 AM UTC**.
 
-**Trigger**: Scheduled (cron: `0 6 * * *`) + Manual (workflow_dispatch)
+**Trigger**: Scheduled (cron: `0 4 * * *`) + Manual (workflow_dispatch)
 
 **What it does**:
 1. **Fetch Data**: Fetches latest coin list and price data

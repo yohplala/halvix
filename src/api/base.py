@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Protocol, runtime_checkable
 
-import pandas as pd
+import polars as pl
 
 
 class PriceProviderError(Exception):
@@ -77,8 +77,8 @@ class PriceProvider(Protocol):
         end_date: date | None = None,
         show_progress: bool = False,
         provider_id: str | None = None,
-    ) -> pd.DataFrame:
-        """Return daily OHLCV history with a DatetimeIndex (may be empty)."""
+    ) -> pl.DataFrame:
+        """Return daily OHLCV history with a ``date`` column (may be empty)."""
         ...
 
     def ping(self) -> bool:

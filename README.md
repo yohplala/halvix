@@ -17,16 +17,12 @@ Halvix analyzes cryptocurrency performance across BTC halving cycles (2nd throug
 
 ## Data provider
 
-Halvix sources prices through a small provider abstraction. **CoinGecko** (full
-coin coverage + native market-cap ranking) is preferred; CryptoCompare is an
-alternative. The backend is **auto-selected from whichever API key is set**:
-
-- `COINGECKO_API_KEY` set → **CoinGecko** (recommended; free
-  [Demo key](https://www.coingecko.com/en/api)).
-- only `CRYPTOCOMPARE_API_KEY` set → CryptoCompare
-  (free key at https://developers.coindesk.com/).
-- neither → CoinGecko keyless (rate-limited; the keyless tier can return
-  truncated data, so updates may skip coins — a key is recommended).
+Halvix sources prices through a small provider abstraction: **CoinGecko** (full
+coin coverage + native market-cap ranking) is preferred, with CryptoCompare as
+an alternative, and the backend is **auto-selected from whichever API key is
+set** (a free CoinGecko [Demo key](https://www.coingecko.com/en/api) is
+recommended). See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for the full
+selection rules and provider comparison.
 
 **Local setup:** copy `.env.example` to `.env` and paste your key — it is
 gitignored and loaded automatically:

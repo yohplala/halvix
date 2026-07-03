@@ -13,20 +13,20 @@ Tests cover:
 
 import math
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pandas as pd
+import polars as pl
 import pytest
 
 from analysis.cycle_patterns import (
     CoinPatternResult,
     CyclePatternAnalyzer,
     CyclePoint,
-    fib_retracement_ratio,
 )
+from analysis.cycle_points import fib_retracement_ratio
 from config import (
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
@@ -66,8 +66,8 @@ def mock_price_cache():
 
 @pytest.fixture
 def sample_price_df():
-    """Create sample price data DataFrame with DatetimeIndex."""
-    dates = pd.date_range("2015-01-01", periods=3650, freq="D")  # ~10 years
+    """Create sample price data DataFrame with a ``date`` column."""
+    dates = [date(2015, 1, 1) + timedelta(days=i) for i in range(3650)]  # ~10 years
     # Create a sinusoidal price pattern with trend
     days = np.arange(len(dates))
     # Base trend (slowly increasing)
@@ -77,12 +77,12 @@ def sample_price_df():
     prices = base + cycle
     prices = np.maximum(prices, 0.0001)  # Ensure positive prices
 
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
+            "date": dates,
             "close": prices,
             "volume_to": np.random.uniform(1000, 10000, len(dates)),
-        },
-        index=dates,
+        }
     )
     return df
 
@@ -840,23 +840,25 @@ class TestIdentifyCyclePoints:
     def analyzer(self, mock_price_cache):
         return CyclePatternAnalyzer(price_cache=mock_price_cache)
 
-    def _make_df(self, date_price_pairs: list[tuple[str, float]]) -> pd.DataFrame:
+    def _make_df(self, date_price_pairs: list[tuple[str, float]]) -> pl.DataFrame:
         """Build a DataFrame from (date_str, price) pairs, interpolated daily."""
         if not date_price_pairs:
-            return pd.DataFrame(columns=["close"])
+            return pl.DataFrame(schema={"date": pl.Date, "close": pl.Float64})
         # Create key points
-        key_dates = [pd.Timestamp(d) for d, _ in date_price_pairs]
+        key_dates = [date.fromisoformat(d) for d, _ in date_price_pairs]
         key_prices = [p for _, p in date_price_pairs]
-        # Interpolate daily
-        full_range = pd.date_range(key_dates[0], key_dates[-1], freq="D")
-        key_series = pd.Series(key_prices, index=key_dates)
-        daily = key_series.reindex(full_range).interpolate(method="index")
-        return pd.DataFrame({"close": daily}, index=full_range)
+        # Daily date range spanning the key points; consecutive daily spacing
+        # makes linear interpolation identical to pandas' time-weighted method.
+        start, end = key_dates[0], key_dates[-1]
+        full_range = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+        price_map = dict(zip(key_dates, key_prices, strict=True))
+        close = [price_map.get(d) for d in full_range]
+        df = pl.DataFrame({"date": full_range, "close": close})
+        return df.with_columns(pl.col("close").interpolate())
 
     def test_empty_df(self, analyzer):
         """Empty DataFrame returns no points."""
-        df = pd.DataFrame(columns=["close"])
-        df.index = pd.DatetimeIndex([])
+        df = pl.DataFrame(schema={"date": pl.Date, "close": pl.Float64})
         assert analyzer._identify_cycle_points(df) == []
 
     def test_single_complete_segment(self, analyzer):
@@ -1633,10 +1635,10 @@ class TestSegmentBoundaries:
         # H2 = 2016-07-09, H3 = 2020-05-11
         h2 = HALVING_DATES[1]
         h3 = HALVING_DATES[2]
-        dates = pd.date_range(h2, h3, freq="D")
+        dates = [h2 + timedelta(days=i) for i in range((h3 - h2).days + 1)]
         # Spike the price on H3; everything else flat
-        df = pd.DataFrame({"close": [100.0] * len(dates)}, index=dates)
-        df.loc[pd.Timestamp(h3), "close"] = 1.0e9  # huge spike on the halving
+        close = [1.0e9 if d == h3 else 100.0 for d in dates]  # huge spike on halving
+        df = pl.DataFrame({"date": dates, "close": close})
 
         segments = analyzer._build_segments(df, HALVING_DATES, h3)
         # We expect segments for [H1,H2], [H2,H3], [H3,H4], [H4,H5]
@@ -1646,7 +1648,7 @@ class TestSegmentBoundaries:
         # The maximum in [H2, H3) must be 100 (flat), not the H3 spike.
         assert seg_h2_h3.valid_data["close"].max() == pytest.approx(100.0)
         # And the segment data must not include H3 itself.
-        assert pd.Timestamp(h3) not in seg_h2_h3.valid_data.index
+        assert h3 not in seg_h2_h3.valid_data["date"].to_list()
 
     def test_halving_date_included_in_starting_segment(self, analyzer):
         """A price exactly on H[n] is reachable by segment[H[n], H[n+1])."""
@@ -1654,16 +1656,17 @@ class TestSegmentBoundaries:
         h3 = HALVING_DATES[2]
         h4 = HALVING_DATES[3]
         # Make data span H2 .. H4 - 1 so the [H3, H4) segment is "complete".
-        dates = pd.date_range(h2, h4, freq="D")
-        df = pd.DataFrame({"close": [100.0] * len(dates)}, index=dates)
-        df.loc[pd.Timestamp(h3), "close"] = 1.0e9
+        dates = [h2 + timedelta(days=i) for i in range((h4 - h2).days + 1)]
+        close = [1.0e9 if d == h3 else 100.0 for d in dates]
+        df = pl.DataFrame({"date": dates, "close": close})
 
         segments = analyzer._build_segments(df, HALVING_DATES, h4)
         # Segment [H3, H4) — index 2.
         seg_h3_h4 = segments[2]
         assert seg_h3_h4 is not None
-        assert pd.Timestamp(h3) in seg_h3_h4.valid_data.index
-        assert seg_h3_h4.valid_data.loc[pd.Timestamp(h3), "close"] == pytest.approx(1.0e9)
+        assert h3 in seg_h3_h4.valid_data["date"].to_list()
+        h3_close = seg_h3_h4.valid_data.filter(pl.col("date") == h3)["close"][0]
+        assert h3_close == pytest.approx(1.0e9)
 
 
 # =============================================================================
@@ -1716,7 +1719,7 @@ class TestAnalyzeCoin:
 
     def test_analyze_coin_empty_df(self, analyzer, mock_price_cache):
         """Test analyzing coin with empty DataFrame."""
-        mock_price_cache.get_prices.return_value = pd.DataFrame()
+        mock_price_cache.get_prices.return_value = pl.DataFrame()
 
         result = analyzer.analyze_coin("eth")
 
@@ -1724,10 +1727,13 @@ class TestAnalyzeCoin:
 
     def test_analyze_coin_no_total2_data(self, analyzer, mock_price_cache):
         """Test analyzing coin not in TOTAL2."""
-        dates = pd.date_range("2020-01-01", periods=100, freq="D")
-        df = pd.DataFrame(
-            {"close": np.random.uniform(0.01, 0.02, len(dates)), "volume_to": [1000] * len(dates)},
-            index=dates,
+        dates = [date(2020, 1, 1) + timedelta(days=i) for i in range(100)]
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                "close": np.random.uniform(0.01, 0.02, len(dates)),
+                "volume_to": [1000.0] * len(dates),
+            }
         )
         mock_price_cache.get_prices.return_value = df
 
@@ -1747,20 +1753,21 @@ class TestAnalyzeCoin:
         """
         # Build a series that detects at least one cycle but whose final close
         # is 0 (simulating delisting / feed gap).
-        dates = pd.date_range("2015-01-01", "2026-05-16", freq="D")
+        n_days = (date(2026, 5, 16) - date(2015, 1, 1)).days + 1
+        dates = [date(2015, 1, 1) + timedelta(days=i) for i in range(n_days)]
         # Rough sinusoidal 4-year cycle so the kernel can identify points
         cycle = 0.0005 * np.sin(2 * np.pi * np.arange(len(dates)) / 1460)
         prices = 0.001 + cycle
         prices = np.maximum(prices, 1e-6)
         # Final close = 0 (delisting)
         prices[-1] = 0.0
-        df = pd.DataFrame({"close": prices, "volume_to": [1000.0] * len(dates)}, index=dates)
+        df = pl.DataFrame({"date": dates, "close": prices, "volume_to": [1000.0] * len(dates)})
         mock_price_cache.get_prices.return_value = df
 
         with patch.object(
             analyzer,
             "_get_coin_total2_dates",
-            return_value={dates[-200].date()},
+            return_value={dates[-200]},
         ):
             result = analyzer.analyze_coin("dead_coin", force=True)
 
@@ -2416,18 +2423,18 @@ class TestWeightedComposite:
         # High trendline should produce higher composite than high dim return
         assert result_high_trend > result_high_dim
 
-    def test_weighted_composite_low_confidence_historical_dominates(self):
-        """Test composite with low confidence: historical peak dominates, scale=0.15."""
+    def test_weighted_composite_low_confidence_historical_capped(self):
+        """Test composite with low confidence: historical weight capped, scale=0.15."""
         result = CyclePatternAnalyzer._calculate_weighted_composite(
-            trendline_pct=999.0,  # 10% weight
-            fib_pct=200.0,  # 8% weight
-            dim_return_pct=50.0,  # 12% weight
-            hist_peak_pct=150.0,  # 70% weight (dominant)
+            trendline_pct=999.0,  # 20% weight
+            fib_pct=200.0,  # 15% weight
+            dim_return_pct=50.0,  # 20% weight
+            hist_peak_pct=150.0,  # 45% weight (largest, but no longer dominant)
             confidence="low",
         )
-        # Historical peak dominates at 70%; scale=0.15
+        # Historical weight capped at 45% (was 70%); scale=0.15
         assert result is not None
-        expected = (999 * 0.10 + 200 * 0.08 + 50 * 0.12 + 150 * 0.70) / 1.0 * 0.15
+        expected = (999 * 0.20 + 200 * 0.15 + 50 * 0.20 + 150 * 0.45) / 1.0 * 0.15
         assert pytest.approx(result, rel=0.01) == expected
 
     def test_weighted_composite_medium_confidence_scaled(self):
@@ -2450,8 +2457,8 @@ class TestWeightedComposite:
         assert result_medium is not None
         # High: (100*0.55+200*0.19+50*0.11+150*0.15)*1.0 = 121.0
         assert pytest.approx(result_high, rel=0.01) == 121.0
-        # Medium: (100*0.40+200*0.25+50*0.15+150*0.20)*0.9 = 114.75
-        assert pytest.approx(result_medium, rel=0.01) == 114.75
+        # Medium: (100*0.30+200*0.30+50*0.20+150*0.20)*0.9 = 117.0
+        assert pytest.approx(result_medium, rel=0.01) == 117.0
         assert result_medium < result_high
 
     def test_weighted_composite_renormalization(self):
@@ -3226,7 +3233,7 @@ class TestAnalyzeBtc:
 
     def test_analyze_btc_empty_data(self, analyzer, mock_price_cache):
         """Test analyze_btc returns None when BTC data is empty."""
-        mock_price_cache.get_prices.return_value = pd.DataFrame()
+        mock_price_cache.get_prices.return_value = pl.DataFrame()
 
         result = analyzer.analyze_btc()
 
@@ -3235,10 +3242,11 @@ class TestAnalyzeBtc:
     def test_analyze_btc_basic_flow(self, analyzer, mock_price_cache):
         """Test analyze_btc with mocked internals produces a result."""
         # Create minimal BTC price data spanning multiple cycles
-        dates = pd.date_range("2015-01-01", "2026-01-01", freq="D")
+        n_days = (date(2026, 1, 1) - date(2015, 1, 1)).days + 1
+        dates = [date(2015, 1, 1) + timedelta(days=i) for i in range(n_days)]
         # Simple uptrend price pattern
         prices = 0.001 * (1 + np.arange(len(dates)) / 500) ** 2
-        df = pd.DataFrame({"close": prices}, index=dates)
+        df = pl.DataFrame({"date": dates, "close": prices})
         mock_price_cache.get_prices.return_value = df
 
         result = analyzer.analyze_btc()
@@ -3251,10 +3259,11 @@ class TestAnalyzeBtc:
 
     def test_analyze_btc_zero_current_price_returns_none(self, analyzer, mock_price_cache):
         """analyze_btc skips projections when the latest close is 0."""
-        dates = pd.date_range("2015-01-01", "2026-01-01", freq="D")
+        n_days = (date(2026, 1, 1) - date(2015, 1, 1)).days + 1
+        dates = [date(2015, 1, 1) + timedelta(days=i) for i in range(n_days)]
         prices = 0.001 * (1 + np.arange(len(dates)) / 500) ** 2
         prices[-1] = 0.0
-        df = pd.DataFrame({"close": prices}, index=dates)
+        df = pl.DataFrame({"date": dates, "close": prices})
         mock_price_cache.get_prices.return_value = df
 
         result = analyzer.analyze_btc()
@@ -3283,10 +3292,10 @@ class TestGetTotal2Coins:
     def test_get_total2_coins_filters_old_entries(self, analyzer):
         """Test that coins from before the lookback period are excluded."""
         # Create composition data: "eth" recent, "old_coin" from 10 years ago
-        recent_date = date.today().isoformat()
-        old_date = date(2010, 1, 1).isoformat()
+        recent_date = date.today()
+        old_date = date(2010, 1, 1)
 
-        comp_df = pd.DataFrame(
+        comp_df = pl.DataFrame(
             {
                 "date": [recent_date, old_date],
                 "coin_id": ["ETH", "OLD_COIN"],

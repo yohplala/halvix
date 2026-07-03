@@ -3,17 +3,18 @@ Tests for file-based caching.
 
 Tests cover:
 - JSON caching
-- Parquet caching
 - Cache expiry
 - Price data cache
 """
 
 import tempfile
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from data.cache import FileCache, PriceDataCache
 
@@ -104,78 +105,19 @@ class TestFileCache:
         assert path.parent == temp_cache_dir
 
     # =========================================================================
-    # Parquet Caching Tests
-    # =========================================================================
-
-    def test_set_and_get_parquet(self, cache):
-        """Test basic parquet caching."""
-        df = pd.DataFrame(
-            {
-                "date": pd.date_range("2024-01-01", periods=5),
-                "value": [1.0, 2.0, 3.0, 4.0, 5.0],
-            }
-        )
-        df = df.set_index("date")
-
-        cache.set_parquet("test_df", df)
-        result = cache.get_parquet("test_df")
-
-        assert result is not None
-        pd.testing.assert_frame_equal(result, df)
-
-    def test_get_parquet_returns_none_for_missing(self, cache):
-        """Test that missing parquet returns None."""
-        result = cache.get_parquet("nonexistent")
-        assert result is None
-
-    def test_parquet_cache_expiry(self, temp_cache_dir):
-        """Test parquet cache expiry."""
-        cache = FileCache(
-            cache_dir=temp_cache_dir,
-            expiry_seconds=1,
-        )
-
-        df = pd.DataFrame({"a": [1, 2, 3]})
-        cache.set_parquet("expiring_df", df)
-
-        assert cache.get_parquet("expiring_df") is not None
-
-        time.sleep(1.1)
-
-        assert cache.get_parquet("expiring_df") is None
-
-    # =========================================================================
     # Cache Management Tests
     # =========================================================================
-
-    def test_invalidate_removes_cache(self, cache):
-        """Test that invalidate removes cached item."""
-        cache.set_json("to_remove", {"data": "test"})
-
-        assert cache.get_json("to_remove") is not None
-
-        result = cache.invalidate("to_remove")
-
-        assert result is True
-        assert cache.get_json("to_remove") is None
-
-    def test_invalidate_returns_false_for_missing(self, cache):
-        """Test invalidate returns False for non-existent key."""
-        result = cache.invalidate("nonexistent")
-        assert result is False
 
     def test_clear_removes_all(self, cache):
         """Test that clear removes all cached items."""
         cache.set_json("key1", {"a": 1})
         cache.set_json("key2", {"b": 2})
-        cache.set_parquet("df1", pd.DataFrame({"x": [1]}))
 
         count = cache.clear()
 
-        assert count == 3
+        assert count == 2
         assert cache.get_json("key1") is None
         assert cache.get_json("key2") is None
-        assert cache.get_parquet("df1") is None
 
     def test_long_key_uses_hash(self, cache, temp_cache_dir):
         """Test that long keys are hashed."""
@@ -209,12 +151,12 @@ class TestPriceDataCache:
     @pytest.fixture
     def sample_price_df(self):
         """Create a sample price DataFrame."""
-        return pd.DataFrame(
+        return pl.DataFrame(
             {
+                "date": [date(2024, 1, 1) + timedelta(days=i) for i in range(5)],
                 "close": [1.0, 1.1, 1.2, 1.3, 1.4],
                 "volume": [1000, 1100, 1200, 1300, 1400],
-            },
-            index=pd.date_range("2024-01-01", periods=5, name="date"),
+            }
         )
 
     def test_set_and_get_prices(self, price_cache, sample_price_df):
@@ -223,12 +165,7 @@ class TestPriceDataCache:
         result = price_cache.get_prices("bitcoin")
 
         assert result is not None
-        # Check data equality (parquet may change index frequency metadata)
-        pd.testing.assert_frame_equal(
-            result.reset_index(drop=True), sample_price_df.reset_index(drop=True)
-        )
-        # Check index values match
-        assert list(result.index) == list(sample_price_df.index)
+        assert_frame_equal(result, sample_price_df)
 
     def test_has_prices(self, price_cache, sample_price_df):
         """Test checking if prices exist."""
@@ -237,21 +174,6 @@ class TestPriceDataCache:
         price_cache.set_prices("bitcoin", sample_price_df)
 
         assert price_cache.has_prices("bitcoin") is True
-
-    def test_get_last_date(self, price_cache, sample_price_df):
-        """Test getting last date of price data."""
-        price_cache.set_prices("bitcoin", sample_price_df)
-
-        last_date = price_cache.get_last_date("bitcoin")
-
-        assert last_date is not None
-        # Should be the last date in the DataFrame
-        expected = sample_price_df.index.max()
-        assert last_date == expected
-
-    def test_get_last_date_returns_none_for_missing(self, price_cache):
-        """Test get_last_date returns None for missing coin."""
-        assert price_cache.get_last_date("nonexistent") is None
 
     def test_list_cached_coins(self, price_cache, sample_price_df):
         """Test listing cached coins."""

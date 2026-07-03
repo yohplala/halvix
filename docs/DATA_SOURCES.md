@@ -75,10 +75,10 @@ the free monthly quota.
 ```python
 # src/config.py
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY") or None
+COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "").strip() or None
 COINGECKO_CALLS_PER_MINUTE = 25
 COINGECKO_MARKETS_PER_PAGE = 250
-COINGECKO_MAX_DAYS_PER_REQUEST = 360   # free-tier history cap (recent top-up only)
+COINGECKO_MAX_DAYS_PER_REQUEST = 365   # free-tier history cap (recent top-up only)
 ```
 
 ---

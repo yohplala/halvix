@@ -1,7 +1,9 @@
 """
-File-based caching for API responses.
+File-based caching for API responses and price data (polars-backed).
 
-Caches coin lists and price data to reduce API calls and enable offline analysis.
+Caches coin lists (JSON) and per-coin price series (Parquet) to cut API calls
+and enable offline analysis. Price frames carry an explicit ``date`` column
+(polars has no index); every read normalizes it to ``pl.Date`` and sorts.
 """
 
 import hashlib
@@ -10,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
+import polars as pl
 
 from config import CACHE_DIR, CACHE_EXPIRY_SECONDS, PRICES_DIR
 
@@ -18,84 +20,64 @@ from config import CACHE_DIR, CACHE_EXPIRY_SECONDS, PRICES_DIR
 class CacheError(Exception):
     """Base exception for cache errors."""
 
-    pass
+
+def _sanitize_stem(key: str) -> str:
+    """Filesystem-safe form of a cache key / stem (keeps alnum, ``-``, ``_``)."""
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in key)
+
+
+def _normalize_price_frame(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Return a price frame with a clean, sorted ``date`` column.
+
+    Price parquets carry the date as a real column (older pandas-written files
+    stored a named index under ``date``; a stray ``__index_level_0__`` from an
+    unnamed index is coalesced defensively). ``date`` is cast to ``pl.Date``
+    (daily bars) so comparisons against ``datetime.date`` work directly.
+    """
+    if "date" not in df.columns and "__index_level_0__" in df.columns:
+        df = df.rename({"__index_level_0__": "date"})
+    if "date" in df.columns:
+        df = df.with_columns(pl.col("date").cast(pl.Date)).sort("date")
+    return df
 
 
 class FileCache:
-    """
-    File-based cache for API responses and computed data.
-
-    Supports:
-    - JSON caching for coin lists and metadata
-    - Parquet caching for time series data
-    - Configurable expiry times
-    """
+    """File-based cache for API responses (JSON coin lists and metadata)."""
 
     def __init__(
         self,
         cache_dir: Path = CACHE_DIR,
         expiry_seconds: int = CACHE_EXPIRY_SECONDS,
     ):
-        """
-        Initialize the file cache.
-
-        Args:
-            cache_dir: Directory for cache files
-            expiry_seconds: Default cache expiry in seconds
-        """
         self.cache_dir = cache_dir
         self.expiry_seconds = expiry_seconds
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_cache_path(self, key: str, extension: str = "json") -> Path:
         """Get the file path for a cache key."""
-        # Use MD5 hash for long keys
+        # Use MD5 hash for long keys, else a sanitized key.
         if len(key) > 100:
-            key_hash = hashlib.md5(key.encode()).hexdigest()
-            filename = f"{key_hash}.{extension}"
+            filename = f"{hashlib.md5(key.encode()).hexdigest()}.{extension}"
         else:
-            # Sanitize the key for filesystem
-            safe_key = "".join(c if c.isalnum() or c in "-_" else "_" for c in key)
-            filename = f"{safe_key}.{extension}"
-
+            filename = f"{_sanitize_stem(key)}.{extension}"
         return self.cache_dir / filename
 
     def _is_expired(self, filepath: Path, expiry_seconds: int | None = None) -> bool:
         """Check if a cached file has expired."""
         if not filepath.exists():
             return True
-
         expiry = expiry_seconds if expiry_seconds is not None else self.expiry_seconds
-
-        # Never expire if expiry is 0 or negative
-        if expiry <= 0:
+        if expiry <= 0:  # Never expire when expiry is 0 or negative.
             return False
-
         mtime = datetime.fromtimestamp(filepath.stat().st_mtime)
-        age_seconds = (datetime.now() - mtime).total_seconds()
+        return (datetime.now() - mtime).total_seconds() > expiry
 
-        return age_seconds > expiry
-
-    def get_json(
-        self,
-        key: str,
-        expiry_seconds: int | None = None,
-    ) -> Any | None:
-        """
-        Get a cached JSON value.
-
-        Args:
-            key: Cache key
-            expiry_seconds: Override default expiry
-
-        Returns:
-            Cached value or None if not found/expired
-        """
+    def get_json(self, key: str, expiry_seconds: int | None = None) -> Any | None:
+        """Get a cached JSON value (None if not found/expired/unreadable)."""
         filepath = self._get_cache_path(key, "json")
-
         if self._is_expired(filepath, expiry_seconds):
             return None
-
         try:
             with open(filepath, encoding="utf-8") as f:
                 return json.load(f)
@@ -103,93 +85,17 @@ class FileCache:
             return None
 
     def set_json(self, key: str, value: Any) -> Path:
-        """
-        Cache a JSON-serializable value.
-
-        Args:
-            key: Cache key
-            value: Value to cache (must be JSON-serializable)
-
-        Returns:
-            Path to the cache file
-        """
+        """Cache a JSON-serializable value."""
         filepath = self._get_cache_path(key, "json")
-
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(value, f, indent=2, default=str)
         except OSError as e:
             raise CacheError(f"Failed to write cache {filepath}: {e}") from e
-
         return filepath
-
-    def get_parquet(
-        self,
-        key: str,
-        expiry_seconds: int | None = None,
-    ) -> pd.DataFrame | None:
-        """
-        Get a cached DataFrame from parquet.
-
-        Args:
-            key: Cache key
-            expiry_seconds: Override default expiry
-
-        Returns:
-            Cached DataFrame or None if not found/expired
-        """
-        filepath = self._get_cache_path(key, "parquet")
-
-        if self._is_expired(filepath, expiry_seconds):
-            return None
-
-        try:
-            return pd.read_parquet(filepath)
-        except OSError, ValueError:
-            return None
-
-    def set_parquet(self, key: str, df: pd.DataFrame) -> Path:
-        """
-        Cache a DataFrame as parquet.
-
-        Args:
-            key: Cache key
-            df: DataFrame to cache
-
-        Returns:
-            Path to the cache file
-        """
-        filepath = self._get_cache_path(key, "parquet")
-        try:
-            df.to_parquet(filepath, index=True)
-        except (OSError, ValueError, TypeError) as e:
-            raise CacheError(f"Failed to write parquet {filepath}: {e}") from e
-        return filepath
-
-    def invalidate(self, key: str) -> bool:
-        """
-        Remove a cached item.
-
-        Args:
-            key: Cache key
-
-        Returns:
-            True if item was removed, False if not found
-        """
-        for ext in ["json", "parquet"]:
-            filepath = self._get_cache_path(key, ext)
-            if filepath.exists():
-                filepath.unlink()
-                return True
-        return False
 
     def clear(self) -> int:
-        """
-        Clear all cached items.
-
-        Returns:
-            Number of files removed
-        """
+        """Clear all cached items. Returns the number of files removed."""
         count = 0
         for filepath in self.cache_dir.glob("*"):
             if filepath.is_file():
@@ -200,241 +106,107 @@ class FileCache:
 
 class PriceDataCache:
     """
-    Specialized cache for coin price data.
+    Per-coin price cache, one Parquet file per coin-pair.
 
-    Stores price data in individual parquet files per coin-pair.
-    Files are named as {coin_id}-{quote_currency}.parquet (e.g., eth-btc.parquet).
-
-    Supports both legacy format (coin_id only) and new pair format.
+    Files are named ``{stem}-{quote}.parquet`` (e.g. ``eth-btc.parquet``) and
+    hold OHLCV columns plus a ``date`` column (``pl.Date``).
     """
 
     def __init__(self, prices_dir: Path = PRICES_DIR):
-        """
-        Initialize the price data cache.
-
-        Args:
-            prices_dir: Directory for price parquet files
-        """
         self.prices_dir = prices_dir
         self.prices_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_price_path(self, coin_id: str, quote_currency: str = "BTC") -> Path:
-        """
-        Get the file path for a coin-pair's price data.
-
-        Args:
-            coin_id: Coin ID (lowercase symbol, e.g., "eth")
-            quote_currency: Quote currency (e.g., "BTC", "USD")
-
-        Returns:
-            Path like prices/eth-btc.parquet
-        """
-        safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in coin_id)
-        quote = quote_currency.lower()
-        return self.prices_dir / f"{safe_id}-{quote}.parquet"
-
-    def _get_legacy_price_path(self, coin_id: str) -> Path:
-        """Get the legacy file path (without quote currency)."""
-        safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in coin_id)
-        return self.prices_dir / f"{safe_id}.parquet"
+        """Path like ``prices/eth-btc.parquet`` for a coin-pair."""
+        return self.prices_dir / f"{_sanitize_stem(coin_id)}-{quote_currency.lower()}.parquet"
 
     def has_prices(self, coin_id: str, quote_currency: str = "BTC") -> bool:
         """Check if price data exists for a coin-pair."""
-        # Check new format first
-        if self._get_price_path(coin_id, quote_currency).exists():
-            return True
-        # Fall back to legacy format for BTC
-        if quote_currency.upper() == "BTC":
-            return self._get_legacy_price_path(coin_id).exists()
-        return False
+        return self._get_price_path(coin_id, quote_currency).exists()
 
     def get_prices(
         self,
         coin_id: str,
         quote_currency: str = "BTC",
         columns: list[str] | None = None,
-    ) -> pd.DataFrame | None:
+    ) -> pl.DataFrame | None:
         """
-        Get cached price data for a coin-pair.
-
-        Returns a DataFrame with normalized DatetimeIndex at midnight.
+        Get cached price data for a coin-pair, or None if absent/unreadable.
 
         Args:
-            coin_id: Coin ID (lowercase symbol)
-            quote_currency: Quote currency (e.g., "BTC", "USD")
-            columns: Optional list of columns to load. If None, loads all columns.
-                     For TOTAL2 calculation, use ["close", "volume_to"] to reduce memory.
+            coin_id: Coin ID (parquet stem / lowercase symbol).
+            quote_currency: Quote currency (e.g. "BTC", "USD").
+            columns: Optional column projection (``date`` is always included).
+                     For TOTAL2, use ["close", "volume_to"] to reduce memory.
 
         Returns:
-            DataFrame with DatetimeIndex and requested columns, or None
+            A polars DataFrame with a sorted ``date`` column, or None.
         """
-        # Try new format first
         filepath = self._get_price_path(coin_id, quote_currency)
-
-        # Fall back to legacy format for BTC
-        if not filepath.exists() and quote_currency.upper() == "BTC":
-            filepath = self._get_legacy_price_path(coin_id)
-
         if not filepath.exists():
             return None
-
+        if columns is not None and "date" not in columns:
+            columns = ["date", *columns]
         try:
-            # Only load requested columns if specified (memory optimization)
-            if columns:
-                df = pd.read_parquet(filepath, columns=columns)
-            else:
-                df = pd.read_parquet(filepath)
-
-            # Ensure normalized DatetimeIndex for consistent lookups
-            if not isinstance(df.index, pd.DatetimeIndex):
-                df.index = pd.to_datetime(df.index)
-            df.index = df.index.normalize()
-
-            return df
-        except OSError, ValueError:
+            df = pl.read_parquet(filepath, columns=columns)
+        except OSError, pl.exceptions.PolarsError:
             return None
+        return _normalize_price_frame(df)
 
-    def set_prices(self, coin_id: str, df: pd.DataFrame, quote_currency: str = "BTC") -> Path:
+    def set_prices(self, coin_id: str, df: pl.DataFrame, quote_currency: str = "BTC") -> Path:
         """
         Cache price data for a coin-pair.
 
-        Normalizes the DatetimeIndex to midnight UTC for consistent lookups.
-        Trims leading rows where close is 0 (dates before coin existed).
-
-        Args:
-            coin_id: Coin ID (lowercase symbol)
-            df: DataFrame with price data
-            quote_currency: Quote currency (e.g., "BTC", "USD")
-
-        Returns:
-            Path to the cache file
+        Normalizes the ``date`` column and trims leading rows where close is 0
+        (dates before the coin existed; some providers backfill zero closes).
         """
         filepath = self._get_price_path(coin_id, quote_currency)
+        df = _normalize_price_frame(df)
 
-        # Normalize index to DatetimeIndex at midnight for consistent lookups
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        df.index = df.index.normalize()
-
-        # Trim leading rows where close is 0 (dates before the coin existed;
-        # some providers backfill pre-listing dates with zero closes)
         if "close" in df.columns:
-            has_positive = df["close"] > 0
-            if has_positive.any():
-                first_valid_idx = has_positive.idxmax()
-                df = df.loc[first_valid_idx:]
+            positive = df.filter(pl.col("close") > 0)
+            if not positive.is_empty():
+                first_valid = positive.select(pl.col("date").min()).item()
+                df = df.filter(pl.col("date") >= first_valid)
 
         try:
-            df.to_parquet(filepath, index=True)
-        except (OSError, ValueError, TypeError) as e:
+            df.write_parquet(filepath)
+        except (OSError, pl.exceptions.PolarsError) as e:
             raise CacheError(f"Failed to write prices {filepath}: {e}") from e
         return filepath
 
-    def get_last_date(self, coin_id: str, quote_currency: str = "BTC") -> pd.Timestamp | None:
-        """
-        Get the last date of cached price data for a coin-pair.
-
-        Useful for incremental updates.
-
-        Args:
-            coin_id: Coin ID (lowercase symbol)
-            quote_currency: Quote currency (e.g., "BTC", "USD")
-
-        Returns:
-            Last date in the cached data as pd.Timestamp, or None
-        """
-        df = self.get_prices(coin_id, quote_currency)
-        if df is None or df.empty:
-            return None
-
-        return df.index.max()
-
     def list_cached_coins(self, quote_currency: str | None = None) -> list[str]:
         """
-        List all coins with cached price data.
+        List all coins (stems) with cached price data.
 
         Args:
-            quote_currency: If provided, only list coins with this quote currency.
-                          If None, lists all unique coin IDs.
+            quote_currency: If given, restrict to this quote currency.
 
         Returns:
-            List of coin IDs
+            Sorted list of coin stems.
         """
         coins = set()
         for filepath in self.prices_dir.glob("*.parquet"):
-            filename = filepath.stem
-            # Check if it's the new format (contains hyphen for pair)
-            if "-" in filename:
-                parts = filename.rsplit("-", 1)
-                if len(parts) == 2:
-                    coin_id, quote = parts
-                    if quote_currency is None or quote.upper() == quote_currency.upper():
-                        coins.add(coin_id)
-            else:
-                # Legacy format - assume BTC quote
-                if quote_currency is None or quote_currency.upper() == "BTC":
-                    coins.add(filename)
-
+            # rsplit on the last "-" so multi-part stems (``tag-2-btc``) parse.
+            coin_id, _, quote = filepath.stem.rpartition("-")
+            if not coin_id:
+                continue
+            if quote_currency is None or quote.upper() == quote_currency.upper():
+                coins.add(coin_id)
         return sorted(coins)
 
     def delete_prices(self, coin_id: str, quote_currency: str = "BTC") -> bool:
-        """
-        Delete cached price data for a coin-pair.
-
-        Args:
-            coin_id: Coin ID (lowercase symbol)
-            quote_currency: Quote currency (e.g., "BTC", "USD")
-
-        Returns:
-            True if deleted, False if not found
-        """
+        """Delete cached price data for a coin-pair. Returns True if removed."""
         filepath = self._get_price_path(coin_id, quote_currency)
         if filepath.exists():
             filepath.unlink()
             return True
-
-        # Try legacy format for BTC
-        if quote_currency.upper() == "BTC":
-            legacy_path = self._get_legacy_price_path(coin_id)
-            if legacy_path.exists():
-                legacy_path.unlink()
-                return True
-
         return False
 
     def clear(self) -> int:
-        """
-        Clear all cached price data.
-
-        Returns:
-            Number of files removed
-        """
+        """Clear all cached price data. Returns the number of files removed."""
         count = 0
         for filepath in self.prices_dir.glob("*.parquet"):
             filepath.unlink()
             count += 1
         return count
-
-    def migrate_to_pair_format(self) -> int:
-        """
-        Migrate legacy files to new pair format.
-
-        Renames files like 'eth.parquet' to 'eth-btc.parquet'.
-
-        Returns:
-            Number of files migrated
-        """
-        migrated = 0
-        for filepath in self.prices_dir.glob("*.parquet"):
-            filename = filepath.stem
-            # Skip if already in pair format
-            if "-" in filename:
-                continue
-
-            # Rename to pair format
-            new_path = self.prices_dir / f"{filename}-btc.parquet"
-            if not new_path.exists():
-                filepath.rename(new_path)
-                migrated += 1
-
-        return migrated

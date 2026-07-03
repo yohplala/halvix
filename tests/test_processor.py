@@ -12,11 +12,12 @@ Note: Common fixtures (temp_dir, sample_price_data, sample_price_data_with_freez
 sample_result) are defined in conftest.py for reuse across test modules.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
-import pandas as pd
+import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from data.cache import PriceDataCache
 from data.price_filters import detect_symbol_replacement
@@ -26,6 +27,16 @@ from data.processor import (
     Total2Result,
     get_processor,
 )
+
+
+def _days(start: date, n: int) -> list[date]:
+    """A contiguous list of ``n`` daily dates starting at ``start``."""
+    return [start + timedelta(days=i) for i in range(n)]
+
+
+def _price_on(df: pl.DataFrame, d: date, col: str = "total2_price") -> float:
+    """Look up a single value from an index frame by its ``date`` column."""
+    return df.filter(pl.col("date") == d)[col][0]
 
 
 class TestProcessorFactory:
@@ -66,8 +77,8 @@ class TestTotal2ProcessorInit:
         from data.processor import Total2Result
 
         result = Total2Result(
-            index_df=pd.DataFrame(),
-            composition_df=pd.DataFrame(),
+            index_df=pl.DataFrame(),
+            composition_df=pl.DataFrame(),
             coins_processed=0,
             date_range=(date(2020, 1, 1), date(2020, 1, 1)),
             avg_coins_per_day=0.0,
@@ -122,7 +133,7 @@ class TestTotal2bCalculation:
         assert isinstance(result, Total2Result)
         assert result.coins_processed == 3
         assert result.index_type == "total2b"
-        assert not result.composition_df.empty
+        assert not result.composition_df.is_empty()
 
         assert "total2_price" in result.index_df.columns
         assert "total_volume" in result.index_df.columns
@@ -176,10 +187,8 @@ class TestTotal2SaveLoad:
             assert index_path.exists()
             assert comp_path.exists()
 
-            loaded = pd.read_parquet(index_path)
-            pd.testing.assert_frame_equal(
-                loaded.reset_index(drop=True), sample_result.index_df.reset_index(drop=True)
-            )
+            loaded = pl.read_parquet(index_path)
+            assert_frame_equal(loaded, sample_result.index_df)
 
 
 class TestTotal2bEdgeCases:
@@ -200,13 +209,13 @@ class TestTotal2bEdgeCases:
         """Test error when all coins are filtered out."""
         cache = PriceDataCache(prices_dir=temp_dir)
 
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
-        wbtc_data = pd.DataFrame(
+        dates = _days(date(2024, 1, 1), 30)
+        wbtc_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [1.0] * 30,
-                "volume_to": [1000] * 30,
-            },
-            index=dates,
+                "volume_to": [1000.0] * 30,
+            }
         )
         cache.set_prices("wbtc", wbtc_data)
 
@@ -219,27 +228,27 @@ class TestTotal2bEdgeCases:
         """Test calculation when fewer coins than top_n are available."""
         cache = PriceDataCache(prices_dir=temp_dir)
 
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
-        eth_data = pd.DataFrame(
+        dates = _days(date(2024, 1, 1), 30)
+        eth_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [0.05 + i * 0.0001 for i in range(30)],
-                "volume_to": [10000 + i * 50 for i in range(30)],
-            },
-            index=dates,
+                "volume_to": [10000.0 + i * 50 for i in range(30)],
+            }
         )
-        sol_data = pd.DataFrame(
+        sol_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [0.003 + i * 0.00001 for i in range(30)],
-                "volume_to": [2000 + i * 30 for i in range(30)],
-            },
-            index=dates,
+                "volume_to": [2000.0 + i * 30 for i in range(30)],
+            }
         )
-        ada_data = pd.DataFrame(
+        ada_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [0.00002 + i * 0.0000001 for i in range(30)],
-                "volume_to": [500 + i * 20 for i in range(30)],
-            },
-            index=dates,
+                "volume_to": [500.0 + i * 20 for i in range(30)],
+            }
         )
 
         cache.set_prices("eth", eth_data)
@@ -270,45 +279,45 @@ class TestTotal2bScalingOptimization:
         should be scaled by prev_total2b / entry_price.
         """
         # 40 days of data to allow freeze period + scaling
-        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+        dates = _days(date(2024, 1, 1), 40)
 
         # ETH: present from day 1, stable price ~0.05 BTC
-        eth_data = pd.DataFrame(
+        eth_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [0.05 + i * 0.0001 for i in range(40)],
-                "volume_to": [10000 + i * 50 for i in range(40)],
-            },
-            index=dates,
+                "volume_to": [10000.0 + i * 50 for i in range(40)],
+            }
         )
 
         # SOL: present from day 1, stable price ~0.003 BTC
-        sol_data = pd.DataFrame(
+        sol_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [0.003 + i * 0.00001 for i in range(40)],
-                "volume_to": [5000 + i * 30 for i in range(40)],
-            },
-            index=dates,
+                "volume_to": [5000.0 + i * 30 for i in range(40)],
+            }
         )
 
         # ADA: present from day 1, stable price ~0.00002 BTC
-        ada_data = pd.DataFrame(
+        ada_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": [0.00002 + i * 0.0000001 for i in range(40)],
-                "volume_to": [2000 + i * 20 for i in range(40)],
-            },
-            index=dates,
+                "volume_to": [2000.0 + i * 20 for i in range(40)],
+            }
         )
 
         # AVAX: enters late (day 15), different price level
-        # First 14 days have no data (NaN)
+        # First 14 days have no data (null)
         avax_close = [None] * 14 + [0.01 + i * 0.0001 for i in range(26)]
-        avax_volume = [None] * 14 + [3000 + i * 25 for i in range(26)]
-        avax_data = pd.DataFrame(
+        avax_volume = [None] * 14 + [3000.0 + i * 25 for i in range(26)]
+        avax_data = pl.DataFrame(
             {
+                "date": dates,
                 "close": avax_close,
                 "volume_to": avax_volume,
-            },
-            index=dates,
+            }
         )
 
         return {
@@ -343,7 +352,7 @@ class TestTotal2bScalingOptimization:
         assert (result.index_df["total2_price"] > 0).all()
 
         # Index should be continuous (no large jumps due to unscaled entries)
-        prices = result.index_df["total2_price"].values
+        prices = result.index_df["total2_price"].to_numpy()
         for i in range(1, len(prices)):
             ratio = prices[i] / prices[i - 1]
             # Price ratio should be reasonable (not > 2x or < 0.5x per day)
@@ -393,13 +402,13 @@ class TestStaleEntryReanchor:
     @pytest.fixture
     def sample_data_with_stale_pump_entrant(self):
         """3 stable coins + a low-volume coin that ramps 50x then enters top-N."""
-        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+        dates = _days(date(2024, 1, 1), 40)
 
         # Volumes are kept < DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK (5000) so the
         # volume-outlier corrector never caps pmp's entry-day volume jump.
         def const(close, vol):
-            return pd.DataFrame(
-                {"close": [close] * 40, "volume_to": [float(vol)] * 40}, index=dates
+            return pl.DataFrame(
+                {"date": dates, "close": [close] * 40, "volume_to": [float(vol)] * 40}
             )
 
         aaa = const(0.010, 1000)  # forms the index (highest steady volume)
@@ -414,14 +423,14 @@ class TestStaleEntryReanchor:
         # threshold). On day 30 its volume finally lifts it into the top-3, still
         # carrying that stale multiplier.
         pmp_close: list = [None] * 10
-        pmp_vol: list = [None] * 10
         p = 0.0001
         for i in range(10, 40):
             pmp_close.append(p)
             if i < 30:  # ramp over days 10..29
                 p *= 1.216
+        pmp_vol: list = [None] * 10
         pmp_vol += [10.0] * 20 + [4500.0] * 10  # low volume, then enters top-3 on day 30
-        pmp = pd.DataFrame({"close": pmp_close, "volume_to": pmp_vol}, index=dates)
+        pmp = pl.DataFrame({"date": dates, "close": pmp_close, "volume_to": pmp_vol})
 
         return {"aaa": aaa, "bbb": bbb, "ccc": ccc, "pmp": pmp}
 
@@ -443,12 +452,15 @@ class TestStaleEntryReanchor:
         """With the guard on, the stale entrant is re-anchored and the index stays smooth."""
         res = self._run(temp_dir, sample_data_with_stale_pump_entrant, reanchor_ratio=5.0)
 
-        prices = res.index_df["total2_price"]
-        entry_day = pd.Timestamp("2024-01-31")  # day 30 (0-indexed): pmp enters top-3
-        prev_day = pd.Timestamp("2024-01-30")
-        assert entry_day in prices.index and prev_day in prices.index
+        index_df = res.index_df
+        entry_day = date(2024, 1, 31)  # day 30 (0-indexed): pmp enters top-3
+        prev_day = date(2024, 1, 30)
+        dates_list = index_df["date"].to_list()
+        assert entry_day in dates_list and prev_day in dates_list
+        p_entry = _price_on(index_df, entry_day)
+        p_prev = _price_on(index_df, prev_day)
         # No bart: the index must not spike when the stale entrant joins.
-        assert prices[entry_day] / prices[prev_day] < 1.5
+        assert p_entry / p_prev < 1.5
 
         # The re-anchor must be recorded for PMP.
         reanchors = res.stale_entry_reanchors or []
@@ -456,33 +468,35 @@ class TestStaleEntryReanchor:
         assert len(pmp_events) >= 1
         ev = pmp_events[0]
         assert ev["stale_ratio"] > 5.0  # it really was stale on entry
-        assert ev["reanchored_to"] == pytest.approx(prices[prev_day], rel=0.05)
+        assert ev["reanchored_to"] == pytest.approx(p_prev, rel=0.05)
 
     def test_without_guard_the_bart_appears(self, temp_dir, sample_data_with_stale_pump_entrant):
         """Sanity check: with the guard disabled (ratio=0) the same data barts."""
         res = self._run(temp_dir, sample_data_with_stale_pump_entrant, reanchor_ratio=0)
 
-        prices = res.index_df["total2_price"]
-        entry_day = pd.Timestamp("2024-01-31")
-        prev_day = pd.Timestamp("2024-01-30")
+        index_df = res.index_df
+        entry_day = date(2024, 1, 31)
+        prev_day = date(2024, 1, 30)
+        p_entry = _price_on(index_df, entry_day)
+        p_prev = _price_on(index_df, prev_day)
         # Disabled guard -> the stale entrant dominates and the index spikes hard.
-        assert prices[entry_day] / prices[prev_day] > 3.0
+        assert p_entry / p_prev > 3.0
         assert not (res.stale_entry_reanchors or [])
 
     def test_normal_entrant_is_not_reanchored(self, temp_dir):
         """A coin entering the top-N near the index level must not be re-anchored."""
-        dates = pd.date_range("2024-01-01", periods=40, freq="D")
+        dates = _days(date(2024, 1, 1), 40)
 
         def const(close, vol):
-            return pd.DataFrame(
-                {"close": [close] * 40, "volume_to": [float(vol)] * 40}, index=dates
+            return pl.DataFrame(
+                {"date": dates, "close": [close] * 40, "volume_to": [float(vol)] * 40}
             )
 
         data = {"aaa": const(0.010, 1000), "bbb": const(0.005, 800), "ccc": const(0.002, 600)}
         # ddd enters late (day 15) at a normal level, immediately with top-N volume.
         ddd_close = [None] * 15 + [0.004] * 25
         ddd_vol = [None] * 15 + [700.0] * 25
-        data["ddd"] = pd.DataFrame({"close": ddd_close, "volume_to": ddd_vol}, index=dates)
+        data["ddd"] = pl.DataFrame({"date": dates, "close": ddd_close, "volume_to": ddd_vol})
 
         res = self._run(temp_dir, data, reanchor_ratio=5.0)
         ddd_reanchors = [e for e in (res.stale_entry_reanchors or []) if e["coin"] == "DDD"]
@@ -503,22 +517,22 @@ class TestSymbolReplacementDetection:
 
     def test_no_replacement_for_stable_prices(self):
         """Test no replacement detected for coins with stable price history."""
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
-        prices = pd.Series([0.05 + i * 0.001 for i in range(30)], index=dates)
+        dates = _days(date(2024, 1, 1), 30)
+        prices = pl.Series([0.05 + i * 0.001 for i in range(30)])
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
         assert result is None
 
     def test_extreme_ratio_detection(self):
         """Test detection of extreme price ratio jumps (both prices > 0)."""
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        dates = _days(date(2024, 1, 1), 30)
         # Price stable at ~1e-10, then jumps 1000x on day 15
         prices_list = [1e-10] * 14 + [1e-7] * 16  # 1000x jump
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         assert result is not None
         assert result == dates[14]  # The day of the jump
@@ -529,13 +543,13 @@ class TestSymbolReplacementDetection:
         This catches cases like MOVE where the old token went to exactly 0
         before the new token started trading.
         """
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        dates = _days(date(2024, 1, 1), 30)
         # Old token trades, goes to zero, then new token starts
         prices_list = [1e-10] * 5 + [0.0] * 10 + [1e-6] * 15  # Zero gap then resurrection
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         assert result is not None
         assert result == dates[15]  # The day of resurrection
@@ -546,20 +560,20 @@ class TestSymbolReplacementDetection:
         When a coin first starts trading (0 -> positive), this is normal
         behavior, not a symbol replacement.
         """
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        dates = _days(date(2024, 1, 1), 30)
         # Coin starts with zeros, then begins trading - no prior trading history
         prices_list = [0.0] * 10 + [1e-6] * 20
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         # Should NOT detect replacement - this is just starting to trade
         assert result is None
 
     def test_multiple_replacements_returns_last(self):
         """Test that multiple replacements return the most recent one."""
-        dates = pd.date_range("2024-01-01", periods=50, freq="D")
+        dates = _days(date(2024, 1, 1), 50)
         # First token, then gap, second token, then gap, third token
         prices_list = (
             [1e-10] * 5  # First token
@@ -568,10 +582,10 @@ class TestSymbolReplacementDetection:
             + [0.0] * 5  # Gap
             + [1e-4] * 15  # Third token (another 1000x higher)
         )
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         assert result is not None
         # Should return the LAST replacement date (third token start)
@@ -579,28 +593,28 @@ class TestSymbolReplacementDetection:
 
     def test_replacement_must_be_after_first_seen(self):
         """Test that replacement date must be after the first_seen date."""
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        dates = _days(date(2024, 1, 1), 30)
         # Jump happens on day 5
         prices_list = [1e-10] * 4 + [1e-7] * 26  # 1000x jump on day 5
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
 
         # Set first_seen to AFTER the jump
         first_seen = dates[10]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         # Should NOT detect replacement since it happened before first_seen
         assert result is None
 
     def test_near_zero_threshold(self):
         """Test that very small prices (near zero threshold) are handled correctly."""
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        dates = _days(date(2024, 1, 1), 30)
         # Prices just BELOW zero threshold (1e-16 < 1e-15), then actual zero, then real prices
         prices_list = [1e-16] * 5 + [0.0] * 10 + [1e-6] * 15
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         # The near-zero prices (1e-16) are below the threshold (1e-15),
         # so there's NO "prior trading" - this is just the coin starting to trade
@@ -609,13 +623,13 @@ class TestSymbolReplacementDetection:
 
     def test_above_threshold_then_zero_then_trading(self):
         """Test resurrection when prior prices are above the zero threshold."""
-        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        dates = _days(date(2024, 1, 1), 30)
         # Prices ABOVE zero threshold (1e-14 > 1e-15), then actual zero, then real prices
         prices_list = [1e-14] * 5 + [0.0] * 10 + [1e-6] * 15
-        prices = pd.Series(prices_list, index=dates)
+        prices = pl.Series(prices_list)
         first_seen = dates[0]
 
-        result = detect_symbol_replacement(prices, first_seen=first_seen)
+        result = detect_symbol_replacement(prices, dates, first_seen=first_seen)
 
         # The prior prices (1e-14) are above the threshold (1e-15),
         # so there IS prior trading - resurrection should be detected

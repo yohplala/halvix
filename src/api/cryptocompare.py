@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-import pandas as pd
+import polars as pl
 import requests
 from tenacity import (
     retry,
@@ -228,14 +228,7 @@ class CryptoCompareClient:
 
             data = response.json()
 
-            # Parse the response - structure varies by endpoint
-            # The stats endpoint returns nested data by time period
-            def extract_calls(period_data: dict) -> tuple[int, int]:
-                """Extract calls_made and calls_left from period data."""
-                calls_made = period_data.get("calls_made", {}).get("Histo", 0)
-                calls_left = period_data.get("calls_left", {}).get("Histo", 0)
-                return calls_made, calls_left
-
+            # Parse the response - structure varies by endpoint.
             status = RateLimitStatus()
 
             if "Data" in data:
@@ -587,7 +580,7 @@ class CryptoCompareClient:
         end_date: date | None = None,
         show_progress: bool = False,
         provider_id: str | None = None,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """
         Get full daily historical prices, paginating if needed.
 
@@ -651,9 +644,9 @@ class CryptoCompareClient:
                 break
 
         if not all_records:
-            return pd.DataFrame()
+            return pl.DataFrame()
 
-        # Remove duplicates and convert to DataFrame
+        # Remove duplicates and convert to a frame
         seen_times = set()
         unique_records = []
         for r in all_records:
@@ -662,26 +655,19 @@ class CryptoCompareClient:
                 seen_times.add(t)
                 unique_records.append(r)
 
-        df = pd.DataFrame(unique_records)
+        df = pl.DataFrame(unique_records)
 
-        # Convert timestamp to datetime
-        df["date"] = pd.to_datetime(df["time"], unit="s")
-        df = df.set_index("date").sort_index()
-
-        # Rename columns to standard names
-        df = df.rename(
-            columns={
-                "volumefrom": "volume_from",
-                "volumeto": "volume_to",
-            }
+        # Epoch seconds → a sorted ``date`` column, then standard column names.
+        df = (
+            df.with_columns(pl.from_epoch("time", time_unit="s").dt.date().alias("date"))
+            .sort("date")
+            .rename({"volumefrom": "volume_from", "volumeto": "volume_to"})
         )
 
-        # Select and order columns
+        # Select and order columns (keep ``date``).
         columns = ["open", "high", "low", "close", "volume_from", "volume_to"]
         available = [c for c in columns if c in df.columns]
-        df = df[available]
-
-        return df
+        return df.select(["date", *available])
 
     def get_coin_list(self) -> dict[str, dict]:
         """

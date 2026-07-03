@@ -33,6 +33,7 @@ from config import (
     DEFAULT_FIBONACCI_LEVEL,
     DIM_RETURN_MIN_GAIN_RATIO,
     HALVING_DATES,
+    HISTORICAL_PEAK_HAIRCUT,
     MAJOR_POINT_WEIGHT,
     MINOR_POINT_WEIGHT,
     SLOPE_DIFF_CHANNEL_THRESHOLD,
@@ -175,6 +176,13 @@ def fit_log_trendlines(
         ]
     )
 
+    # NOTE ON EFFECTIVE WEIGHTS: numpy's polyfit minimizes Σ (w·resid)², so a
+    # point's leverage on the fit scales with w², not w. The nominal weights
+    # (MAJOR/MINOR × recency) therefore act *squared* — e.g. recency 0.7/0.49
+    # behaves like 0.49/0.24. This makes the fit downweight older cycles more
+    # aggressively than the raw factors suggest, which serves the stated intent
+    # (keep early high-growth cycles from over-inflating the trend). Kept as-is;
+    # with exactly 2 points per side weights have no effect regardless.
     try:
         if has_enough_peaks and has_enough_troughs:
             # Both sides have enough data - fit independently
@@ -381,8 +389,14 @@ def calculate_fib_extension(
 
         # Log-space extension: respects multiplicative nature of price moves
         log_a, log_b, log_c = math.log10(a), math.log10(b), math.log10(c)
-        log_move = log_b - log_a
-        return 10 ** (log_c + log_move * level)
+        exponent = log_c + (log_b - log_a) * level
+        # Guard against float64 overflow, mirroring the trendline projection
+        # (10**x overflows for x > ~308); a runaway extension aborts to None
+        # rather than crashing the whole analysis run.
+        if abs(exponent) > TRENDLINE_LOG_PRICE_LIMIT:
+            logger.debug("Fibonacci extension overflow: exponent=%.2f", exponent)
+            return None
+        return 10**exponent
 
     return None
 
@@ -451,8 +465,10 @@ def calculate_diminishing_return(
             dim_factors.append(factor)
 
     if dim_factors:
-        if len(dim_factors) >= 3 and all(f > 0 for f in dim_factors):
-            # Geometric mean for multiplicative ratios
+        if all(f > 0 for f in dim_factors):
+            # Geometric mean — cycle-gain ratios are multiplicative, so the
+            # arithmetic mean (AM >= GM) biases the diminishing factor upward.
+            # This matters most for the common 2-cycle alt (cycles 3 + 4).
             avg_dim_factor = float(np.exp(np.mean(np.log(dim_factors))))
         else:
             avg_dim_factor = float(np.mean(dim_factors))
@@ -482,6 +498,10 @@ def calculate_historical_peak(
     - If previous cycle max2 is the absolute max across all cycles -> use that value
     - Otherwise -> weighted average of peaks at or above last max2 (67% max2, 33% max1)
 
+    The chosen peak level is then scaled by ``HISTORICAL_PEAK_HAIRCUT`` — in BTC
+    terms altcoins rarely fully re-print a prior ATH cycle-over-cycle, so a raw
+    "return to peak" target is optimistic.
+
     Returns:
         Tuple of (target_price, is_absolute_max)
     """
@@ -500,7 +520,7 @@ def calculate_historical_peak(
 
     # Case A: Previous cycle max2 is the absolute maximum
     if latest_max2.price >= absolute_max2.price:
-        return latest_max2.price, True
+        return latest_max2.price * HISTORICAL_PEAK_HAIRCUT, True
 
     # Case B: Previous cycle max2 is NOT the absolute max
     # Weighted average of historical peaks at or above last max2
@@ -510,7 +530,7 @@ def calculate_historical_peak(
 
     all_peaks = filtered_max2 + filtered_max1
     if not all_peaks:
-        return latest_max2.price, False
+        return latest_max2.price * HISTORICAL_PEAK_HAIRCUT, False
 
     # Weighted sum: max2 gets 67%, max1 gets 33%
     weighted_sum = 0.0
@@ -525,10 +545,10 @@ def calculate_historical_peak(
         weight_total += MINOR_POINT_WEIGHT
 
     if weight_total == 0:
-        return latest_max2.price, False
+        return latest_max2.price * HISTORICAL_PEAK_HAIRCUT, False
 
     weighted_avg = weighted_sum / weight_total
-    return weighted_avg, False
+    return weighted_avg * HISTORICAL_PEAK_HAIRCUT, False
 
 
 def calculate_weighted_composite(

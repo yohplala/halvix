@@ -4,12 +4,15 @@ Tests for price data filtering tools in Halvix.
 Tests cover:
 - Volume outlier detection and correction (DataFrame)
 - SMA smoothing functions (DataFrame)
-- Edge cases (empty data, NaN handling)
+- Edge cases (empty data, null handling)
 """
 
+from datetime import date, timedelta
+
 import numpy as np
-import pandas as pd
+import polars as pl
 import pytest
+from polars.testing import assert_frame_equal, assert_series_equal
 
 from data.price_filters import (
     DEFAULT_MIN_VOLUME_FOR_OUTLIER_CHECK,
@@ -21,6 +24,11 @@ from data.price_filters import (
     apply_volume_sma_smoothing_to_dataframe,
     detect_round_trips,
 )
+
+
+def _daterange(n):
+    """List of ``n`` consecutive dates starting 2024-01-01."""
+    return [date(2024, 1, 1) + timedelta(days=i) for i in range(n)]
 
 
 class TestDefaultParameters:
@@ -49,13 +57,15 @@ class TestApplyVolumeSMASmoothingToDataFrame:
     @pytest.fixture
     def sample_volume_df(self):
         """Create sample volume DataFrame with multiple coins."""
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        data = {
-            "eth": [10000.0 + i * 1000 for i in range(10)],
-            "sol": [2000.0 + i * 200 for i in range(10)],
-            "ada": [500.0 + i * 50 for i in range(10)],
-        }
-        return pd.DataFrame(data, index=dates)
+        dates = _daterange(10)
+        return pl.DataFrame(
+            {
+                "date": dates,
+                "eth": [10000.0 + i * 1000 for i in range(10)],
+                "sol": [2000.0 + i * 200 for i in range(10)],
+                "ada": [500.0 + i * 50 for i in range(10)],
+            }
+        )
 
     def test_basic_dataframe_smoothing(self, sample_volume_df):
         """Test basic DataFrame SMA smoothing."""
@@ -65,25 +75,27 @@ class TestApplyVolumeSMASmoothingToDataFrame:
             zero_pad=False,
         )
 
-        assert isinstance(smoothed, pd.DataFrame)
+        assert isinstance(smoothed, pl.DataFrame)
         assert smoothed.shape == sample_volume_df.shape
         assert list(smoothed.columns) == list(sample_volume_df.columns)
 
     def test_zero_padding_per_coin(self):
         """Test zero padding applied per coin."""
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        data = {
-            # ETH has data from day 1
-            "eth": [10000.0] * 10,
-            # SOL starts with NaN, data from day 4
-            "sol": [np.nan, np.nan, np.nan, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        }
-        df = pd.DataFrame(data, index=dates)
+        dates = _daterange(10)
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                # ETH has data from day 1
+                "eth": [10000.0] * 10,
+                # SOL starts with nulls, data from day 4
+                "sol": [None, None, None, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
+            }
+        )
 
         smoothed = apply_volume_sma_smoothing_to_dataframe(df, window=3, zero_pad=True)
 
         # SOL should have zeros before first valid, affecting early SMA
-        assert isinstance(smoothed, pd.DataFrame)
+        assert isinstance(smoothed, pl.DataFrame)
 
     def test_no_zero_padding_dataframe(self, sample_volume_df):
         """Test DataFrame smoothing without zero padding."""
@@ -94,13 +106,13 @@ class TestApplyVolumeSMASmoothingToDataFrame:
         )
 
         # Standard rolling mean behavior
-        assert smoothed.iloc[2]["eth"] == pytest.approx((10000 + 11000 + 12000) / 3)
+        assert smoothed["eth"][2] == pytest.approx((10000 + 11000 + 12000) / 3)
 
     def test_preserves_column_order(self, sample_volume_df):
         """Test that column order is preserved."""
         smoothed = apply_volume_sma_smoothing_to_dataframe(sample_volume_df, window=3)
 
-        assert list(smoothed.columns) == ["eth", "sol", "ada"]
+        assert list(smoothed.columns) == ["date", "eth", "sol", "ada"]
 
 
 class TestApplyVolumeCorrectionsToDataFrame:
@@ -109,13 +121,15 @@ class TestApplyVolumeCorrectionsToDataFrame:
     @pytest.fixture
     def df_with_outliers(self):
         """Create DataFrame with outliers in multiple coins."""
-        dates = pd.date_range("2024-01-01", periods=15, freq="D")
-        data = {
-            "eth": [10000.0] * 9 + [500000.0] + [10000.0] * 5,  # Outlier on day 10
-            "sol": [2000.0] * 12 + [100000.0] + [2000.0] * 2,  # Outlier on day 13
-            "ada": [500.0] * 15,  # No outliers (below min_volume)
-        }
-        return pd.DataFrame(data, index=dates)
+        dates = _daterange(15)
+        return pl.DataFrame(
+            {
+                "date": dates,
+                "eth": [10000.0] * 9 + [500000.0] + [10000.0] * 5,  # Outlier on day 10
+                "sol": [2000.0] * 12 + [100000.0] + [2000.0] * 2,  # Outlier on day 13
+                "ada": [500.0] * 15,  # No outliers (below min_volume)
+            }
+        )
 
     def test_corrects_outliers_in_multiple_coins(self, df_with_outliers):
         """Test that outliers are corrected in multiple coins."""
@@ -127,13 +141,13 @@ class TestApplyVolumeCorrectionsToDataFrame:
         )
 
         # ETH outlier should be corrected
-        assert corrected.iloc[9]["eth"] < 500000
+        assert corrected["eth"][9] < 500000
 
         # SOL outlier should be corrected
-        assert corrected.iloc[12]["sol"] < 100000
+        assert corrected["sol"][12] < 100000
 
         # ADA should be unchanged (below min_volume)
-        pd.testing.assert_series_equal(
+        assert_series_equal(
             corrected["ada"],
             df_with_outliers["ada"],
         )
@@ -176,7 +190,7 @@ class TestApplyVolumeCorrectionsToDataFrame:
 
         assert loud_corr == quiet_corr
         assert loud_df.shape == quiet_df.shape
-        pd.testing.assert_frame_equal(loud_df, quiet_df)
+        assert_frame_equal(loud_df, quiet_df)
 
     def test_max_iterations_respected(self, df_with_outliers):
         """Test max_iterations parameter."""
@@ -193,20 +207,22 @@ class TestApplyVolumeCorrectionsToDataFrame:
 
     def test_empty_dataframe(self):
         """Test empty DataFrame handling."""
-        empty_df = pd.DataFrame()
+        empty_df = pl.DataFrame({"date": pl.Series([], dtype=pl.Date)})
         corrected, corrections = apply_volume_corrections_to_dataframe(empty_df)
 
-        assert corrected.empty
+        assert corrected.is_empty()
         assert corrections == []
 
     def test_no_corrections_needed(self):
         """Test DataFrame with no outliers."""
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        data = {
-            "eth": [10000.0 + i * 100 for i in range(10)],
-            "sol": [2000.0 + i * 20 for i in range(10)],
-        }
-        df = pd.DataFrame(data, index=dates)
+        dates = _daterange(10)
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                "eth": [10000.0 + i * 100 for i in range(10)],
+                "sol": [2000.0 + i * 20 for i in range(10)],
+            }
+        )
 
         corrected, corrections = apply_volume_corrections_to_dataframe(
             df,
@@ -215,7 +231,7 @@ class TestApplyVolumeCorrectionsToDataFrame:
             window_days=7,
         )
 
-        pd.testing.assert_frame_equal(corrected, df)
+        assert_frame_equal(corrected, df)
         assert corrections == []
 
 
@@ -224,10 +240,12 @@ class TestEdgeCases:
 
     def test_dataframe_with_single_column(self):
         """Test DataFrame operations with single column."""
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        df = pd.DataFrame(
-            {"eth": [10000.0] * 9 + [500000.0]},
-            index=dates,
+        dates = _daterange(10)
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                "eth": [10000.0] * 9 + [500000.0],
+            }
         )
 
         corrected, corrections = apply_volume_corrections_to_dataframe(
@@ -237,18 +255,19 @@ class TestEdgeCases:
             window_days=7,
         )
 
-        assert corrected.shape[1] == 1
+        # date column + one coin column
+        assert corrected.shape[1] == 2
         assert "eth" in corrected.columns
 
-    def test_dataframe_with_all_nan_column(self):
-        """Test DataFrame with one column entirely NaN."""
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        df = pd.DataFrame(
+    def test_dataframe_with_all_null_column(self):
+        """Test DataFrame with one column entirely null."""
+        dates = _daterange(10)
+        df = pl.DataFrame(
             {
+                "date": dates,
                 "eth": [10000.0] * 10,
-                "sol": [np.nan] * 10,
-            },
-            index=dates,
+                "sol": [None] * 10,
+            }
         )
 
         corrected, _ = apply_volume_corrections_to_dataframe(df)
@@ -267,14 +286,15 @@ class TestDetectRoundTrips:
     """Tests for single-day spike-and-revert detection."""
 
     @staticmethod
-    def _series(values):
-        dates = pd.date_range("2024-01-01", periods=len(values), freq="D")
-        return pd.Series(values, index=dates)
+    def _sd(values):
+        """Return (close Series, parallel dates list) for a value sequence."""
+        dates = _daterange(len(values))
+        return pl.Series(values, dtype=pl.Float64), dates
 
     def test_catches_up_spike_that_reverts_next_day(self):
         # SIREN-like pattern: 0.000011 -> 0.000027 (2.45x) -> 0.000010 (back).
-        s = self._series([11.0, 11.0, 11.0, 27.0, 10.0, 10.0])
-        events = detect_round_trips(s)
+        close, dates = self._sd([11.0, 11.0, 11.0, 27.0, 10.0, 10.0])
+        events = detect_round_trips(close, dates)
         assert len(events) == 1
         ev = events[0]
         assert ev["direction"] == "up"
@@ -285,57 +305,58 @@ class TestDetectRoundTrips:
         assert ev["revert_price"] == 10.0
 
     def test_catches_down_spike_that_reverts(self):
-        s = self._series([100.0, 100.0, 30.0, 95.0, 100.0])
-        events = detect_round_trips(s)
+        close, dates = self._sd([100.0, 100.0, 30.0, 95.0, 100.0])
+        events = detect_round_trips(close, dates)
         assert len(events) == 1
         assert events[0]["direction"] == "down"
         assert events[0]["jump_ratio"] == pytest.approx(0.3, rel=1e-9)
 
     def test_ignores_jump_that_does_not_revert(self):
         # 1.0 -> 5.0 (5x jump) but stays at 5.0 — legitimate move, not a glitch.
-        s = self._series([1.0, 1.0, 1.0, 5.0, 5.0, 5.0])
-        events = detect_round_trips(s)
+        close, dates = self._sd([1.0, 1.0, 1.0, 5.0, 5.0, 5.0])
+        events = detect_round_trips(close, dates)
         assert events == []
 
     def test_ignores_small_move_within_threshold(self):
-        s = self._series([100.0, 110.0, 120.0, 130.0, 120.0])  # ratios all < 2.0
-        events = detect_round_trips(s)
+        close, dates = self._sd([100.0, 110.0, 120.0, 130.0, 120.0])  # ratios all < 2.0
+        events = detect_round_trips(close, dates)
         assert events == []
 
     def test_detects_revert_two_days_later(self):
         # Revert one day late: needs window_days >= 2 to be caught.
-        s = self._series([10.0, 10.0, 25.0, 25.0, 11.0, 10.0])
-        events = detect_round_trips(s, window_days=2)
+        close, dates = self._sd([10.0, 10.0, 25.0, 25.0, 11.0, 10.0])
+        events = detect_round_trips(close, dates, window_days=2)
         assert len(events) == 1
         assert events[0]["days_to_revert"] == 2
 
         # With window=1, the same data should not be flagged because day+1 still high.
-        events_short = detect_round_trips(s, window_days=1)
+        events_short = detect_round_trips(close, dates, window_days=1)
         assert events_short == []
 
     def test_skips_zero_or_negative_prices(self):
         # Resurrection from zero is handled by symbol-replacement, not here.
-        s = self._series([0.0, 0.0, 10.0, 30.0, 10.0])
-        events = detect_round_trips(s)
+        close, dates = self._sd([0.0, 0.0, 10.0, 30.0, 10.0])
+        events = detect_round_trips(close, dates)
         # Only the 10 -> 30 -> 10 transition is a valid candidate.
         assert all(ev["pre_price"] > 0 for ev in events)
         assert len(events) == 1
 
     def test_empty_or_short_series_returns_empty(self):
-        assert detect_round_trips(pd.Series(dtype=float)) == []
-        assert detect_round_trips(self._series([1.0, 2.0])) == []
+        assert detect_round_trips(pl.Series([], dtype=pl.Float64), []) == []
+        close, dates = self._sd([1.0, 2.0])
+        assert detect_round_trips(close, dates) == []
 
     def test_invalid_thresholds_raise(self):
-        s = self._series([1.0, 2.0, 1.0])
+        close, dates = self._sd([1.0, 2.0, 1.0])
         with pytest.raises(ValueError):
-            detect_round_trips(s, jump_threshold=1.0)
+            detect_round_trips(close, dates, jump_threshold=1.0)
         with pytest.raises(ValueError):
-            detect_round_trips(s, revert_threshold=0.9)
+            detect_round_trips(close, dates, revert_threshold=0.9)
 
     def test_breaks_on_first_revert_within_window(self):
         # Should record the FIRST k where revert holds, not iterate further.
-        s = self._series([10.0, 10.0, 30.0, 10.0, 10.0, 10.0])
-        events = detect_round_trips(s, window_days=3)
+        close, dates = self._sd([10.0, 10.0, 30.0, 10.0, 10.0, 10.0])
+        events = detect_round_trips(close, dates, window_days=3)
         assert len(events) == 1
         assert events[0]["days_to_revert"] == 1
 
@@ -351,11 +372,11 @@ class TestDetectRoundTrips:
         # the previous SPIKE day's value (2.5), corrupting a legitimate
         # baseline into a phantom spike. After fixing, the revert day of a
         # prior event must not be re-flagged as a new jump-day.
-        s = self._series([1.0, 2.5, 1.0, 2.5, 1.0, 1.0])
-        events = detect_round_trips(s)
+        close, dates = self._sd([1.0, 2.5, 1.0, 2.5, 1.0, 1.0])
+        events = detect_round_trips(close, dates)
         # Expect exactly two events: the real spike days at index 1 and 3.
         # The trough at index 2 (revert of event 1) must NOT be flagged.
-        flagged_indices = [s.index.get_loc(ev["date"]) for ev in events]
+        flagged_indices = [dates.index(ev["date"]) for ev in events]
         assert (
             2 not in flagged_indices
         ), f"Revert day of prior event must not be re-flagged. Got indices: {flagged_indices}"
@@ -366,26 +387,26 @@ class TestDetectRoundTrips:
         # 0.375x baseline. None of the daily ratios alone trigger; only the
         # window-max check catches this pattern.
         # Series: baseline 8, 8, 8, then 11, 17, 22, then crash to 3.
-        s = self._series([8.0, 8.0, 8.0, 11.0, 17.0, 22.0, 3.0, 3.0])
-        events = detect_round_trips(s, window_days=5)
+        close, dates = self._sd([8.0, 8.0, 8.0, 11.0, 17.0, 22.0, 3.0, 3.0])
+        events = detect_round_trips(close, dates, window_days=5)
         assert len(events) == 1
         ev = events[0]
         assert ev["direction"] == "up"
         # Spike starts at index 3 (first day above baseline), peaks at index 5,
         # reverts at index 6. days_to_revert measures revert minus spike-start.
-        assert s.index.get_loc(ev["date"]) == 3
+        assert dates.index(ev["date"]) == 3
         assert ev["jump_price"] == 22.0
         assert ev["pre_price"] == 8.0
         assert ev["days_to_revert"] == 3
         # All three elevated days (3, 4, 5) are smoothed; the revert day (6) is not.
-        smoothed_positions = [s.index.get_loc(d) for d in ev["smoothed_dates"]]
+        smoothed_positions = [dates.index(d) for d in ev["smoothed_dates"]]
         assert smoothed_positions == [3, 4, 5]
 
     def test_leaves_durable_bull_move_alone(self):
         # 3x climb that *stays* elevated (no revert within window) — exactly the
         # legitimate bull move the multi-day detector must not touch.
-        s = self._series([10.0, 11.0, 17.0, 22.0, 25.0, 30.0, 28.0, 32.0])
-        events = detect_round_trips(s, window_days=7)
+        close, dates = self._sd([10.0, 11.0, 17.0, 22.0, 25.0, 30.0, 28.0, 32.0])
+        events = detect_round_trips(close, dates, window_days=7)
         assert events == []
 
     def test_picks_earlier_extremum_when_pump_then_crash(self):
@@ -393,8 +414,8 @@ class TestDetectRoundTrips:
         # then crash, RAVE-shape), prefer the one whose extremum comes first.
         # The up-pump must be the primary event so the elevated days are smoothed,
         # not the crash day.
-        s = self._series([10.0, 25.0, 30.0, 5.0, 8.0, 10.0])
-        events = detect_round_trips(s, window_days=5)
+        close, dates = self._sd([10.0, 25.0, 30.0, 5.0, 8.0, 10.0])
+        events = detect_round_trips(close, dates, window_days=5)
         assert len(events) == 1
         assert events[0]["direction"] == "up"
 
@@ -411,12 +432,12 @@ class TestDetectRoundTrips:
         # walks backwards from the extremum and stops at the first day NOT
         # on the spike side of p_pre, so idx 3 (and the days before it) are
         # excluded from the smoothing span.
-        s = self._series([10.0, 12.0, 11.0, 9.0, 14.0, 50.0, 8.0, 10.0])
-        events = detect_round_trips(s, window_days=7)
+        close, dates = self._sd([10.0, 12.0, 11.0, 9.0, 14.0, 50.0, 8.0, 10.0])
+        events = detect_round_trips(close, dates, window_days=7)
         assert len(events) == 1
         ev = events[0]
         assert ev["direction"] == "up"
-        smoothed_positions = sorted(s.index.get_loc(d) for d in ev["smoothed_dates"])
+        smoothed_positions = sorted(dates.index(d) for d in ev["smoothed_dates"])
         # idx 3 (value 9) is below p_pre and must not be smoothed — smoothing
         # it would overwrite a legitimate slightly-below-baseline value with
         # p_pre, corrupting the close series.
@@ -438,18 +459,18 @@ class TestApplyRoundTripCorrectionsToDataFrame:
     """Tests for DataFrame-level round-trip smoothing."""
 
     def test_smooths_spike_day_to_prior_close(self):
-        dates = pd.date_range("2024-01-01", periods=6, freq="D")
-        df = pd.DataFrame(
+        dates = _daterange(6)
+        df = pl.DataFrame(
             {
+                "date": dates,
                 "siren": [11.0, 11.0, 11.0, 27.0, 10.0, 10.0],
                 "eth": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
-            },
-            index=dates,
+            }
         )
         corrected, events = apply_round_trip_corrections_to_dataframe(df)
 
         # SIREN spike day should be replaced with prior close.
-        assert corrected.loc[dates[3], "siren"] == 11.0
+        assert corrected["siren"][3] == 11.0
         # ETH untouched.
         assert (corrected["eth"] == df["eth"]).all()
         # Event recorded for SIREN only.
@@ -460,33 +481,38 @@ class TestApplyRoundTripCorrectionsToDataFrame:
         assert ev["corrected"] == 11.0
 
     def test_no_corrections_on_clean_data(self):
-        dates = pd.date_range("2024-01-01", periods=10, freq="D")
-        df = pd.DataFrame(
-            {"eth": np.linspace(100, 110, 10), "sol": np.linspace(20, 22, 10)},
-            index=dates,
+        dates = _daterange(10)
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                "eth": list(np.linspace(100, 110, 10)),
+                "sol": list(np.linspace(20, 22, 10)),
+            }
         )
         corrected, events = apply_round_trip_corrections_to_dataframe(df)
         assert events == []
-        pd.testing.assert_frame_equal(corrected, df)
+        assert_frame_equal(corrected, df)
 
     def test_original_dataframe_unchanged(self):
-        dates = pd.date_range("2024-01-01", periods=6, freq="D")
-        df = pd.DataFrame(
-            {"siren": [11.0, 11.0, 11.0, 27.0, 10.0, 10.0]},
-            index=dates,
+        dates = _daterange(6)
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                "siren": [11.0, 11.0, 11.0, 27.0, 10.0, 10.0],
+            }
         )
-        original = df.copy()
+        original = df.clone()
         apply_round_trip_corrections_to_dataframe(df)
-        pd.testing.assert_frame_equal(df, original)
+        assert_frame_equal(df, original)
 
     def test_corrections_sorted_by_jump_magnitude(self):
-        dates = pd.date_range("2024-01-01", periods=8, freq="D")
-        df = pd.DataFrame(
+        dates = _daterange(8)
+        df = pl.DataFrame(
             {
+                "date": dates,
                 "a": [10.0, 10.0, 10.0, 25.0, 10.0, 10.0, 10.0, 10.0],  # 2.5x
                 "b": [10.0, 10.0, 10.0, 100.0, 10.0, 10.0, 10.0, 10.0],  # 10x
-            },
-            index=dates,
+            }
         )
         _, events = apply_round_trip_corrections_to_dataframe(df)
         assert len(events) == 2
@@ -498,19 +524,21 @@ class TestApplyRoundTripCorrectionsToDataFrame:
         # RAVE-shape multi-day pump: every elevated day should be smoothed to
         # the pre-spike baseline (8), not just the peak day. The revert day
         # itself remains untouched.
-        dates = pd.date_range("2024-01-01", periods=8, freq="D")
-        df = pd.DataFrame(
-            {"rave": [8.0, 8.0, 8.0, 11.0, 17.0, 22.0, 3.0, 3.0]},
-            index=dates,
+        dates = _daterange(8)
+        df = pl.DataFrame(
+            {
+                "date": dates,
+                "rave": [8.0, 8.0, 8.0, 11.0, 17.0, 22.0, 3.0, 3.0],
+            }
         )
         corrected, events = apply_round_trip_corrections_to_dataframe(df, window_days=5)
         # All three elevated days collapse to baseline 8.0.
-        assert corrected.loc[dates[3], "rave"] == 8.0
-        assert corrected.loc[dates[4], "rave"] == 8.0
-        assert corrected.loc[dates[5], "rave"] == 8.0
+        assert corrected["rave"][3] == 8.0
+        assert corrected["rave"][4] == 8.0
+        assert corrected["rave"][5] == 8.0
         # Revert day (3.0) and trailing baseline untouched.
-        assert corrected.loc[dates[6], "rave"] == 3.0
-        assert corrected.loc[dates[7], "rave"] == 3.0
+        assert corrected["rave"][6] == 3.0
+        assert corrected["rave"][7] == 3.0
         # Three smoothing records, one per elevated day, all from the same event.
         assert len(events) == 3
         assert all(ev["coin"] == "RAVE" for ev in events)

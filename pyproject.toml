@@ -16,13 +16,11 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.14"
-pandas = "^3.0"
+polars = "^1.20"
 numpy = "^2.5"
-scipy = "^1.18"
 plotly = "^6.8"
 requests = "^2.34"
 tqdm = "^4.68"
-pyarrow = "^24.0"
 tenacity = "^9.1"
 jinja2 = "^3.1.6"
 
@@ -78,7 +76,7 @@ python_version = "3.14"
 mypy_path = "src"
 explicit_package_bases = true
 namespace_packages = true
-# Third-party libs (pandas, plotly, scipy, …) ship partial or no stubs.
+# Third-party libs (polars, plotly, …) ship partial or no stubs.
 ignore_missing_imports = true
 # Lenient by design: type the public surface, don't force annotations everywhere.
 warn_unused_ignores = true

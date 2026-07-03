@@ -10,8 +10,8 @@ Creates interactive Plotly charts for:
 from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
 import plotly.graph_objects as go
+import polars as pl
 from plotly.subplots import make_subplots
 
 from config import (
@@ -25,13 +25,8 @@ from config import (
     TOTAL2_INDEX_FILE,
 )
 from data.cache import PriceDataCache
-from visualization._layout import (
-    _get_base_css,
-    _get_footer_css,
-    _get_footer_html,
-    _get_header_css,
-    _get_header_html,
-)
+from data.coin_metadata import CoinMetadataResolver
+from visualization._layout import render_chart_page
 
 # =============================================================================
 # Color Palettes - High contrast on dark background (#0d1117)
@@ -76,75 +71,13 @@ LINE_DASH_STYLES = [
 # =============================================================================
 
 
-def _get_page_template(title: str, chart_html: str, back_link: str = "../index.html") -> str:
-    """
-    Wrap a Plotly chart in a page template with minimal header.
-
-    Uses shared CSS and HTML components for consistency across all pages.
-
-    Args:
-        title: Page title for the browser tab
-        chart_html: The Plotly chart HTML content
-        back_link: Link for the back arrow (default: ../index.html)
-
-    Returns:
-        Complete HTML page with minimal header, chart, and footer
-    """
-    base_css = _get_base_css()
-    header_css = _get_header_css()
-    footer_css = _get_footer_css()
-    header_html = _get_header_html(back_link)
-    footer_html = _get_footer_html()
-
-    chart_css = """
-        .chart-container {
-            width: 100%;
-            padding: 0.75rem;
-        }
-
-        @media (max-width: 768px) {
-            header h1 {
-                font-size: 0.9rem;
-            }
-            header {
-                padding: 0.4rem 1rem;
-            }
-        }
-    """
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title} - Halvix</title>
-    <style>
-        {base_css}
-        {header_css}
-        {footer_css}
-        {chart_css}
-    </style>
-</head>
-<body>
-    {header_html}
-
-    <div class="chart-container">
-        {chart_html}
-    </div>
-
-    {footer_html}
-</body>
-</html>
-"""
-
-
 def _write_chart_with_template(
     fig: go.Figure,
     output_path: Path,
     title: str,
 ) -> None:
     """
-    Write a Plotly figure to HTML with a page template wrapper.
+    Write a Plotly figure to HTML with the shared chart-page wrapper.
 
     Args:
         fig: Plotly figure to save
@@ -157,9 +90,7 @@ def _write_chart_with_template(
         include_plotlyjs="cdn",
         config={"responsive": True},
     )
-    # Wrap in page template
-    full_html = _get_page_template(title, chart_html)
-    # Write to file
+    full_html = render_chart_page(title, chart_html)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(full_html)
@@ -214,18 +145,18 @@ def _add_cycle_extremes_lines(
 
 
 def get_cycle_data(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     halving_date: date,
     price_col: str = "close",
     days_before: int = DAYS_BEFORE_HALVING,
     days_after: int = DAYS_AFTER_HALVING,
     normalize: bool = False,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """
     Extract data for a halving cycle and normalize to days from halving.
 
     Args:
-        df: DataFrame with DatetimeIndex
+        df: DataFrame with a ``date`` column
         halving_date: The halving date for this cycle
         price_col: Column name for price data
         days_before: Days before halving to include
@@ -238,26 +169,24 @@ def get_cycle_data(
     start = halving_date - timedelta(days=days_before)
     end = halving_date + timedelta(days=days_after)
 
-    # Filter to cycle range
-    mask = (df.index.date >= start) & (df.index.date <= end)
-    cycle_df = df[mask].copy()
-
-    if cycle_df.empty:
+    cycle_df = df.filter((pl.col("date") >= start) & (pl.col("date") <= end))
+    if cycle_df.is_empty():
         return cycle_df
 
-    # Add days from halving
-    cycle_df["days_from_halving"] = (
-        (cycle_df.index.date - halving_date).astype("timedelta64[D]").astype(int)
+    # Integer days from the halving date.
+    cycle_df = cycle_df.with_columns(
+        (pl.col("date") - halving_date).dt.total_days().cast(pl.Int64).alias("days_from_halving")
     )
 
     if normalize and price_col in cycle_df.columns:
-        # Find the value at day 0 (halving day) or closest day after
-        halving_mask = cycle_df["days_from_halving"] >= 0
-        if halving_mask.any():
-            first_day = cycle_df[halving_mask].iloc[0]
-            halving_value = first_day[price_col]
-            if halving_value > 0:
-                cycle_df["normalized"] = cycle_df[price_col] / halving_value
+        # Value at day 0 (halving day) or the closest day after.
+        after = cycle_df.filter(pl.col("days_from_halving") >= 0)
+        if not after.is_empty():
+            halving_value = after[price_col][0]
+            if halving_value is not None and halving_value > 0:
+                cycle_df = cycle_df.with_columns(
+                    (pl.col(price_col) / halving_value).alias("normalized")
+                )
 
     return cycle_df
 
@@ -279,7 +208,7 @@ def create_btc_combined_chart(
     cache = PriceDataCache()
     btc_df = cache.get_prices("btc", "USD")
 
-    if btc_df is None or btc_df.empty:
+    if btc_df is None or btc_df.is_empty():
         raise FileNotFoundError("BTC-USD price data not found. Run fetch-prices first.")
 
     # Create figure with 2 rows
@@ -299,23 +228,20 @@ def create_btc_combined_chart(
         cycle_num = i + 1
         cycle_df = get_cycle_data(btc_df, halving_date, price_col="close", normalize=True)
 
-        if cycle_df.empty or "normalized" not in cycle_df.columns:
+        if cycle_df.is_empty() or "normalized" not in cycle_df.columns:
             continue
 
         # Get actual halving price for hover
-        halving_mask = cycle_df["days_from_halving"] >= 0
-        if halving_mask.any():
-            halving_price = cycle_df[halving_mask].iloc[0]["close"]
-        else:
-            halving_price = 0
+        after = cycle_df.filter(pl.col("days_from_halving") >= 0)
+        halving_price = after["close"][0] if not after.is_empty() else 0
 
         # Format dates for hover
-        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df.index]
+        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df["date"]]
 
         fig.add_trace(
             go.Scatter(
-                x=cycle_df["days_from_halving"],
-                y=cycle_df["normalized"],
+                x=cycle_df["days_from_halving"].to_list(),
+                y=cycle_df["normalized"].to_list(),
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
                 line={"color": BTC_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
@@ -338,16 +264,16 @@ def create_btc_combined_chart(
         cycle_num = i + 1
         cycle_df = get_cycle_data(btc_df, halving_date, price_col="close")
 
-        if cycle_df.empty:
+        if cycle_df.is_empty():
             continue
 
         # Format dates for hover
-        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df.index]
+        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df["date"]]
 
         fig.add_trace(
             go.Scatter(
-                x=cycle_df["days_from_halving"],
-                y=cycle_df["close"],
+                x=cycle_df["days_from_halving"].to_list(),
+                y=cycle_df["close"].to_list(),
                 mode="lines",
                 name=f"Cycle {cycle_num} ({halving_date.year})",
                 line={"color": BTC_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
@@ -460,19 +386,24 @@ def create_total2_combined_chart(
     if not TOTAL2_INDEX_FILE.exists():
         raise FileNotFoundError("TOTAL2 index not found. Run calculate-total2 first.")
 
-    total2_btc_df = pd.read_parquet(TOTAL2_INDEX_FILE)
+    total2_btc_df = pl.read_parquet(TOTAL2_INDEX_FILE).with_columns(pl.col("date").cast(pl.Date))
 
     # Load BTC-USD for conversion
     cache = PriceDataCache()
     btc_usd_df = cache.get_prices("btc", "USD")
 
-    if btc_usd_df is None or btc_usd_df.empty:
+    if btc_usd_df is None or btc_usd_df.is_empty():
         raise FileNotFoundError("BTC-USD price data not found. Run fetch-prices first.")
 
-    # Calculate TOTAL2 in USD
-    total2_usd_df = total2_btc_df.copy()
-    btc_usd_aligned = btc_usd_df["close"].reindex(total2_usd_df.index)
-    total2_usd_df["total2_usd"] = total2_usd_df["total2_price"] * btc_usd_aligned
+    # Calculate TOTAL2 in USD (align BTC-USD onto the index dates via a join).
+    total2_usd_df = total2_btc_df.join(
+        btc_usd_df.select("date", pl.col("close").alias("btc_usd")), on="date", how="left"
+    ).with_columns((pl.col("total2_price") * pl.col("btc_usd")).alias("total2_usd"))
+
+    # One date → coin_count lookup for the hover customdata below.
+    coin_count_by_date = dict(
+        zip(total2_btc_df["date"].to_list(), total2_btc_df["coin_count"].to_list(), strict=True)
+    )
 
     # Create figure with 2 rows
     fig = make_subplots(
@@ -498,16 +429,15 @@ def create_total2_combined_chart(
         cycle_usd = get_cycle_data(
             total2_usd_df, halving_date, price_col="total2_usd", normalize=True
         )
-        if not cycle_usd.empty and "normalized" in cycle_usd.columns:
+        if not cycle_usd.is_empty() and "normalized" in cycle_usd.columns:
             # Build customdata with date and coin_count
             customdata_usd = [
-                [d.strftime("%Y-%m-%d"), int(total2_usd_df.loc[d, "coin_count"])]
-                for d in cycle_usd.index
+                [d.strftime("%Y-%m-%d"), int(coin_count_by_date[d])] for d in cycle_usd["date"]
             ]
             fig.add_trace(
                 go.Scatter(
-                    x=cycle_usd["days_from_halving"],
-                    y=cycle_usd["normalized"],
+                    x=cycle_usd["days_from_halving"].to_list(),
+                    y=cycle_usd["normalized"].to_list(),
                     mode="lines",
                     name=f"Cycle {cycle_num} ({halving_date.year})",
                     line={"color": TOTAL2_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
@@ -527,16 +457,15 @@ def create_total2_combined_chart(
 
         # Row 2: BTC absolute
         cycle_abs = get_cycle_data(total2_btc_df, halving_date, price_col="total2_price")
-        if not cycle_abs.empty:
+        if not cycle_abs.is_empty():
             # Build customdata with date and coin_count
             customdata_abs = [
-                [d.strftime("%Y-%m-%d"), int(total2_btc_df.loc[d, "coin_count"])]
-                for d in cycle_abs.index
+                [d.strftime("%Y-%m-%d"), int(coin_count_by_date[d])] for d in cycle_abs["date"]
             ]
             fig.add_trace(
                 go.Scatter(
-                    x=cycle_abs["days_from_halving"],
-                    y=cycle_abs["total2_price"],
+                    x=cycle_abs["days_from_halving"].to_list(),
+                    y=cycle_abs["total2_price"].to_list(),
                     mode="lines",
                     name=f"Cycle {cycle_num} ({halving_date.year})",
                     line={"color": TOTAL2_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
@@ -652,10 +581,12 @@ def create_composition_viewer_html(
     if not TOTAL2_COMPOSITION_FILE.exists():
         raise FileNotFoundError("TOTAL2 composition not found. Run calculate-total2 first.")
 
-    composition_df = pd.read_parquet(TOTAL2_COMPOSITION_FILE)
+    composition_df = pl.read_parquet(TOTAL2_COMPOSITION_FILE).with_columns(
+        pl.col("date").cast(pl.Date)
+    )
 
     # Get unique dates and group by month
-    dates = sorted(composition_df["date"].unique())
+    dates = sorted(composition_df["date"].unique().to_list())
 
     def get_month_key(d: date) -> str:
         """Get month key like '2024_01' from a date."""
@@ -705,8 +636,14 @@ def create_composition_viewer_html(
     # Get all unique months
     months = sorted({get_month_key(d) for d in dates})
 
-    # Load TOTAL2 index for displaying values
-    total2_df = pd.read_parquet(TOTAL2_INDEX_FILE)
+    # Load TOTAL2 index for displaying values (date → total2_price lookup).
+    total2_df = pl.read_parquet(TOTAL2_INDEX_FILE).with_columns(pl.col("date").cast(pl.Date))
+    total2_by_date = dict(
+        zip(total2_df["date"].to_list(), total2_df["total2_price"].to_list(), strict=True)
+    )
+
+    # Resolve parquet stems to display tickers (e.g. "tag-2" -> "TAG")
+    resolver = CoinMetadataResolver()
 
     # Build month navigation table (shared across all pages)
     years_in_nav = sorted({m.split("_")[0] for m in months})
@@ -747,53 +684,30 @@ def create_composition_viewer_html(
         # Also include previous month's last day for cross-month comparison
         composition_by_date = {}
 
-        # Add previous month's last day if available (for comparison only)
-        if prev_month_last_day is not None:
-            dt = prev_month_last_day
-            day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
-            total2_value = None
-            if dt in total2_df.index:
-                total2_value = float(total2_df.loc[dt, "total2_price"])
-            elif hasattr(dt, "date") and pd.Timestamp(dt.date()) in total2_df.index:
-                total2_value = float(total2_df.loc[pd.Timestamp(dt.date()), "total2_price"])
-
-            composition_by_date[str(dt)] = {
-                "total2_value": total2_value,
+        def _day_entry(dt: date) -> dict:
+            day_comp = composition_df.filter(pl.col("date") == dt).sort("rank")
+            t2 = total2_by_date.get(dt)
+            return {
+                "total2_value": float(t2) if t2 is not None else None,
                 "coins": [
                     {
                         "rank": int(row["rank"]),
-                        "coin_id": row["coin_id"].upper(),
+                        "coin_id": resolver.ticker(row["coin_id"]),
                         "volume": float(row["volume"]),
                         "weight": float(row["weight"]) * 100,
                         "price_btc": float(row["price_btc"]),
                     }
-                    for _, row in day_comp.iterrows()
+                    for row in day_comp.iter_rows(named=True)
                 ],
             }
+
+        # Add previous month's last day if available (for comparison only)
+        if prev_month_last_day is not None:
+            composition_by_date[str(prev_month_last_day)] = _day_entry(prev_month_last_day)
 
         # Add this month's dates
         for dt in month_dates:
-            day_comp = composition_df[composition_df["date"] == dt].sort_values("rank")
-            # Get TOTAL2 value for this date
-            total2_value = None
-            if dt in total2_df.index:
-                total2_value = float(total2_df.loc[dt, "total2_price"])
-            elif hasattr(dt, "date") and pd.Timestamp(dt.date()) in total2_df.index:
-                total2_value = float(total2_df.loc[pd.Timestamp(dt.date()), "total2_price"])
-
-            composition_by_date[str(dt)] = {
-                "total2_value": total2_value,
-                "coins": [
-                    {
-                        "rank": int(row["rank"]),
-                        "coin_id": row["coin_id"].upper(),
-                        "volume": float(row["volume"]),
-                        "weight": float(row["weight"]) * 100,
-                        "price_btc": float(row["price_btc"]),
-                    }
-                    for _, row in day_comp.iterrows()
-                ],
-            }
+            composition_by_date[str(dt)] = _day_entry(dt)
 
         composition_json = json.dumps(composition_by_date)
 

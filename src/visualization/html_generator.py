@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 from config import (
     COINS_TO_DOWNLOAD_JSON,
@@ -24,8 +24,8 @@ from config import (
     PROJECT_ROOT,
     TOP_N_BY_MARKETCAP_TO_FETCH,
     TOTAL2_MAX_WEIGHT_CHANGE_FILE,
-    coin_url,
 )
+from data.coin_metadata import CoinMetadataResolver
 from utils.logging import get_logger
 from visualization._layout import _get_footer_css, _get_footer_html
 from visualization.templates import render_template
@@ -67,7 +67,7 @@ def _load_csv_with_schema(
                                 for i, key in enumerate(schema)
                             }
                         )
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.warning("Failed to load %s: %s", filepath, e)
     return coins
 
@@ -150,8 +150,7 @@ class HtmlGenerator:
         if not NO_USD_DATA_CSV.exists():
             return []
         try:
-            df = pd.read_csv(NO_USD_DATA_CSV)
-            return df.to_dict("records")
+            return pl.read_csv(NO_USD_DATA_CSV).to_dicts()
         except Exception as e:
             logger.warning(f"Failed to load no-USD data coins from {NO_USD_DATA_CSV}: {e}")
             return []
@@ -190,27 +189,18 @@ class HtmlGenerator:
             return summaries
 
         for parquet_file in sorted(PRICES_DIR.glob("*.parquet")):
-            filename = parquet_file.stem
-
-            # Handle pair-based filenames (e.g., eth-btc.parquet)
-            if "-" in filename:
-                parts = filename.rsplit("-", 1)
-                if len(parts) == 2:
-                    coin_id, quote = parts
-                    quote = quote.upper()
-                else:
-                    coin_id = filename
-                    quote = "BTC"
-            else:
-                # Legacy format - assume BTC quote
-                coin_id = filename
-                quote = "BTC"
+            # Pair-based filenames (e.g. eth-btc.parquet); multi-part stems
+            # (tag-2-btc) split on the last "-".
+            coin_id, _, quote = parquet_file.stem.rpartition("-")
+            if not coin_id:
+                continue
+            quote = quote.upper()
 
             try:
-                df = pd.read_parquet(parquet_file)
-                if not df.empty:
-                    start_date = df.index.min()
-                    end_date = df.index.max()
+                df = pl.read_parquet(parquet_file, columns=["date"])
+                if not df.is_empty():
+                    start_date = df["date"].min()
+                    end_date = df["date"].max()
 
                     if coin_id not in summaries:
                         summaries[coin_id] = {
@@ -218,7 +208,7 @@ class HtmlGenerator:
                             "quotes": [],
                             "start_date": start_date.strftime("%Y-%m-%d"),
                             "end_date": end_date.strftime("%Y-%m-%d"),
-                            "days": len(df),
+                            "days": df.height,
                         }
 
                     # Add this quote to the list
@@ -252,16 +242,11 @@ class HtmlGenerator:
         coins_no_usd = fetch_metadata.get("coins_no_usd_data", 0)
         coins_no_usd_accepted = fetch_metadata.get("coins_no_usd_accepted", 0)
         # "Downloaded" is driven by the ACTUAL price parquets (price_summaries is
-        # keyed by parquet stem), joined to coins_to_download metadata by id then
-        # by symbol. The cross-provider registry renames some parquets so the stem
-        # no longer equals the coin's native id; matching coins_to_download.id to
-        # stems (the old logic) therefore under-counted, and dropped to 0 on daily
-        # runs whose regenerated coin list didn't share ids with the cached stems.
-        ctd_by_id = {c["id"].lower(): c for c in coins_to_download if c.get("id")}
-        ctd_by_symbol = {c["symbol"].lower(): c for c in coins_to_download if c.get("symbol")}
-
-        def _meta_for(stem: str) -> dict:
-            return ctd_by_id.get(stem) or ctd_by_symbol.get(stem) or {}
+        # keyed by parquet stem). The resolver maps each stem back to its coin via
+        # the cross-provider registry (which renames some parquets, so the stem no
+        # longer equals the coin's native id) and yields the display ticker, name
+        # and direct CoinGecko link.
+        resolver = CoinMetadataResolver(coins=coins_to_download)
 
         coins_with_data = len(price_summaries)
         total_accepted = fetch_metadata.get("coins_accepted") or coins_with_data
@@ -274,8 +259,8 @@ class HtmlGenerator:
         stems_sorted = sorted(
             price_summaries.keys(),
             key=lambda s: (
-                not _meta_for(s).get("has_usd_data", True),
-                -_meta_for(s).get("market_cap", 0),
+                not resolver.coin(s).get("has_usd_data", True),
+                -resolver.coin(s).get("market_cap", 0),
             ),
         )
 
@@ -283,17 +268,17 @@ class HtmlGenerator:
         coins_sorted = []
         for stem in stems_sorted:
             price_info = price_summaries[stem]
-            coin = _meta_for(stem)
+            coin = resolver.coin(stem)
+            meta = resolver.resolve(stem)
             has_usd_data = coin.get("has_usd_data", True)
             market_cap = coin.get("market_cap", 0)
-            symbol = coin.get("symbol") or stem.upper()
             quotes = price_info.get("quotes", [])
 
             coins_sorted.append(
                 {
-                    "symbol": symbol,
-                    "name": coin.get("name") or stem.upper(),
-                    "url": coin_url(symbol, coin.get("provider_id")),
+                    "symbol": meta.ticker,
+                    "name": meta.name,
+                    "url": meta.url,
                     "source_str": (
                         "USD"
                         if has_usd_data

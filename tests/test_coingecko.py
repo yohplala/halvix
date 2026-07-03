@@ -7,6 +7,7 @@ Network calls are mocked; a single optional live test is skipped by default.
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
+import polars as pl
 import pytest
 
 from api import get_price_provider
@@ -143,13 +144,20 @@ class TestResampling:
         ]
         df = CoinGeckoClient._to_daily_ohlcv(prices, volumes)
 
-        assert list(df.columns) == ["open", "high", "low", "close", "volume_from", "volume_to"]
-        assert df.index.tz is None
-        row1 = df.loc["2025-01-01"]
+        assert list(df.columns) == [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume_from",
+            "volume_to",
+        ]
+        row1 = df.filter(pl.col("date") == date(2025, 1, 1)).row(0, named=True)
         assert (row1["open"], row1["high"], row1["low"], row1["close"]) == (10, 15, 10, 12)
         assert row1["volume_to"] == 130.0  # last reading of the day
         assert row1["volume_from"] == pytest.approx(130.0 / 12.0)
-        row2 = df.loc["2025-01-02"]
+        row2 = df.filter(pl.col("date") == date(2025, 1, 2)).row(0, named=True)
         assert row2["close"] == 25.0 and row2["volume_to"] == 250.0
 
     def test_empty_prices_returns_empty_frame(self):
@@ -158,7 +166,7 @@ class TestResampling:
         ):
             client = CoinGeckoClient()
             df = client.get_full_daily_history("ETH", "BTC", provider_id="ethereum")
-        assert df.empty
+        assert df.is_empty()
 
 
 class TestRequestSizing:
@@ -212,7 +220,7 @@ class TestHistoryWindow:
                 "ETH", "BTC", start_date=today - timedelta(days=2), provider_id="ethereum"
             )
 
-        got = {d.date() for d in df.index}
+        got = set(df["date"].to_list())
         assert today not in got  # incomplete current day dropped
         assert min(got) >= today - timedelta(days=2)  # honours start_date
         assert max(got) == today - timedelta(days=1)

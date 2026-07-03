@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, cast, overload
 
 import numpy as np
-import pandas as pd
+import polars as pl
 from tqdm import tqdm
 
 from analysis.filters import CoinFilter
@@ -355,11 +355,12 @@ class DataFetcher:
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
         if coins:
-            df = pd.DataFrame(coins)
-            df.to_csv(NO_USD_DATA_CSV, index=False)
+            pl.DataFrame(coins).write_csv(NO_USD_DATA_CSV)
         else:
             # Write empty CSV with headers
-            pd.DataFrame(columns=["symbol", "name", "rank"]).to_csv(NO_USD_DATA_CSV, index=False)
+            pl.DataFrame(schema={"symbol": pl.Utf8, "name": pl.Utf8, "rank": pl.Int64}).write_csv(
+                NO_USD_DATA_CSV
+            )
 
         return NO_USD_DATA_CSV
 
@@ -452,8 +453,8 @@ class DataFetcher:
         self,
         coin_id: str,
         vs_currency: str,
-        cached: pd.DataFrame,
-        new_data: pd.DataFrame,
+        cached: pl.DataFrame,
+        new_data: pl.DataFrame,
     ) -> bool:
         """
         Verify the provider matches the cached history before splicing.
@@ -468,18 +469,25 @@ class DataFetcher:
         top-up is skipped and recorded in ``splice_mismatches`` so cached history
         is not corrupted. Returns True if it is safe to splice.
         """
-        overlap = new_data.index.intersection(cached.index)
-        if len(overlap) == 0:
+        # Align the two series over their overlapping days via a date join.
+        overlap = cached.select("date", pl.col("close").alias("old")).join(
+            new_data.select("date", pl.col("close").alias("new")), on="date", how="inner"
+        )
+        if overlap.is_empty():
             return True  # nothing to compare (provider lacks the overlap)
 
-        old = pd.to_numeric(cached.loc[overlap, "close"], errors="coerce")
-        new = pd.to_numeric(new_data.loc[overlap, "close"], errors="coerce")
-        valid = (old > 0) & (new > 0) & old.notna() & new.notna()
-        old, new = old[valid], new[valid]
-        if old.empty:
+        overlap = overlap.filter(
+            (pl.col("old") > 0)
+            & (pl.col("new") > 0)
+            & pl.col("old").is_not_null()
+            & pl.col("new").is_not_null()
+        )
+        if overlap.is_empty():
             return True
+        old = overlap["old"].to_numpy()
+        new = overlap["new"].to_numpy()
 
-        log_ratio = np.log(new.to_numpy() / old.to_numpy())
+        log_ratio = np.log(new / old)
         median_ratio = float(np.exp(np.median(log_ratio)))
         ratio_std = float(np.std(log_ratio)) if len(log_ratio) >= SPLICE_MIN_OVERLAP_DAYS else 0.0
 
@@ -630,7 +638,7 @@ class DataFetcher:
         provider: str | None = None,
         native_id: str | None = None,
         stem: str | None = None,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """
         Fetch historical price data for a single coin-pair.
 
@@ -675,7 +683,7 @@ class DataFetcher:
         # Skip BTC-BTC pair - it doesn't make sense (BTC priced in BTC = 1.0)
         if coin_id.lower() == "btc" and vs_currency == "BTC":
             logger.debug("Skipping BTC-BTC pair (doesn't make sense)")
-            return pd.DataFrame()
+            return pl.DataFrame()
 
         # Calculate end date (yesterday for complete data)
         yesterday = date.today() - timedelta(days=1)
@@ -685,8 +693,8 @@ class DataFetcher:
         if use_cache and incremental:
             cached = self.price_cache.get_prices(stem, vs_currency)
 
-            if cached is not None and not cached.empty:
-                last_cached_date = cached.index.max().date()
+            if cached is not None and not cached.is_empty():
+                last_cached_date = cached["date"].max()
 
                 # If cache is up to date, return it. (Identity is left
                 # unregistered here: a fresh cache offers no overlap to confirm
@@ -713,37 +721,39 @@ class DataFetcher:
                         provider_id=provider_id,
                     )
 
-                    if new_data.empty:
+                    if new_data.is_empty():
                         return cached
 
-                    new_rows = new_data[new_data.index > cached.index.max()]
-                    if new_rows.empty:
+                    new_rows = new_data.filter(pl.col("date") > last_cached_date)
+                    if new_rows.is_empty():
                         return cached
 
                     # Refuse to splice unless the new data both OVERLAPS the cache
                     # (so price equivalence can be verified) and CONNECTS to it
                     # without a gap. Truncated provider responses (common on the
                     # keyless tier) otherwise create gaps or unverified splices.
-                    overlap = new_data.index.intersection(cached.index)
-                    gap_days = (new_rows.index.min().date() - last_cached_date).days
-                    if len(overlap) == 0 or gap_days > SPLICE_MAX_GAP_DAYS:
-                        why = "no overlap to verify" if len(overlap) == 0 else f"{gap_days}-day gap"
+                    overlap_days = new_data.join(
+                        cached.select("date"), on="date", how="semi"
+                    ).height
+                    gap_days = (new_rows["date"].min() - last_cached_date).days
+                    if overlap_days == 0 or gap_days > SPLICE_MAX_GAP_DAYS:
+                        why = "no overlap to verify" if overlap_days == 0 else f"{gap_days}-day gap"
                         logger.warning(
                             "Skipping %s/%s top-up (%s): provider window %s..%s does not safely "
                             "connect to cached history ending %s.",
                             coin_id.upper(),
                             vs_currency,
                             why,
-                            new_data.index.min().date(),
-                            new_data.index.max().date(),
+                            new_data["date"].min(),
+                            new_data["date"].max(),
                             last_cached_date,
                         )
                         self.splice_mismatches.append(
                             {
                                 "id": stem,
                                 "vs_currency": vs_currency,
-                                "reason": "no_overlap" if len(overlap) == 0 else "gap",
-                                "overlap_days": int(len(overlap)),
+                                "reason": "no_overlap" if overlap_days == 0 else "gap",
+                                "overlap_days": int(overlap_days),
                                 "gap_days": int(gap_days),
                             }
                         )
@@ -774,9 +784,13 @@ class DataFetcher:
                         return cached
 
                     # Append only strictly-newer rows; never overwrite cached
-                    # historical values (keep="first" would, so we slice instead).
-                    combined = pd.concat([cached, new_rows]).sort_index()
-                    combined = combined[~combined.index.duplicated(keep="last")]
+                    # historical values. new_rows are strictly past the cache end,
+                    # so the frames are disjoint — align columns then concat.
+                    combined = (
+                        pl.concat([cached, new_rows.select(cached.columns)])
+                        .unique(subset="date", keep="last")
+                        .sort("date")
+                    )
                     self.price_cache.set_prices(stem, combined, vs_currency)
                     # Verified same asset over the overlap → bind identity → stem.
                     self._register_identity(provider, native_id, stem)
@@ -798,7 +812,7 @@ class DataFetcher:
             )
 
             # Cache the result
-            if not df.empty:
+            if not df.is_empty():
                 self.price_cache.set_prices(stem, df, vs_currency)
                 # We created (or own) this stem → bind the identity to it.
                 self._register_identity(provider, native_id, stem)
@@ -807,7 +821,7 @@ class DataFetcher:
 
         except PriceProviderError:
             # Return empty DataFrame on error
-            return pd.DataFrame()
+            return pl.DataFrame()
 
     def fetch_all_prices(
         self,
@@ -816,7 +830,7 @@ class DataFetcher:
         use_cache: bool = True,
         incremental: bool = True,
         show_progress: bool = True,
-    ) -> dict[str, dict[str, pd.DataFrame]]:
+    ) -> dict[str, dict[str, pl.DataFrame]]:
         """
         Fetch price data for all accepted coins against multiple quote currencies.
 
@@ -851,7 +865,7 @@ class DataFetcher:
         self._bootstrap_registry()
         self._apply_identity_seed()
 
-        results: dict[str, dict[str, pd.DataFrame]] = {}
+        results: dict[str, dict[str, pl.DataFrame]] = {}
         errors = []
 
         # Calculate total iterations for progress bar
@@ -892,7 +906,7 @@ class DataFetcher:
                         stem=stem,
                     )
 
-                    if not df.empty:
+                    if not df.is_empty():
                         results[coin_id][vs_currency] = df
 
                 except PriceProviderError as e:

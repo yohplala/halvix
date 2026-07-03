@@ -9,12 +9,13 @@ Tests cover:
 
 import json
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from api.cryptocompare import Coin, CryptoCompareClient, CryptoCompareError
 from data.cache import FileCache, PriceDataCache
@@ -344,22 +345,20 @@ class TestDataFetcherPrices:
     @pytest.fixture
     def sample_price_df(self):
         """Sample price DataFrame as returned by CryptoCompare."""
-        from datetime import date, timedelta
-
         # Use dates ending at yesterday so cache is considered "up to date"
         # This prevents incremental fetching from triggering additional API calls
         yesterday = date.today() - timedelta(days=1)
-        dates = pd.date_range(end=yesterday, periods=3, freq="D")
-        return pd.DataFrame(
+        dates = [yesterday - timedelta(days=i) for i in range(2, -1, -1)]
+        return pl.DataFrame(
             {
+                "date": dates,
                 "close": [1.0, 1.1, 1.2],
                 "open": [0.9, 1.0, 1.1],
                 "high": [1.1, 1.2, 1.3],
                 "low": [0.8, 0.9, 1.0],
                 "volume_from": [50000, 55000, 60000],
                 "volume_to": [1000, 1100, 1200],
-            },
-            index=dates,
+            }
         )
 
     def test_fetch_coin_prices(self, temp_dirs, sample_price_df):
@@ -378,7 +377,7 @@ class TestDataFetcherPrices:
         # Use ETH instead of BTC (BTC-BTC pair is skipped as nonsensical)
         df = fetcher.fetch_coin_prices("eth", symbol="ETH", use_cache=False)
 
-        assert not df.empty
+        assert not df.is_empty()
         assert "close" in df.columns
         assert len(df) == 3
 
@@ -404,8 +403,7 @@ class TestDataFetcherPrices:
 
         # API should only be called once
         assert mock_client.get_full_daily_history.call_count == 1
-        # Check data equality (parquet may change index frequency metadata)
-        pd.testing.assert_frame_equal(df1.reset_index(drop=True), df2.reset_index(drop=True))
+        assert_frame_equal(df1, df2)
 
 
 class TestDataFetcherGetFilterSummary:
@@ -457,13 +455,13 @@ class TestDetectSymbolReplacementsByName:
 
     def _create_price_file(self, prices_dir, coin_id, vs_currency="btc"):
         """Create a dummy parquet price file."""
-        dates = pd.date_range("2024-01-01", periods=5, freq="D")
-        df = pd.DataFrame(
-            {"close": [1.0, 1.1, 1.2, 1.3, 1.4]},
-            index=dates,
+        dates = [date(2024, 1, 1) + timedelta(days=i) for i in range(5)]
+        df = pl.DataFrame(
+            {"date": dates, "close": [1.0, 1.1, 1.2, 1.3, 1.4]},
         )
+        prices_dir.mkdir(parents=True, exist_ok=True)
         filepath = prices_dir / f"{coin_id}-{vs_currency}.parquet"
-        df.to_parquet(filepath)
+        df.write_parquet(filepath)
         return filepath
 
     def test_no_previous_metadata(self, fetcher, temp_dirs):
@@ -615,8 +613,9 @@ class TestSpliceValidation:
 
     @staticmethod
     def _df(start, closes):
-        idx = pd.date_range(start, periods=len(closes), freq="D")
-        return pd.DataFrame({"close": closes}, index=idx)
+        y, m, d = (int(p) for p in start.split("-"))
+        dates = [date(y, m, d) + timedelta(days=i) for i in range(len(closes))]
+        return pl.DataFrame({"date": dates, "close": closes})
 
     def test_same_asset_allows_splice(self, fetcher):
         # Same asset: provider tracks cached proportionally (~1x, tiny wobble).
@@ -658,12 +657,12 @@ class TestSpliceValidation:
         price_cache.get_prices.return_value = cached
         fetcher = DataFetcher(client=client, price_cache=price_cache)
         # Pretend yesterday is well past the cache so a top-up is attempted.
-        fetcher.history_end_date = pd.Timestamp("2026-06-06").date()
+        fetcher.history_end_date = date(2026, 6, 6)
 
         out = fetcher.fetch_coin_prices("foo", "FOO", "BTC", provider_id="foo-token")
 
         # Returned cache unchanged; nothing written; mismatch recorded.
-        assert out.index.max().date().isoformat() == "2026-06-03"
+        assert out["date"].max().isoformat() == "2026-06-03"
         price_cache.set_prices.assert_not_called()
         assert len(fetcher.splice_mismatches) == 1
 
@@ -679,11 +678,11 @@ class TestSpliceValidation:
         price_cache = MagicMock()
         price_cache.get_prices.return_value = cached
         fetcher = DataFetcher(client=client, price_cache=price_cache)
-        fetcher.history_end_date = pd.Timestamp("2026-06-25").date()
+        fetcher.history_end_date = date(2026, 6, 25)
 
         out = fetcher.fetch_coin_prices("foo", "FOO", "BTC", provider_id="foo-token")
 
-        assert out.index.max().date().isoformat() == "2026-06-03"  # unchanged, no gap
+        assert out["date"].max().isoformat() == "2026-06-03"  # unchanged, no gap
         price_cache.set_prices.assert_not_called()
         assert fetcher.splice_mismatches[0]["reason"] in {"no_overlap", "gap"}
 
@@ -717,7 +716,7 @@ class _FakeProvider:
 
     name = "coingecko"
 
-    def __init__(self, series_by_symbol: dict[str, pd.DataFrame]):
+    def __init__(self, series_by_symbol: dict[str, pl.DataFrame]):
         self._series = series_by_symbol
 
     def get_full_daily_history(
@@ -728,25 +727,26 @@ class _FakeProvider:
         end_date=None,
         show_progress: bool = False,
         provider_id: str | None = None,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         df = self._series.get(symbol.upper())
         if df is None:
-            return pd.DataFrame()
+            return pl.DataFrame()
         out = df
         if start_date is not None:
-            out = out[out.index.date >= start_date]
+            out = out.filter(pl.col("date") >= start_date)
         if end_date is not None:
-            out = out[out.index.date <= end_date]
-        return out.copy()
+            out = out.filter(pl.col("date") <= end_date)
+        return out.clone()
 
 
 class TestRegistryIntegration:
     """Cross-provider stem resolution wired through the fetch path."""
 
     @staticmethod
-    def _series(start: str, closes: list[float]) -> pd.DataFrame:
-        idx = pd.date_range(start, periods=len(closes), freq="D")
-        return pd.DataFrame({"close": closes, "volume_to": [100.0] * len(closes)}, index=idx)
+    def _series(start: str, closes: list[float]) -> pl.DataFrame:
+        y, m, d = (int(p) for p in start.split("-"))
+        dates = [date(y, m, d) + timedelta(days=i) for i in range(len(closes))]
+        return pl.DataFrame({"date": dates, "close": closes, "volume_to": [100.0] * len(closes)})
 
     def _make(self, tmp_path, series_by_symbol, seed_files):
         """Build a fetcher over a tmp price dir + tmp registry, with seed parquets."""
@@ -776,7 +776,7 @@ class TestRegistryIntegration:
         fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
 
         updated = price_cache.get_prices("eth", "BTC")
-        assert updated.index.max().date() == date(2026, 6, 25)  # extended
+        assert updated["date"].max() == date(2026, 6, 25)  # extended
         assert registry.get_stem("coingecko", "ethereum") == "eth"  # adopted, not forked
         assert not (tmp_path / "prices" / "eth-2-btc.parquet").exists()
 
@@ -792,11 +792,11 @@ class TestRegistryIntegration:
 
         # Original CryptoCompare history untouched.
         original = price_cache.get_prices("btcy", "BTC")
-        assert original.index.max().date() == date(2026, 6, 8)
-        assert float(original["close"].iloc[-1]) == 1.0
+        assert original["date"].max() == date(2026, 6, 8)
+        assert float(original["close"][-1]) == 1.0
         # New asset stored under a forked stem and bound in the registry.
         forked = price_cache.get_prices("btcy-2", "BTC")
-        assert forked is not None and float(forked["close"].iloc[-1]) == 5.0
+        assert forked is not None and float(forked["close"][-1]) == 5.0
         assert registry.get_stem("coingecko", "btc-yield") == "btcy-2"
         # Pre-migration file remains owned by CryptoCompare.
         assert registry.get_stem("cryptocompare", "BTCY") == "btcy"
@@ -813,7 +813,7 @@ class TestRegistryIntegration:
         fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
 
         updated = price_cache.get_prices("btcy-2", "BTC")
-        assert updated.index.max().date() == date(2026, 6, 24)
+        assert updated["date"].max() == date(2026, 6, 24)
         assert not (tmp_path / "prices" / "btcy-btc.parquet").exists()  # bare stem untouched
 
     def test_bootstrap_seeds_cryptocompare_provenance(self, tmp_path):
@@ -841,7 +841,7 @@ class TestRegistryIntegration:
             fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
 
         updated = price_cache.get_prices("mantle", "BTC")
-        assert updated.index.max().date() == date(2026, 6, 25)  # mantle continued
+        assert updated["date"].max() == date(2026, 6, 25)  # mantle continued
         assert not (tmp_path / "prices" / "mnt-btc.parquet").exists()  # no fresh fork
         assert registry.get_stem("coingecko", "mantle") == "mantle"
 
@@ -858,6 +858,6 @@ class TestRegistryIntegration:
         fetcher.fetch_all_prices(coins=[coin], vs_currencies=["BTC"], show_progress=False)
 
         updated = price_cache.get_prices("lunc", "BTC")
-        assert updated.index.max().date() == date(2026, 6, 25)  # appended, not skipped
+        assert updated["date"].max() == date(2026, 6, 25)  # appended, not skipped
         assert not (tmp_path / "prices" / "lunc-2-btc.parquet").exists()  # not forked
         assert fetcher.splice_mismatches == []

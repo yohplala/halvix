@@ -299,7 +299,7 @@ class CoinFilter:
                             name=name,
                             symbol=symbol,
                             reason=reason,
-                            url=coin_url(symbol),
+                            url=coin_url(symbol, coin.get("provider_id")),
                         )
                     )
             else:
