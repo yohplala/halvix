@@ -10,6 +10,7 @@ Provides:
 - Volume SMA smoothing with zero padding
 - Symbol replacement detection
 - Round-trip spike-and-revert detection
+- USD-pegged asset detection (stablecoins missing from the manual list)
 
 Wide frames (dates × coins) carry a ``date`` column plus one column per coin.
 Single-series helpers take the value column and a parallel ``dates`` sequence,
@@ -25,6 +26,10 @@ import numpy as np
 import polars as pl
 
 from config import (
+    PEG_MIN_DAYS,
+    PEG_MIN_SHARE_NEAR_USD,
+    PEG_USD_TOLERANCE,
+    PEG_WINDOW_DAYS,
     PRICE_ROUND_TRIP_JUMP_THRESHOLD,
     PRICE_ROUND_TRIP_REVERT_THRESHOLD,
     PRICE_ROUND_TRIP_WINDOW_DAYS,
@@ -682,3 +687,94 @@ def apply_round_trip_corrections_to_dataframe(
             logger.info("  ... and %d more", len(all_corrections) - 20)
 
     return _wide_from_matrix(dates, coin_cols, vals), all_corrections
+
+
+def detect_usd_pegged_coins(
+    close_by_coin: dict[str, pl.DataFrame],
+    usd_rate: pl.DataFrame | None = None,
+    window_days: int = PEG_WINDOW_DAYS,
+    min_days: int = PEG_MIN_DAYS,
+    tolerance: float = PEG_USD_TOLERANCE,
+    min_share: float = PEG_MIN_SHARE_NEAR_USD,
+) -> dict[str, dict]:
+    """
+    Find coins whose USD-implied price was pegged to $1 over some window.
+
+    A coin is pegged when, in ANY rolling window of ``window_days`` calendar
+    days holding at least ``min_days`` closes, at least ``min_share`` of the
+    closes lie within ``±tolerance`` of $1. Testing every window ("ever
+    pegged") keeps a yield-bearing dollar token flagged after it accrues above
+    the band, and a collapsed stablecoin flagged after its depeg.
+
+    The test is on the price LEVEL, not on return volatility: a peg's daily
+    moves are quote noise (stale BTC conversions, glitches) that can exceed a
+    calm major's (DUSD 1.8% vs TRX 0.8% std), but a real coin's random walk
+    cannot stay within a few % of $1 for most of a quarter.
+
+    Args:
+        close_by_coin: {coin_id: frame with ``date`` and ``close``} in the
+            quote currency.
+        usd_rate: ``date`` + ``close`` frame with the quote currency's USD
+            price (BTC/USD for BTC-quoted closes), or None when the closes are
+            already in USD. Days without a rate are skipped.
+        window_days: Rolling window length (calendar days).
+        min_days: Minimum closes in a window for it to be tested.
+        tolerance: Relative distance from $1 that counts as "near $1".
+        min_share: Share of a window's closes that must be near $1 (<= 0
+            disables detection).
+
+    Returns:
+        ``{coin_id: evidence}`` for each pegged coin, where evidence describes
+        the first window that passed: ``detected_on`` (its last day, ISO
+        string), ``share_near_usd``, ``median_usd``, plus ``pegged_windows``
+        (how many windows passed).
+    """
+    if min_share <= 0 or not close_by_coin:
+        return {}
+
+    long = pl.concat(
+        df.select(
+            pl.col("date"),
+            pl.col("close").cast(pl.Float64),
+            pl.lit(coin_id).alias("coin_id"),
+        )
+        for coin_id, df in close_by_coin.items()
+    )
+    usd = pl.col("close")
+    if usd_rate is not None:
+        rate = usd_rate.select(pl.col("date"), pl.col("close").cast(pl.Float64).alias("usd_rate"))
+        long = long.join(rate, on="date", how="inner")
+        usd = usd * pl.col("usd_rate")
+
+    window = f"{window_days}d"
+    near_usd = ((pl.col("usd") - 1.0).abs() <= tolerance).cast(pl.Float64)
+    passed = (
+        long.with_columns(usd.alias("usd"))
+        .filter(pl.col("usd") > 0)
+        .sort("coin_id", "date")
+        .with_columns(
+            near_usd.rolling_mean_by("date", window_size=window, min_samples=min_days)
+            .over("coin_id")
+            .alias("share_near_usd"),
+            pl.col("usd")
+            .rolling_median_by("date", window_size=window, min_samples=min_days)
+            .over("coin_id")
+            .alias("median_usd"),
+        )
+        .filter(pl.col("share_near_usd") >= min_share)
+    )
+    first_windows = passed.group_by("coin_id").agg(
+        pl.col("date").min().alias("detected_on"),
+        pl.col("share_near_usd").sort_by("date").first(),
+        pl.col("median_usd").sort_by("date").first(),
+        pl.len().alias("pegged_windows"),
+    )
+    return {
+        row["coin_id"]: {
+            "detected_on": str(row["detected_on"]),
+            "share_near_usd": float(row["share_near_usd"]),
+            "median_usd": float(row["median_usd"]),
+            "pegged_windows": int(row["pegged_windows"]),
+        }
+        for row in first_windows.sort("coin_id").iter_rows(named=True)
+    }

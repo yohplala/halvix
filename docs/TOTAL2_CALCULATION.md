@@ -16,6 +16,7 @@ TOTAL2b provides a benchmark to compare individual coin performance against the 
 - Support for both BTC and USD denominated prices
 - Freeze period + price scaling for smooth new coin integration
 - Symbol replacement detection (asymmetric thresholds: >4.42x increase or <0.101x decrease resets first_seen)
+- Data-driven exclusion of USD-pegged assets (stablecoins missing from the manual list)
 
 ## Configuration
 
@@ -67,6 +68,13 @@ SYMBOL_REPLACEMENT_DECREASE_THRESHOLD = 0.101  # ratio < 0.101x flags replacemen
 PRICE_ROUND_TRIP_JUMP_THRESHOLD = 2.0      # candidate when |ratio - 1| > this
 PRICE_ROUND_TRIP_REVERT_THRESHOLD = 1.5    # confirmed when revert is within ±50%
 PRICE_ROUND_TRIP_WINDOW_DAYS = 7           # how many days after the jump to look
+
+# Pegged-asset detection: exclude a coin whose USD-implied price kept >= 90% of
+# the closes of some 90-day window within +/-5% of $1. See "Pegged Assets".
+PEG_WINDOW_DAYS = 90
+PEG_MIN_DAYS = 21              # <= the freeze period
+PEG_USD_TOLERANCE = 0.05
+PEG_MIN_SHARE_NEAR_USD = 0.9   # 0 disables
 ```
 
 ## Calculation Algorithm
@@ -247,6 +255,7 @@ stale multiplier.
 
 ```python
 # Pre-processing (vectorized, once per run):
+#   - Drop excluded coins: BTC, manual lists, then USD-pegged coins (data-driven)
 #   - Apply volume outlier corrections to volume DataFrame
 #   - Smooth round-trip price spikes (single-day or multi-day) in close prices
 #   - Apply 120-day SMA to volume with zero-padding for new coins
@@ -314,6 +323,60 @@ Halvix saves the daily composition to `data/processed/total2_daily_composition.p
 #### Stablecoins (pegged to fiat)
 - **USD stablecoins**: USDT, USDC, DAI, FRAX, GHO, etc.
 - **EUR stablecoins**: EURS, EURC, EURT, AGEUR
+- **Asset-backed tokens**: Tether Gold (XAUT), PAX Gold (PAXG), Figure HELOC
+
+These come from the hand-maintained `EXCLUDED_STABLECOINS` list in `src/config.py`.
+
+#### Pegged Assets (data-driven)
+
+New stablecoins reach the manual list only once someone notices them in the
+index — United Stables (`U`), `CASH`, `DUSD` and `USDON` sat in the TOP30 for a
+year, `U` at up to 10% of TOTAL2b. The processor therefore also excludes, on
+every run, any coin whose **USD-implied price** (BTC close × BTC/USD close) was
+pegged to $1:
+
+> In **any** rolling window of `PEG_WINDOW_DAYS` (90) calendar days holding at
+> least `PEG_MIN_DAYS` (21) closes, at least `PEG_MIN_SHARE_NEAR_USD` (90%) of
+> the closes lie within ±`PEG_USD_TOLERANCE` (5%) of $1.
+
+Like the manual list, a flagged coin is excluded from the **whole** history, and
+`ALLOWED_TOKENS` overrides it. The check runs in `Total2Processor` (it needs
+price history; `CoinFilter` only sees ids/names before anything is downloaded),
+and the pattern analysis inherits it through the TOTAL2 composition.
+
+**Design choices** (calibrated on the 2026-10 data, every 90-day window of
+~1,800 coins):
+
+- **Price level, not return volatility.** A low daily log-return std does not
+  separate pegs from calm majors: TRX moves 0.8%/day while noisy-quote
+  stablecoins move more (DUSD 1.8%, FDIT 2.6% — stale BTC conversions), and a
+  few glitchy quotes give a real peg a huge std (USDA 21%). A real coin's random
+  walk, however, cannot stay within a few % of $1 for most of a quarter.
+- **A share of days, not the median.** A median-only test flags HT, a dead coin
+  whose frozen BTC price tracks BTC/USD around a $0.98 median.
+- **Ever pegged, not the latest window.** Yield-bearing dollar tokens start at
+  $1 then accrue above the band (reUSD, JAAA, mF-ONE), and a collapsed
+  stablecoin leaves it; both stay excluded.
+
+**Result:** none of the 275 coins that ever entered TOTAL2b reaches 80% of a
+window near $1 (max 79%: AGRS, NMC; ETH 28%, BNB 25%, XRP 19% around their
+early ~$1 days; SOL 7%; TRX, HYPE 0%). The 56 flagged coins are all dollar pegs
+(USD stablecoins, tokenized treasuries/funds, loan tokens); 47 of them are not
+in the manual list. Without its manual entries, the check alone would have
+caught `U`, `CASH`, `DUSD`, `USDON` and `FIGR_HELOC`.
+
+**Not detected — keep them in `EXCLUDED_STABLECOINS`:**
+- **Gold / commodity tokens.** XAUT and PAXG move ~1.2%/day with a 0.5 BTC/USD
+  correlation over 90 days (0.4 over a year) — statistically indistinguishable
+  from TRX (0.8–1.3%/day, 0.4 correlation), so no correlation/volatility
+  threshold excludes gold without excluding TRX.
+- **Non-USD fiat stablecoins** (EUR ≈ $1.17) and dollar tokens that never spent
+  a 90-day window within ±5% of $1 (e.g. a yield token first listed above $1.05).
+
+Each exclusion is logged and recorded in `total2_max_weight_change.json`
+(`pegged_exclusions`: coin, `detected_on` = last day of the first pegged window,
+`share_near_usd`, `median_usd`, `pegged_windows`) for review; a coin can be
+promoted to the manual list or, if wrongly flagged, added to `ALLOWED_TOKENS`.
 
 ### Never Excluded (Allowed List)
 
@@ -330,7 +393,7 @@ Some tokens with pattern-matching names are explicitly allowed:
 |------|--------|-------------|
 | `data/processed/total2_index.parquet` | Parquet | Daily TOTAL2b values |
 | `data/processed/total2_daily_composition.parquet` | Parquet | Which coins were in top N each day |
-| `data/processed/total2_max_weight_change.json` | JSON | Statistics and outlier corrections |
+| `data/processed/total2_max_weight_change.json` | JSON | Statistics, corrections and pegged exclusions |
 
 ### TOTAL2b Index Schema
 
@@ -405,6 +468,7 @@ This ensures consistent data quality across all analysis modules.
 | `apply_volume_sma_smoothing_to_dataframe()` | Apply SMA smoothing with optional zero-padding |
 | `detect_symbol_replacement()` | Flag provider ticker recycling via extreme price jumps |
 | `detect_round_trips()` / `apply_round_trip_corrections_to_dataframe()` | Detect and neutralise spike-and-revert glitches (single-day or multi-day windows) |
+| `detect_usd_pegged_coins()` | Flag coins whose USD-implied price was pegged to $1 (TOTAL2 only) |
 
 ### Using the Processor
 
@@ -441,6 +505,9 @@ class Total2Result:
     volume_outliers_corrected: list[dict] | None
     scaling_events: list[dict] | None            # Entry-day price scaling factors
     round_trip_corrections: list[dict] | None    # Spike-and-revert smoothing events
+    symbol_replacements: list[dict] | None       # Recycled tickers (first_seen resets)
+    stale_entry_reanchors: list[dict] | None     # Stale multipliers re-anchored on entry
+    pegged_exclusions: list[dict] | None         # Coins dropped by the USD-peg check
     index_type: str                  # "total2b"
 ```
 

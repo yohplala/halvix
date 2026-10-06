@@ -148,6 +148,12 @@ Located in `src/analysis/filters.py`. Exclusions defined in `src/config.py`:
 - `EXCLUDED_PATTERNS` - regex patterns
 - `ALLOWED_TOKENS` - overrides (SUI, SEI, STX, etc.)
 
+TOTAL2 also drops USD-pegged coins automatically (`detect_usd_pegged_coins` in
+`src/data/price_filters.py`, run by `Total2Processor`; `PEG_*` thresholds in
+`src/config.py`): a coin is excluded when >= 90% of some 90-day window's
+USD-implied closes are within ±5% of $1. Gold/commodity and non-USD stablecoins
+still need the manual list.
+
 ---
 
 ## 4. CLI Commands

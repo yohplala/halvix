@@ -3,6 +3,9 @@ TOTAL2 index processor — public entrypoint for the data layer.
 
 Calculates a volume-weighted altcoin index (BTC-denominated) using:
 
+- Exclusion of BTC, derivatives and pegged assets: the manual lists in
+  ``config`` plus a data-driven USD-peg check (any coin whose USD-implied price
+  stayed near $1 for a whole window — see ``detect_usd_pegged_coins``).
 - Volume outlier correction (>20x past median) and 120-day SMA smoothing with
   zero-padding for warm-up.
 - Round-trip price-spike smoothing (single-day or multi-day windows) — see
@@ -39,6 +42,7 @@ from tqdm import tqdm
 from analysis.filters import CoinFilter
 from config import (
     DEFAULT_QUOTE_CURRENCY,
+    PEG_MIN_SHARE_NEAR_USD,
     PROCESSED_DIR,
     SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
     SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
@@ -62,6 +66,7 @@ from data.price_filters import (
     apply_volume_corrections_to_dataframe,
     apply_volume_sma_smoothing_to_dataframe,
     detect_symbol_replacement,
+    detect_usd_pegged_coins,
 )
 from utils.logging import get_logger
 
@@ -99,6 +104,9 @@ class Total2Result:
     # level on their first top-N entry (bart fix): scaled price had drifted above
     # TOTAL2_STALE_ENTRY_REANCHOR_RATIO x the index before the coin joined.
     stale_entry_reanchors: list[dict] | None = None
+    # Coins excluded by the data-driven USD-peg check (not in the manual
+    # EXCLUDED_STABLECOINS list), with the first window that flagged them.
+    pegged_exclusions: list[dict] | None = None
 
 
 class Total2Processor:
@@ -108,7 +116,8 @@ class Total2Processor:
     Pipeline (one pass over the price+volume matrices, per call to
     ``calculate_total2``):
 
-    1. Load and filter cached price data.
+    1. Load and filter cached price data: manual exclusion lists, then the
+       USD-peg check (coins whose USD-implied price stayed near $1).
     2. Build aligned close/volume DataFrames, apply volume outlier corrections.
     3. Smooth round-trip price spikes (single-day or multi-day windows).
     4. Apply 120-day SMA to volume (with zero-padding so new coins enter
@@ -121,7 +130,7 @@ class Total2Processor:
        above ``stale_entry_reanchor_ratio`` x the index — the bart fix), and
        compute the volume-weighted average of scaled prices.
     7. Save index, composition, and metadata (corrections, scaling events,
-       stale-entry re-anchors, coin statistics).
+       stale-entry re-anchors, pegged exclusions, coin statistics).
     """
 
     def __init__(
@@ -136,6 +145,7 @@ class Total2Processor:
         symbol_replacement_increase_threshold: float = SYMBOL_REPLACEMENT_INCREASE_THRESHOLD,
         symbol_replacement_decrease_threshold: float = SYMBOL_REPLACEMENT_DECREASE_THRESHOLD,
         stale_entry_reanchor_ratio: float = TOTAL2_STALE_ENTRY_REANCHOR_RATIO,
+        peg_min_share_near_usd: float = PEG_MIN_SHARE_NEAR_USD,
     ):
         self.price_cache = price_cache or PriceDataCache()
         self.coin_filter = coin_filter or CoinFilter()
@@ -150,6 +160,9 @@ class Total2Processor:
         # this multiple of the index has a stale multiplier and is re-anchored to
         # the index level (0/None disables).
         self.stale_entry_reanchor_ratio = stale_entry_reanchor_ratio
+        # USD-peg check: a coin is excluded when this share of some window's
+        # USD-implied closes sits near $1 (0 disables).
+        self.peg_min_share_near_usd = peg_min_share_near_usd
 
     # =========================================================================
     # Data loading + alignment
@@ -211,6 +224,38 @@ class Total2Processor:
             if not should_exclude:
                 eligible.append(coin_id)
         return eligible
+
+    def detect_pegged_coins(self, price_data: dict[str, pl.DataFrame]) -> dict[str, dict]:
+        """
+        Coins whose USD-implied price was pegged to $1 (``detect_usd_pegged_coins``).
+
+        Complements the manual ``EXCLUDED_STABLECOINS`` list, which new
+        stablecoins reach only after someone notices them in the index. Runs
+        here rather than in ``CoinFilter`` because it needs price history
+        (``CoinFilter`` only sees ids/names, before any price is downloaded).
+        BTC-quoted closes are converted with the cached BTC/USD closes;
+        ``ALLOWED_TOKENS`` are never flagged. Returns ``{}`` when disabled or
+        when the USD conversion is unavailable (logged).
+        """
+        if self.peg_min_share_near_usd <= 0:
+            return {}
+        quote = self.quote_currency.upper()
+        if quote == "USD":
+            usd_rate = None
+        elif quote == "BTC":
+            usd_rate = self.price_cache.get_prices("btc", "USD", columns=["close"])
+            if usd_rate is None or usd_rate.is_empty():
+                logger.warning("No cached BTC/USD prices: pegged-asset detection skipped")
+                return {}
+        else:
+            logger.warning("Pegged-asset detection needs BTC or USD quotes, skipped for %s", quote)
+            return {}
+        candidates = {
+            coin_id: df
+            for coin_id, df in price_data.items()
+            if not self.coin_filter.is_allowed_token(coin_id)
+        }
+        return detect_usd_pegged_coins(candidates, usd_rate, min_share=self.peg_min_share_near_usd)
 
     def build_aligned_dataframes(
         self,
@@ -320,10 +365,19 @@ class Total2Processor:
         if not price_data:
             raise ProcessorError("No price data available")
 
-        eligible_ids = self.filter_coins_for_total2(list(price_data.keys()))
-        if show_progress:
-            logger.info("Filtered to %d eligible coins", len(eligible_ids))
+        eligible_ids = set(self.filter_coins_for_total2(list(price_data.keys())))
         price_data = {cid: df for cid, df in price_data.items() if cid in eligible_ids}
+        pegged = self.detect_pegged_coins(price_data)
+        if pegged:
+            price_data = {cid: df for cid, df in price_data.items() if cid not in pegged}
+            if show_progress:
+                logger.info(
+                    "Excluded %d USD-pegged coin(s) (near $1 for a whole window): %s",
+                    len(pegged),
+                    ", ".join(cid.upper() for cid in pegged),
+                )
+        if show_progress:
+            logger.info("Filtered to %d eligible coins", len(price_data))
         if not price_data:
             raise ProcessorError("No eligible coins for TOTAL2")
 
@@ -401,6 +455,7 @@ class Total2Processor:
             round_trip_corrections=round_trip_corrections,
             symbol_replacements=symbol_replacements,
             stale_entry_reanchors=stale_entry_reanchors,
+            pegged_exclusions=[{"coin": cid.upper(), **ev} for cid, ev in pegged.items()],
             index_type="total2b",
         )
 
@@ -905,6 +960,7 @@ class Total2Processor:
             "round_trip_corrections": result.round_trip_corrections or [],
             "symbol_replacements": result.symbol_replacements or [],
             "stale_entry_reanchors": result.stale_entry_reanchors or [],
+            "pegged_exclusions": result.pegged_exclusions or [],
             "coin_statistics": coin_statistics,
             "index_type": result.index_type,
         }

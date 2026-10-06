@@ -6,12 +6,14 @@ Tests cover:
 - Daily composition tracking
 - Filtering for TOTAL2 eligibility
 - Freeze period and entry-day price scaling
+- USD-pegged asset exclusion
 - Edge cases
 
 Note: Common fixtures (temp_dir, sample_price_data, sample_price_data_with_freeze,
 sample_result) are defined in conftest.py for reuse across test modules.
 """
 
+import json
 from datetime import date, timedelta
 from unittest.mock import patch
 
@@ -502,6 +504,90 @@ class TestStaleEntryReanchor:
         ddd_reanchors = [e for e in (res.stale_entry_reanchors or []) if e["coin"] == "DDD"]
         assert ddd_reanchors == []
         assert (res.index_df["total2_price"] > 0).all()
+
+
+class TestPeggedAssetExclusion:
+    """The processor drops coins whose USD-implied price is pegged to $1.
+
+    Prices are BTC-quoted; the cached BTC/USD closes convert them to USD.
+    """
+
+    N = 40
+
+    @pytest.fixture
+    def btc_usd(self):
+        # BTC/USD doubles over the period, so a $1 coin's BTC price halves.
+        closes = [50_000.0 * 2 ** (i / (self.N - 1)) for i in range(self.N)]
+        return pl.DataFrame({"date": _days(date(2024, 1, 1), self.N), "close": closes})
+
+    def _cache(self, temp_dir, btc_usd, stable_id="usdx", with_btc_usd=True):
+        cache = PriceDataCache(prices_dir=temp_dir)
+
+        def coin(usd, vol):
+            """BTC-quoted frame for USD prices ``usd(i)`` and a constant volume."""
+            usd_prices = pl.Series([usd(i) for i in range(self.N)])
+            return pl.DataFrame(
+                {
+                    "date": btc_usd["date"],
+                    "close": usd_prices / btc_usd["close"],
+                    "volume_to": [float(vol)] * self.N,
+                }
+            )
+
+        cache.set_prices("eth", coin(lambda i: 3_000.0 * 1.01**i, 1000))
+        cache.set_prices("sol", coin(lambda i: 150.0 * 1.02**i, 800))
+        cache.set_prices("ada", coin(lambda i: 0.5 * 0.99**i, 600))
+        # The stablecoin out-trades everything (U reached 10% of TOTAL2).
+        cache.set_prices(stable_id, coin(lambda i: 1.0 + 0.001 * (i % 3), 5000))
+        if with_btc_usd:
+            cache.set_prices("btc", btc_usd, "USD")
+        return cache
+
+    def _run(self, cache, **kwargs):
+        processor = Total2Processor(
+            price_cache=cache, top_n=4, volume_sma_window=2, freeze_period_days=5, **kwargs
+        )
+        return processor.calculate_total2(show_progress=False)
+
+    def test_stablecoin_is_excluded_and_recorded(self, temp_dir, btc_usd):
+        res = self._run(self._cache(temp_dir, btc_usd))
+        assert res.coins_processed == 3
+        assert "usdx" not in res.composition_df["coin_id"].to_list()
+        assert [e["coin"] for e in res.pegged_exclusions] == ["USDX"]
+        assert res.pegged_exclusions[0]["median_usd"] == pytest.approx(1.0, abs=0.01)
+
+    def test_allowed_token_is_never_excluded(self, temp_dir, btc_usd):
+        res = self._run(self._cache(temp_dir, btc_usd, stable_id="sui"))  # in ALLOWED_TOKENS
+        assert res.coins_processed == 4
+        assert "sui" in res.composition_df["coin_id"].to_list()
+        assert res.pegged_exclusions == []
+
+    def test_without_btc_usd_detection_is_skipped(self, temp_dir, btc_usd):
+        res = self._run(self._cache(temp_dir, btc_usd, with_btc_usd=False))
+        assert res.coins_processed == 4
+        assert res.pegged_exclusions == []
+
+    def test_disabled_with_zero_min_share(self, temp_dir, btc_usd):
+        res = self._run(self._cache(temp_dir, btc_usd), peg_min_share_near_usd=0)
+        assert res.coins_processed == 4
+        assert "usdx" in res.composition_df["coin_id"].to_list()
+
+    def test_pegged_exclusions_saved_to_metadata(self, temp_dir, btc_usd):
+        processor = Total2Processor(
+            price_cache=self._cache(temp_dir, btc_usd),
+            top_n=4,
+            volume_sma_window=2,
+            freeze_period_days=5,
+        )
+        res = processor.calculate_total2(show_progress=False)
+        meta_path = temp_dir / "meta.json"
+        with (
+            patch("data.processor.PROCESSED_DIR", temp_dir),
+            patch("data.processor.TOTAL2_MAX_WEIGHT_CHANGE_FILE", meta_path),
+        ):
+            processor.save_results(res, temp_dir / "index.parquet", temp_dir / "comp.parquet")
+        meta = json.loads(meta_path.read_text())
+        assert [e["coin"] for e in meta["pegged_exclusions"]] == ["USDX"]
 
 
 class TestSymbolReplacementDetection:

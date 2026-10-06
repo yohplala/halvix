@@ -5,6 +5,7 @@ Tests cover:
 - Volume outlier detection and correction (DataFrame)
 - SMA smoothing functions (DataFrame)
 - Edge cases (empty data, null handling)
+- USD-pegged asset detection
 """
 
 from datetime import date, timedelta
@@ -23,6 +24,7 @@ from data.price_filters import (
     apply_volume_corrections_to_dataframe,
     apply_volume_sma_smoothing_to_dataframe,
     detect_round_trips,
+    detect_usd_pegged_coins,
 )
 
 
@@ -545,3 +547,91 @@ class TestApplyRoundTripCorrectionsToDataFrame:
         assert all(ev["corrected"] == 8.0 for ev in events)
         assert all(ev["direction"] == "up" for ev in events)
         assert all(ev["days_to_revert"] == 3 for ev in events)
+
+
+class TestDetectUsdPeggedCoins:
+    """USD-peg detection on BTC-quoted closes converted with BTC/USD.
+
+    Calibration cases from the 2026-10 data: noisy-quote USD stablecoins (DUSD)
+    must be flagged; calm majors far from $1 (TRX), gold tokens (XAUT) and dead
+    coins whose frozen BTC price tracks BTC/USD (HT, ~$0.98 median) must not.
+    """
+
+    N = 200
+
+    @pytest.fixture
+    def btc_usd(self):
+        """BTC/USD random walk (~2% daily std, like 2026)."""
+        rng = np.random.default_rng(0)
+        close = 60_000 * np.exp(np.cumsum(rng.normal(0, 0.02, self.N)))
+        return pl.DataFrame({"date": _daterange(self.N), "close": close})
+
+    @staticmethod
+    def _btc_quoted(usd, btc_usd: pl.DataFrame) -> pl.DataFrame:
+        """A coin's BTC-quoted closes from its USD prices."""
+        usd = np.asarray(usd, dtype=float)
+        n = len(usd)
+        return pl.DataFrame(
+            {"date": btc_usd["date"][:n], "close": usd / btc_usd["close"].to_numpy()[:n]}
+        )
+
+    @staticmethod
+    def _walk(start, daily_std, n, seed):
+        rng = np.random.default_rng(seed)
+        return start * np.exp(np.cumsum(rng.normal(0, daily_std, n)))
+
+    def test_noisy_usd_stablecoin_is_flagged(self, btc_usd):
+        # DUSD-like: i.i.d. quote noise around $1 (1.8% std), never drifting.
+        rng = np.random.default_rng(1)
+        dusd = 1.0 + rng.normal(0, 0.018, self.N)
+        pegged = detect_usd_pegged_coins({"dusd": self._btc_quoted(dusd, btc_usd)}, btc_usd)
+        assert set(pegged) == {"dusd"}
+        evidence = pegged["dusd"]
+        assert evidence["share_near_usd"] >= 0.9
+        assert evidence["median_usd"] == pytest.approx(1.0, abs=0.01)
+        # First full test needs PEG_MIN_DAYS closes: detected on day 21.
+        assert evidence["detected_on"] == str(date(2024, 1, 21))
+
+    def test_glitchy_stablecoin_is_flagged_despite_huge_std(self, btc_usd):
+        # USDA-like: a handful of absurd quotes inflate std, the level holds.
+        usda = np.ones(self.N)
+        usda[::25] = 3.0  # 4% of days
+        assert "usda" in detect_usd_pegged_coins({"usda": self._btc_quoted(usda, btc_usd)}, btc_usd)
+
+    def test_calm_majors_gold_and_random_walks_are_not_flagged(self, btc_usd):
+        coins = {
+            "trx": self._walk(0.33, 0.008, self.N, 2),  # calmest major, far from $1
+            "xaut": self._walk(4_300, 0.012, self.N, 3),  # gold: not a USD peg
+            "near1": self._walk(1.0, 0.03, self.N, 4),  # real coin trading around $1
+        }
+        close_by_coin = {cid: self._btc_quoted(usd, btc_usd) for cid, usd in coins.items()}
+        assert detect_usd_pegged_coins(close_by_coin, btc_usd) == {}
+
+    def test_dead_coin_with_frozen_btc_price_is_not_flagged(self, btc_usd):
+        # HT-like: constant BTC close, so its USD price IS BTC/USD scaled to
+        # ~$0.98 — median near $1, but the level wanders with BTC.
+        frozen = btc_usd.with_columns(pl.lit(0.98 / 60_000).alias("close"))
+        assert detect_usd_pegged_coins({"ht": frozen}, btc_usd) == {}
+
+    def test_yield_token_stays_flagged_after_leaving_the_band(self, btc_usd):
+        # reUSD-like: $1 for 60 days, then accrues to ~$1.30.
+        usd = np.concatenate([np.ones(60), np.linspace(1.0, 1.3, self.N - 60)])
+        pegged = detect_usd_pegged_coins({"reusd": self._btc_quoted(usd, btc_usd)}, btc_usd)
+        assert pegged["reusd"]["detected_on"] == str(date(2024, 1, 21))
+
+    def test_history_shorter_than_min_days_is_not_tested(self, btc_usd):
+        stable = self._btc_quoted(np.ones(20), btc_usd)
+        assert detect_usd_pegged_coins({"new": stable}, btc_usd) == {}
+        assert "new" in detect_usd_pegged_coins({"new": stable}, btc_usd, min_days=20)
+
+    def test_usd_quoted_closes_need_no_rate(self):
+        df = pl.DataFrame({"date": _daterange(30), "close": [1.001] * 30})
+        assert set(detect_usd_pegged_coins({"usdx": df})) == {"usdx"}
+
+    def test_days_without_rate_are_skipped(self, btc_usd):
+        stable = self._btc_quoted(np.ones(self.N), btc_usd)
+        assert detect_usd_pegged_coins({"usdx": stable}, btc_usd.head(15)) == {}
+
+    def test_disabled_with_zero_min_share(self, btc_usd):
+        stable = self._btc_quoted(np.ones(self.N), btc_usd)
+        assert detect_usd_pegged_coins({"usdx": stable}, btc_usd, min_share=0) == {}

@@ -14,6 +14,19 @@ format YYYY.MM.patch.
 
 ### [Unreleased]
 
+**Data-driven exclusion of USD-pegged assets from TOTAL2**
+
+- **Added:** `detect_usd_pegged_coins` (`data.price_filters`), run by
+  `Total2Processor` after the manual lists: a coin is excluded from TOTAL2 (whole
+  history) when, in any 90-day window, >= 90% of its USD-implied closes (BTC
+  close × BTC/USD) are within ±5% of $1 (`PEG_*` in `config`; `ALLOWED_TOKENS`
+  overrides; recorded as `pegged_exclusions` in the TOTAL2 metadata JSON). On
+  the 2026-10 data it flags 56 dollar pegs (47 not in `EXCLUDED_STABLECOINS`) and
+  no coin that ever entered TOTAL2; without the manual entries it would have
+  caught U, CASH, DUSD, USDON and FIGR_HELOC. TOTAL2 is unchanged today (none of
+  the 47 reaches the top 30). Gold tokens and non-USD stablecoins still rely on
+  the manual list (gold's volatility and BTC correlation match TRX's).
+
 **Cycle 4 bottom confirmed — cycle 5 drawn from a forecast halving**
 
 - **Added:** cycle 4's bear-market bottom (2026-06-30, $58,519 close) to

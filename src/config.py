@@ -282,6 +282,38 @@ EXCLUDED_STABLECOINS = {
     # they were the mechanism tokens used to maintain UST's peg
 }
 
+# Pegged-asset detection (data-driven complement to EXCLUDED_STABLECOINS).
+# New USD stablecoins kept leaking into TOTAL2 before anyone added them to the
+# list above (U, CASH, DUSD, USDON sat in the top 30 for a year, up to 10% of
+# the index). The TOTAL2 processor therefore also excludes any coin whose
+# USD-implied price (BTC close x BTC/USD close) stayed near $1 for a whole
+# window: >= PEG_MIN_SHARE_NEAR_USD of the window's days close within
+# +/-PEG_USD_TOLERANCE of $1, in ANY rolling window of PEG_WINDOW_DAYS calendar
+# days (at least PEG_MIN_DAYS closes) of the coin's history. "Ever pegged"
+# also catches yield-bearing dollar tokens that start at $1 and accrue above the
+# band later (reUSD, JAAA, xDAI's noisy recent quotes). Like the manual list,
+# a flagged coin is excluded from the WHOLE history; ALLOWED_TOKENS overrides.
+#
+# Calibrated on the 2026-10 data (~1,800 coins, every 90-day window since 2010):
+#   - none of the 275 coins that ever entered TOTAL2 reaches 80% of a window
+#     near $1 (max 79%: AGRS, NMC; majors: ETH 28%, BNB 25%, XRP 19% around
+#     their early ~$1 days, SOL 7%, TRX/HYPE 0%);
+#   - all 56 coins it flags (47 beyond this list) are dollar pegs: USD
+#     stablecoins, tokenized treasuries/funds and loan tokens. Without the
+#     manual entries, it alone catches U, CASH, DUSD, USDON and FIGR_HELOC.
+# Why not a low return-std test: std does not separate pegs from calm majors
+# (TRX 0.8% vs DUSD 1.8% / FDIT 2.6%, inflated by stale-quote conversion noise),
+# and glitchy quotes give real pegs a huge std (USDA 21%); the level band already
+# bounds day-to-day moves. A median-only level test is not enough either: HT,
+# a dead coin whose frozen BTC price tracks BTC/USD, has a $0.98 median.
+# Not detected (keep them in EXCLUDED_STABLECOINS): gold/commodity tokens
+# (XAUT/PAXG: 1.2% std, 0.5 BTC correlation — statistically like TRX), non-USD
+# fiat stablecoins (EUR ~$1.17) and dollar tokens never within the band.
+PEG_WINDOW_DAYS = 90
+PEG_MIN_DAYS = 21  # <= the freeze period, so a new stablecoin is caught before it can join
+PEG_USD_TOLERANCE = 0.05  # a day is "near $1" when its USD close is within +/-5%
+PEG_MIN_SHARE_NEAR_USD = 0.9  # pegged if >= 90% of a window's days are near $1 (0 disables)
+
 # =============================================================================
 # Wrapped/Staked/Bridged Token Exclusion
 # =============================================================================
