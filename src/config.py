@@ -260,6 +260,14 @@ EXCLUDED_STABLECOINS = {
     "usdcv",  # USD CoinVertible (Societe Generale-FORGE; $1.00, 0.04% std)
     "usdr",  # USD-pegged stablecoin (empirically: $1.00, 0.3% std)
     "usdq",  # USD-pegged stablecoin (empirically: $1.00, 0.8% std)
+    "u",  # United Stables (empirically: $1.00, 0.07% USD-implied std)
+    "cash",  # CASH (empirically: $1.00, 0.06% std)
+    "dusd",  # StandX DUSD (empirically: $1.00, 1.8% std)
+    "usdon",  # Ondo U.S. Dollar Token (empirically: $1.00, 1.5% std)
+    # Asset-backed tokens: track gold / real-world loans, not the crypto market
+    "xaut",  # Tether Gold
+    "paxg",  # PAX Gold
+    "figr_heloc",  # Figure HELOC (tokenized home-equity loans, ~$1)
     # Algorithmic stablecoins (depegged but originally USD-pegged)
     "ust",  # TerraUSD (collapsed May 2022)
     "ustc",  # TerraUSD Classic (post-collapse renamed UST)

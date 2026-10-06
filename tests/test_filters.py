@@ -184,6 +184,14 @@ class TestStablecoinFiltering:
             ("usdq", "USDQ", "USDQ"),
             ("aeur", "Anchored EUR", "AEUR"),
             ("europ", "EUROP", "EUROP"),
+            ("u", "United Stables", "U"),
+            ("cash", "CASH", "CASH"),
+            ("dusd", "StandX DUSD", "DUSD"),
+            ("usdon", "Ondo U.S. Dollar Token", "USDON"),
+            # Asset-backed (gold / loans) — excluded through the same list
+            ("xaut", "Tether Gold", "XAUT"),
+            ("paxg", "PAX Gold", "PAXG"),
+            ("figr_heloc", "Figure Heloc", "FIGR_HELOC"),
         ],
     )
     def test_stablecoins_are_detected(self, coin_filter, coin_id, name, symbol):
