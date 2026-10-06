@@ -247,7 +247,6 @@ def _add_cycle_extremes_lines(fig: go.Figure, cycle: HalvingCycle, row: int) -> 
 
 def _finish_cycle_figure(
     fig: go.Figure,
-    cycles: list[HalvingCycle],
     *,
     height: int,
     dtick: int,
@@ -257,7 +256,10 @@ def _finish_cycle_figure(
     """
     Style a two-row cycle figure (row 1 normalized, row 2 absolute) and add
     its reference lines: halving day, the 1.0 multiplier, and the BTC
-    peak/bottom lines of every drawn cycle.
+    peak/bottom lines of every halving cycle — including cycles the figure
+    does not plot (TOTAL2 skips cycle 1), so the BTC and TOTAL2 pages show the
+    same set of lines (e.g. the 2015-01-14 bottom at +777 days from the 1st
+    halving).
     """
     fig.update_layout(
         template="plotly_dark",
@@ -284,7 +286,7 @@ def _finish_cycle_figure(
     fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
     for row in (1, 2):
         fig.add_vline(x=0, line=HALVING_LINE, row=row, col=1)
-        for cycle in cycles:
+        for cycle in halving_cycles():
             _add_cycle_extremes_lines(fig, cycle, row)
 
 
@@ -347,7 +349,6 @@ def create_btc_combined_chart(
 
     _finish_cycle_figure(
         fig,
-        list(frames),
         height=1100,
         dtick=100,
         y_titles=("Price Multiplier (1.0 = Halving Day)", "BTC Price (USD)"),
@@ -424,7 +425,6 @@ def create_total2_combined_chart(
 
     _finish_cycle_figure(
         fig,
-        list(btc_frames),
         height=1000,
         dtick=200,
         y_titles=("Multiplier (1.0 = Halving)", "TOTAL2 (BTC)"),

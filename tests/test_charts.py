@@ -15,6 +15,7 @@ from analysis.halving_calendar import HalvingCycle
 from visualization.charts import (
     BOTTOM_LINE_COLOR,
     _add_cycle_extremes_lines,
+    _finish_cycle_figure,
     get_cycle_data,
     normalize_cycles,
 )
@@ -92,3 +93,13 @@ class TestCycleExtremesLines:
         bottoms = [s.x0 for s in fig.layout.shapes if s.line.color == BOTTOM_LINE_COLOR]
         # 2022-11-21 (cycle 4 start) and 2026-06-30 in both cycles
         assert sorted(bottoms) == [-523, -515, 802]
+
+    def test_lines_of_unplotted_cycles_are_drawn(self):
+        """TOTAL2 skips cycle 1, yet its +777 bottom (2015-01-14) must still show."""
+        fig = make_subplots(rows=2, cols=1)
+        for row in (1, 2):  # vlines skip empty subplots
+            fig.add_trace(go.Scatter(x=[0], y=[1]), row=row, col=1)
+        _finish_cycle_figure(fig, height=500, dtick=200, y_titles=("a", "b"))
+        bottoms = {s.x0 for s in fig.layout.shapes if s.line.color == BOTTOM_LINE_COLOR}
+        # Post-halving bottoms of cycles 1-4: 2015-01-14, 2018-12-15, 2022-11-21, 2026-06-30
+        assert {777, 889, 924, 802} <= bottoms

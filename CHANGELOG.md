@@ -34,9 +34,12 @@ format YYYY.MM.patch.
 - **Fixed:** TOTAL2 included stablecoins and asset-backed tokens (United
   Stables `U`, `CASH`, `DUSD`, `USDON`, Tether Gold, PAX Gold, Figure HELOC) —
   now excluded; this also removes them from the pattern-analysis page.
-- **Fixed:** TOTAL2 charts drew cycle 1's bottom line although cycle 1 is not
-  plotted there; the point-detection kernel derived the current cycle number
-  from the global config instead of the halvings it was given.
+- **Fixed:** TOTAL2 charts showed only 3 of the 4 post-halving bottom lines
+  (+802, +889, +924 days): they now draw the peak/bottom lines of every halving
+  cycle, like the BTC charts, so cycle 1's 2015-01-14 bottom (+777 days) is
+  shown even though cycle 1's TOTAL2 curve is not plotted. The point-detection
+  kernel derived the current cycle number from the global config instead of
+  the halvings it was given.
 - **Refactored:** BTC and TOTAL2 cycle charts share trace/layout/reference-line
   helpers; one `TRENDLINE_REFERENCE_DATE`; removed the dead
   `USE_YESTERDAY_AS_END_DATE` flag and pandas-era leftovers.
