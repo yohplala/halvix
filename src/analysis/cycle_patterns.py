@@ -34,7 +34,7 @@ import json
 import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 from tqdm import tqdm
@@ -234,7 +234,7 @@ class CyclePatternAnalyzer:
         bottom yet.
         """
         points = point_detection.identify_cycle_points(df, self.all_halvings)
-        if df.is_empty() or current_cycle_bottom() > df["date"].max():
+        if df.is_empty() or current_cycle_bottom() > cast("date", df["date"].max()):
             return points
         return [p for p in points if not (p.projected and p.point_type == "min1")]
 
