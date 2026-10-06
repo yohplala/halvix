@@ -259,8 +259,8 @@ def cmd_fetch_prices(args: argparse.Namespace) -> int:
 
     logger.info("Date range: %s to %s", fetcher.history_start_date, fetcher.history_end_date)
     logger.info(
-        "  (covers all 4 halving cycles with %s span)",
-        fetcher.history_end_date - fetcher.history_start_date,
+        "  (%d days, covering every halving cycle)",
+        (fetcher.history_end_date - fetcher.history_start_date).days,
     )
 
     # Mode display

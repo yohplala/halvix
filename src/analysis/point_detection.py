@@ -35,7 +35,6 @@ from analysis.cycle_points import (
     fib_retracement_ratio,
 )
 from config import (
-    HALVING_DATES,
     LAUNCH_DATE_BUFFER_DAYS,
     MAX2_PRE_HALVING_BUFFER_DAYS,
     MIN_RETRACEMENT_LEVEL,
@@ -78,7 +77,7 @@ def identify_cycle_points(df: pl.DataFrame, halvings: list[date]) -> list[CycleP
 
     Args:
         df: Price DataFrame with a ``date`` column and a ``close`` column.
-        halvings: List of halving dates delimiting the segments.
+        halvings: Halving dates delimiting the segments, starting with cycle 2's.
 
     Returns:
         List of CyclePoint objects with correct cycle_num and days_from_halving.
@@ -645,7 +644,8 @@ def detect_post_halving_points(
     if post_data.is_empty():
         return
 
-    last_cycle = len(HALVING_DATES)
+    # halvings[0] is cycle 2's halving (see build_segments' prev_cycle = s + 2)
+    last_cycle = len(halvings) + 1
 
     # max2 for the current cycle
     max2_date, max2_price = _argmax_row(post_data)

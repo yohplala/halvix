@@ -50,6 +50,7 @@ class TestHalvingDates:
         for d in HALVING_DATES:
             assert isinstance(d, date)
 
-    def test_has_expected_count(self):
-        """Test that we have the expected number of halvings."""
-        assert len(HALVING_DATES) == 5
+    def test_lists_only_past_halvings(self):
+        """Only real halvings are configured; the next one is forecast."""
+        assert len(HALVING_DATES) >= 4
+        assert all(d <= date.today() for d in HALVING_DATES)

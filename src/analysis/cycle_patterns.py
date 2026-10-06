@@ -48,8 +48,8 @@ from analysis.cycle_points import (
     count_min1_cycles,
     count_peak_cycles,
 )
+from analysis.halving_calendar import cycle_halving_dates, projected_peak_date
 from config import (
-    DAYS_BEFORE_HALVING,
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
     MAX_FLAT_RUN_DAYS,
@@ -116,10 +116,9 @@ class CyclePatternAnalyzer:
         self.price_cache = price_cache or PriceDataCache()
         self.min_cycles = min_cycles
 
-        # Use cycles 2-5 (skip cycle 1 — too little altcoin data)
-        # Cycles 2-4 are completed halvings, cycle 5 is projected (2028)
-        self.all_halvings = HALVING_DATES[1:]
-        self.projected_halving = HALVING_DATES[-1]
+        # Skip cycle 1 (too little altcoin data). The last entry is the
+        # forecast next halving, which closes the current cycle.
+        self.all_halvings = cycle_halving_dates()[1:]
 
         # Load TOTAL2 composition for filtering
         self._total2_composition: pl.DataFrame | None = None
@@ -276,11 +275,11 @@ class CyclePatternAnalyzer:
             result.lower_intercept = lower_int
             result.pattern_type = self._classify_pattern(upper_slope, lower_slope)
 
-            # Expected peak ≈ halving + 550 days (same offset as DAYS_BEFORE_HALVING).
-            # Floor-aware damping: bend the peak line toward the floor for the
-            # forward extrapolation so a widening/parabolic channel is projected
-            # at the rate its floor can support (see TRENDLINE_FLOOR_DAMPING).
-            target_date = self.projected_halving + timedelta(days=DAYS_BEFORE_HALVING)
+            # Project to the expected next-cycle peak. Floor-aware damping: bend
+            # the peak line toward the floor for the forward extrapolation so a
+            # widening/parabolic channel is projected at the rate its floor can
+            # support (see TRENDLINE_FLOOR_DAMPING).
+            target_date = projected_peak_date()
             anchor_days = self._last_peak_days(result.points)
             if lower_slope is not None and anchor_days is not None:
                 proj_slope, proj_int = self._floor_damped_trendline(
@@ -301,10 +300,11 @@ class CyclePatternAnalyzer:
         # historical peak) all assume a full-cycle rebound and need a past cycle to
         # anchor to. A coin with only in-progress-cycle structure (SYRUP, SIREN,
         # HYPE) has no such anchor and would over-extrapolate wildly, so for it the
-        # composite is built from the demonstrated trendline only, then capped.
-        last_halving = max(h for h in HALVING_DATES if h <= date.today())
+        # composite is built from the demonstrated trendline only, log-compressed.
+        # HALVING_DATES lists only halvings that have happened: [-1] is the
+        # current cycle's.
         mature = any(
-            p.point_type == "max2" and not p.projected and p.date < last_halving
+            p.point_type == "max2" and not p.projected and p.date < HALVING_DATES[-1]
             for p in result.points
         )
 

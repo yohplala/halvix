@@ -15,7 +15,7 @@ and the existing test surface (``analyzer._foo(...)`` /
 """
 
 import math
-from datetime import date, timedelta
+from datetime import date
 
 import numpy as np
 
@@ -26,9 +26,9 @@ from analysis.cycle_points import (
     fib_retracement_ratio,
     find_latest_min_point,
 )
+from analysis.halving_calendar import current_cycle_bottom
 from config import (
     COMPOSITE_WEIGHT_PROFILES,
-    CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,
     DEFAULT_DIMINISHING_FACTOR,
     DEFAULT_FIBONACCI_LEVEL,
     DIM_RETURN_MIN_GAIN_RATIO,
@@ -46,25 +46,19 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+# x-axis origin of every log-linear trendline (days since the 2016 halving)
+TRENDLINE_REFERENCE_DATE = HALVING_DATES[1]
+
+
 def get_regression_date(point: CyclePoint) -> date:
     """
     Get the date to use for trendline regression for a given point.
 
-    For actual (non-projected) points, returns the detected date.
-    For projected min1, returns the approximated date (520 days before
-    the last halving), matching the chart display position. This ensures
-    the trendline visually passes through the displayed point.
-
-    Maintainer note:
-        The projected-min1 x-coordinate is anchored to ``HALVING_DATES[-1]``
-        (currently 2028-03-31, a static config value — not auto-updated by
-        any CI workflow). Bumping ``HALVING_DATES[-1]`` to a different
-        projected date will shift the regression x-coord for every coin
-        with a projected min1, subtly re-positioning every trendline and
-        its derived target. If/when block-time projections move the date,
-        expect target percentages to drift; consider re-baselining or
-        switching to a more stable anchor (e.g. "today + remaining days
-        to the next halving") if drift becomes material.
+    For actual (non-projected) points, returns the detected date. A projected
+    min1 (current-cycle bottom not yet confirmed for the coin) is placed on the
+    current BTC cycle bottom (``halving_calendar.current_cycle_bottom``),
+    matching its chart display position, so the trendline visually passes
+    through the displayed point.
 
     Args:
         point: The cycle point
@@ -73,7 +67,7 @@ def get_regression_date(point: CyclePoint) -> date:
         Date to use for regression x-coordinate
     """
     if point.projected and point.point_type == "min1":
-        return HALVING_DATES[-1] - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
+        return current_cycle_bottom()
     return point.date
 
 
@@ -92,7 +86,7 @@ def fit_log_trendlines(
     affect which points the regression line fits more closely.
 
     Note: Actual points use their detected dates for regression.
-    Projected min1 uses an approximated date (520 days before halving),
+    Projected min1 is placed on the current cycle bottom date,
     matching its chart display position. This ensures trendlines visually
     pass through displayed points.
 
@@ -137,10 +131,9 @@ def fit_log_trendlines(
             )
             return None, None, None, None
 
-    # Convert to arrays with days as x-axis (days from first halving date)
-    # Use HALVING_DATES[1] (2016) as reference
-    # Note: Projected min1 uses approximated date via get_regression_date()
-    reference_date = HALVING_DATES[1]
+    # Days from TRENDLINE_REFERENCE_DATE as x-axis (projected min1 is placed
+    # by get_regression_date())
+    reference_date = TRENDLINE_REFERENCE_DATE
 
     peak_x = np.array([(get_regression_date(p) - reference_date).days for p in peaks]).reshape(
         -1, 1
@@ -306,7 +299,7 @@ def last_peak_days(points: list[CyclePoint]) -> int | None:
     if not peaks:
         return None
     latest = max(peaks, key=lambda p: p.date)
-    return (get_regression_date(latest) - HALVING_DATES[1]).days
+    return (get_regression_date(latest) - TRENDLINE_REFERENCE_DATE).days
 
 
 def floor_damped_trendline(
@@ -355,8 +348,7 @@ def project_trendline_target(
     Returns:
         Projected price at target date, or None if projection overflows
     """
-    reference_date = HALVING_DATES[1]
-    days = (target_date - reference_date).days
+    days = (target_date - TRENDLINE_REFERENCE_DATE).days
     log_price = upper_slope * days + upper_intercept
 
     # Guard against overflow - log_price > 308 would overflow float64

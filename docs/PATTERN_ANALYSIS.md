@@ -67,12 +67,13 @@ For cycle 5, min1 can be either **actual** or **projected**, depending on whethe
 | Condition | Type | Price | Date | Chart Marker |
 |-----------|------|-------|------|-------------|
 | Retracement ≥ 23.6% | **Actual** | Detected minimum | Actual date of minimum | Solid circle |
-| Retracement < 23.6% | **Projected** | 23.6% retracement level | Approximated: halving − 520 days (~Oct 2026) | Open circle |
+| Retracement < 23.6% | **Projected** | 23.6% retracement level | BTC cycle bottom (2026-06-30) | Open circle |
 
-For **projected min1**, the approximated *date* is used for **both** chart display
-and trendline regression (ensuring visual alignment) — it places min1 within the
-typical window `[halving-550, halving]` and provides a stable x-coordinate since
-the true bottom hasn't occurred yet.
+For **projected min1**, the *date* of the current BTC cycle bottom
+(`halving_calendar.current_cycle_bottom`: the confirmed `BTC_CYCLE_BOTTOMS` entry,
+or its forecast before confirmation) is used for **both** chart display and
+trendline regression (ensuring visual alignment) — a stable x-coordinate while
+the coin's own bottom hasn't printed yet.
 
 The projected min1 *price* (the assumed 23.6% retracement level) is the
 in-progress cycle's anchor for the **rebound methods too**: it is the `C` low in
@@ -99,7 +100,7 @@ Fits separate linear regression lines (on log-transformed prices) through:
 - **Upper trendline**: Through max1 and max2 points across cycles
 - **Lower trendline**: Through min1 and min2 points across cycles
 
-> **Note**: Projected cycle 5 min1 uses an approximated date for regression (see [Cycle 5](#cycle-5-current-cycle) above). Actual min1 uses its detected date.
+> **Note**: Projected cycle 5 min1 is placed on the BTC cycle bottom date for regression (see [Cycle 5](#cycle-5-current-cycle) above). Actual min1 uses its detected date.
 
 **Weighted Regression**:
 
@@ -152,14 +153,14 @@ To calculate a trendline, the analyzer requires at least **2 extrema on at least
 
 **Additional Requirements**:
 - No zero or negative prices
-- **Projected min1 is included** in trendline regression. Its price (23.6% retracement level) is approximate, but it provides a useful second trough for coins with limited history. Its regression x-coordinate uses an approximated date (halving − 520 days), while actual min1 uses its detected date (see [Cycle 5](#cycle-5-current-cycle)).
+- **Projected min1 is included** in trendline regression. Its price (23.6% retracement level) is approximate, but it provides a useful second trough for coins with limited history. Its regression x-coordinate is the BTC cycle bottom date, while actual min1 uses its detected date (see [Cycle 5](#cycle-5-current-cycle)).
 
 The pattern is classified based on slope relationships:
 - **Falling Wedge**: Upper slope < lower slope (diminishing returns pattern)
 - **Rising Wedge**: Upper slope > lower slope (accelerating returns)
 - **Channel**: Slopes approximately parallel
 
-Target is projected by extending the upper trendline to the expected cycle 5 peak date (~October 2029 = 2028 halving + 550 days).
+Target is projected by extending the upper trendline to the expected cycle 5 peak date (forecast 5th halving + `PEAK_DAYS_AFTER_HALVING` = 550 days, ~June 2029).
 
 **Floor-aware damping.** The next-cycle peak is only projected as fast as the channel's *weakest* boundary. The forward slope is bent toward the floor:
 
@@ -597,7 +598,7 @@ Key parameters in [`src/config.py`](../src/config.py):
 |----------|-------|----------|
 | `MAJOR_POINT_WEIGHT` | 0.67 | Weight for min1, max2 in regression and historical peak averaging |
 | `MINOR_POINT_WEIGHT` | 0.33 | Weight for max1, min2 in regression and historical peak averaging |
-| `CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING` | 520 | Approximated min1 date for trendline |
+| `PEAK_DAYS_AFTER_HALVING` | 550 | Expected peak offset after the halving (trendline target date) |
 | `MIN_LOWER_SLOPE_ANNUAL_PCT` | 4 | Minimum annual floor appreciation (%) |
 | `MIN_COIN_AGE_DAYS` | 365 | Minimum coin age in days (1 year) |
 | `MIN_UNIQUE_PRICES` | 30 | Minimum distinct prices for liquidity |
@@ -612,14 +613,14 @@ Key parameters in [`src/config.py`](../src/config.py):
 
 ## Halving Cycle Windows
 
-> **Note**: Halving dates are defined in [`src/config.py`](../src/config.py) (`HALVING_DATES`, including the projected 5th halving). Window calculations use `DAYS_BEFORE_HALVING` (550) and `DAYS_AFTER_HALVING` (950).
+> **Note**: [`src/config.py`](../src/config.py) `HALVING_DATES` lists only halvings that have happened. The next one is forecast by [`analysis/halving_calendar.py`](../src/analysis/halving_calendar.py): once the current cycle bottom is confirmed in `BTC_CYCLE_BOTTOMS`, as that bottom + the average bottom→halving lead of cycles 2–4 (542, 513, 515 → 523 days); before that, as the last halving + the average halving interval. Adding the real date to `HALVING_DATES` replaces the forecast. Window calculations use `DAYS_BEFORE_HALVING` (550) and `DAYS_AFTER_HALVING` (950).
 
 | Cycle | Halving Date | Pre-Window Start | Post-Window End |
 |-------|--------------|------------------|-----------------|
-| 2 | July 9, 2016 | Dec 2, 2014 | Feb 14, 2019 |
+| 2 | July 9, 2016 | Jan 6, 2015 | Feb 14, 2019 |
 | 3 | May 11, 2020 | Nov 8, 2018 | Dec 17, 2022 |
-| 4 | April 19, 2024 | Oct 16, 2022 | Nov 25, 2026 |
-| 5 | March 31, 2028 (proj.) | Sept 28, 2026 | Nov 6, 2030 |
+| 4 | April 19, 2024 | Oct 17, 2022 | Nov 25, 2026 |
+| 5 | Dec 5, 2027 (forecast) | June 3, 2026 | July 12, 2030 |
 
 ---
 

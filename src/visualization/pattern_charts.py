@@ -7,7 +7,8 @@ Generates HTML pages with cycle pattern analysis charts showing:
 - Min/max points with solid lines
 - Target projections from 4 methods (trendline, fibonacci, diminishing, historical peak)
 
-All charts use the same time scale (cycles 3, 4, and projected 5).
+All charts use the same time scale: the last three halving cycles (the
+current one closed by the forecast next halving).
 """
 
 import math
@@ -18,17 +19,20 @@ import plotly.graph_objects as go
 import polars as pl
 
 from analysis.cycle_patterns import CoinPatternResult, CyclePatternAnalyzer
+from analysis.halving_calendar import (
+    HalvingCycle,
+    current_cycle_bottom,
+    halving_cycles,
+    projected_peak_date,
+)
+from analysis.projections import TRENDLINE_REFERENCE_DATE
 from config import (
     BTC_PRICE_K_THRESHOLD,
     CHART_ANNOTATION_BASE_Y,
     CHART_ANNOTATION_DAYS_OFFSET,
     CHART_LINE_SPACING,
     CHART_Y_AXIS_PADDING,
-    CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING,
-    DAYS_AFTER_HALVING,
-    DAYS_BEFORE_HALVING,
     FIB_HINT_Y_SHIFT,
-    HALVING_DATES,
     PATTERN_ANALYSIS_ALWAYS_INCLUDE,
     PATTERN_ANALYSIS_TOP_N,
     coin_url,
@@ -83,7 +87,7 @@ CYCLE_COLORS = {
     2: "rgba(130, 225, 215, 0.9)",  # Cycle 2 (2016) - pale teal
     3: "rgba(90, 175, 255, 0.95)",  # Cycle 3 (2020) - sky blue
     4: "rgba(170, 150, 255, 1.0)",  # Cycle 4 (2024) - lavender
-    5: "rgba(70, 200, 240, 1.0)",  # Cycle 5 (2028) - bright cyan
+    5: "rgba(70, 200, 240, 1.0)",  # Cycle 5 (forecast) - bright cyan
 }
 
 
@@ -117,8 +121,8 @@ def _add_target_predictions(
     Add target prediction stars and text label to a chart.
 
     Stars are positioned at the target date/price. Text labels are displayed
-    in the bottom right corner of the chart, starting a few days after the
-    2028 halving.
+    at the bottom of the chart, right-aligned just left of the forecast next
+    halving line.
 
     Args:
         fig: Plotly figure to add traces to
@@ -182,8 +186,8 @@ def _add_target_predictions(
             price_str = _format_pct(target_pct)
         text_lines.append((f"{label}: {price_str}", color))
 
-    # Add text annotations at the bottom, left of the 5th halving vertical line
-    text_x_date = HALVING_DATES[-1] - timedelta(days=CHART_ANNOTATION_DAYS_OFFSET)
+    # Add text annotations at the bottom, left of the next halving vertical line
+    text_x_date = _charted_cycles()[-1].halving - timedelta(days=CHART_ANNOTATION_DAYS_OFFSET)
     num_lines = len(text_lines)
 
     for i, (text_label, color) in enumerate(text_lines):
@@ -239,11 +243,8 @@ def _add_trendlines(
     if lower_slope is None or lower_intercept is None:
         return
 
-    # Reference date for x-axis (matches projections.fit_log_trendlines)
-    reference_date = HALVING_DATES[1]  # 2016-07-09
-
     def log_line(slope: float, intercept: float, d: date) -> float:
-        return 10 ** (slope * (d - reference_date).days + intercept)
+        return 10 ** (slope * (d - TRENDLINE_REFERENCE_DATE).days + intercept)
 
     # Guard against overflow when converting log values back to price.
     try:
@@ -325,7 +326,7 @@ def _add_fib_hint_lines(
     fig: go.Figure,
     result: CoinPatternResult,
     target_date: date,
-    cycle5_display_date: date,
+    projected_min1_date: date,
     current_cycle_num: int | None,
     idx: dict[tuple[int, str], list],
     cycles: list[int],
@@ -369,14 +370,10 @@ def _add_fib_hint_lines(
     if not (a_point and b_point and c_point):
         return
 
-    # Handle cycle 5 display date for C (only when projected)
+    # A projected current-cycle C is drawn at the projected-min1 date
     c_date = c_point.date
-    if (
-        current_cycle_num
-        and latest_cycle == current_cycle_num
-        and getattr(c_point, "projected", False)
-    ):
-        c_date = cycle5_display_date
+    if current_cycle_num and latest_cycle == current_cycle_num and c_point.projected:
+        c_date = projected_min1_date
 
     # Shift A, B, C down slightly (log-scale) to separate from dim-return lines.
     # ★ (target) stays at true price.
@@ -403,7 +400,7 @@ def _add_dim_return_hint_lines(
     fig: go.Figure,
     result: CoinPatternResult,
     target_date: date,
-    cycle5_display_date: date,
+    projected_min1_date: date,
     current_cycle_num: int | None,
     idx: dict[tuple[int, str], list],
     cycles: list[int],
@@ -439,8 +436,8 @@ def _add_dim_return_hint_lines(
             min_date = min_p.date
             max_date = max_p.date
             if current_cycle_num and cycle == current_cycle_num:
-                if min_p.point_type == "min1" and getattr(min_p, "projected", False):
-                    min_date = cycle5_display_date
+                if min_p.point_type == "min1" and min_p.projected:
+                    min_date = projected_min1_date
 
             fig.add_trace(
                 go.Scatter(
@@ -467,9 +464,9 @@ def _add_dim_return_hint_lines(
             current_cycle_num
             and latest_min.cycle_num == current_cycle_num
             and latest_min.point_type == "min1"
-            and getattr(latest_min, "projected", False)
+            and latest_min.projected
         ):
-            min_date = cycle5_display_date
+            min_date = projected_min1_date
 
         fig.add_trace(
             go.Scatter(
@@ -531,45 +528,27 @@ def _calculate_y_axis_range(
     return [math.log10(y_min) - padding, math.log10(y_max) + padding]
 
 
-def _get_cycle5_min1_display_date() -> date:
-    """
-    Get the approximated date for displaying projected cycle 5 min1 on charts.
-
-    Only used for projected min1 (where the actual retracement hasn't reached
-    23.6% yet). Actual min1 points use their real detected date.
-
-    Returns:
-        The approximated date for projected cycle 5 min1 (520 days before 5th halving)
-    """
-    return HALVING_DATES[-1] - timedelta(days=CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING)
-
-
 # =============================================================================
 # Chart Generation
 # =============================================================================
 
 
+def _charted_cycles() -> list[HalvingCycle]:
+    """The last three halving cycles, the current one ending at the forecast halving."""
+    return halving_cycles()[-3:]
+
+
 def _get_time_range() -> tuple[date, date]:
-    """
-    Get the time range for pattern charts (cycles 3, 4, and projected 5).
-
-    Returns:
-        Tuple of (start_date, end_date)
-    """
-    # Start: 550 days before 2020 halving (cycle 3 start)
-    start = HALVING_DATES[2] - timedelta(days=DAYS_BEFORE_HALVING)
-
-    # End: 950 days after projected 5th halving (cycle 5 end)
-    end = HALVING_DATES[-1] + timedelta(days=DAYS_AFTER_HALVING)
-
-    return start, end
+    """Chart time range: from the first charted cycle's start to the last one's end."""
+    cycles = _charted_cycles()
+    return cycles[0].start, cycles[-1].end
 
 
 def _add_halving_lines(fig: go.Figure, row: int = 1, col: int = 1) -> None:
     """Add vertical lines at halving dates."""
-    for halving_date in (HALVING_DATES[2], HALVING_DATES[3], HALVING_DATES[-1]):
+    for cycle in _charted_cycles():
         fig.add_vline(
-            x=halving_date,
+            x=cycle.halving,
             line={"dash": "dot", "color": "rgba(200,200,200,0.4)", "width": 1.5},
             row=row,
             col=col,
@@ -662,7 +641,7 @@ def _create_pattern_chart(
     )
 
     # 1b. Add dashed trendlines (stop at target_date, not chart edge)
-    target_date = HALVING_DATES[-1] + timedelta(days=550)
+    target_date = projected_peak_date()
     _add_trendlines(
         fig,
         result.upper_slope,
@@ -680,8 +659,9 @@ def _create_pattern_chart(
     valid_points = [p for p in result.points if p.price > 0]
     cycles = sorted({p.cycle_num for p in valid_points})
 
-    # Get cycle 5 approximated date for display (used only for projected min1)
-    cycle5_display_date = _get_cycle5_min1_display_date()
+    # Projected min1 (bottom not yet confirmed for the coin) is drawn on the
+    # current BTC cycle bottom — the same x used for its trendline regression.
+    projected_min1_date = current_cycle_bottom()
 
     # Build points index once for all chart helpers
     idx: dict[tuple[int, str], list] = {}
@@ -708,14 +688,10 @@ def _create_pattern_chart(
         if not cycle_points:
             continue
 
-        # For current cycle, use approximated date only for projected min1
+        # Current cycle: a projected min1 is drawn at the projected-min1 date
         if cycle_num == current_cycle_num:
             x_vals = [
-                (
-                    cycle5_display_date
-                    if p.point_type == "min1" and getattr(p, "projected", False)
-                    else p.date
-                )
+                (projected_min1_date if p.point_type == "min1" and p.projected else p.date)
                 for p in cycle_points
             ]
         else:
@@ -737,7 +713,7 @@ def _create_pattern_chart(
         # Add individual points with markers
         for i, p in enumerate(cycle_points):
             display_date = x_vals[i]
-            is_projected = getattr(p, "projected", False)
+            is_projected = p.projected
             point_color = POINT_COLORS.get(p.point_type, "#888")
             marker_symbol = "circle-open" if is_projected else "circle"
             projected_label = " (Projected)" if is_projected else ""
@@ -773,8 +749,8 @@ def _create_pattern_chart(
         if prev_max2 and next_min1:
             # Standard bridge: max2 → min1
             next_min1_date = (
-                cycle5_display_date
-                if next_cycle == current_cycle_num and getattr(next_min1, "projected", False)
+                projected_min1_date
+                if next_cycle == current_cycle_num and next_min1.projected
                 else next_min1.date
             )
 
@@ -807,10 +783,10 @@ def _create_pattern_chart(
                 last_p = curr_pts[-1]
                 first_p = next_pts[0]
                 first_date = (
-                    cycle5_display_date
+                    projected_min1_date
                     if next_cycle == current_cycle_num
                     and first_p.point_type == "min1"
-                    and getattr(first_p, "projected", False)
+                    and first_p.projected
                     else first_p.date
                 )
                 fig.add_trace(
@@ -831,10 +807,10 @@ def _create_pattern_chart(
 
     # 3b. Add method hint lines (visual guides for projection methods)
     _add_fib_hint_lines(
-        fig, result, target_date, cycle5_display_date, current_cycle_num, idx, cycles
+        fig, result, target_date, projected_min1_date, current_cycle_num, idx, cycles
     )
     _add_dim_return_hint_lines(
-        fig, result, target_date, cycle5_display_date, current_cycle_num, idx, cycles
+        fig, result, target_date, projected_min1_date, current_cycle_num, idx, cycles
     )
 
     # 4. Add target predictions (stars + text label)
@@ -1269,6 +1245,7 @@ def generate_pattern_analysis_page(
     </script>
     """
 
+    projected_cycle = _charted_cycles()[-1]
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1289,7 +1266,7 @@ def generate_pattern_analysis_page(
         <h2>Cycle Pattern Analysis</h2>
         <p class="description">
             Analysis of price patterns across Bitcoin halving cycles with projections
-            for cycle 5 (2028). Four methods are used to estimate targets: log-linear trendline
+            for cycle {projected_cycle.number} (halving est. {projected_cycle.halving:%b %Y}). Four methods are used to estimate targets: log-linear trendline
             regression, Fibonacci 100% extension, diminishing returns model, and historical peak.
             <strong>Ranking is by composite score (descending)</strong> — the projected upside for the next cycle; a younger coin can rank above a more mature one.
             See <a href="https://github.com/yohplala/halvix/blob/main/docs/PATTERN_ANALYSIS.md" target="_blank">full methodology</a> for details on filtering, confidence levels, and weight profiles.

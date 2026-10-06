@@ -29,7 +29,6 @@ from api.base import PriceProvider, PriceProviderError
 from config import (
     COINGECKO_IDENTITY_SEED_JSON,
     COINS_TO_DOWNLOAD_JSON,
-    DAYS_AFTER_HALVING,
     DAYS_BEFORE_HALVING,
     HALVING_DATES,
     NO_USD_DATA_CSV,
@@ -41,7 +40,6 @@ from config import (
     SPLICE_OVERLAP_DAYS,
     SPLICE_PRICE_MAX_RATIO,
     TOP_N_BY_MARKETCAP_TO_FETCH,
-    USE_YESTERDAY_AS_END_DATE,
 )
 from data.cache import FileCache, PriceDataCache
 from data.coin_registry import CoinRegistry
@@ -123,18 +121,12 @@ class DataFetcher:
         # for the overlap day disagreed with cached history (suspected mismatch).
         self.splice_mismatches: list[dict] = []
 
-        # Calculate the date range needed for all halving cycles
-        # First halving minus DAYS_BEFORE to last halving plus DAYS_AFTER
+        # History starts at the first cycle's window (first halving - DAYS_BEFORE)
         self.history_start_date = HALVING_DATES[0] - timedelta(days=DAYS_BEFORE_HALVING)
 
-        # End date: always yesterday (today's data is incomplete)
-        # We fetch all available data; the analysis window limits apply later
-        # during visualization, not during data fetching
-        if USE_YESTERDAY_AS_END_DATE:
-            self.history_end_date = date.today() - timedelta(days=1)
-        else:
-            # For testing: use analysis end date
-            self.history_end_date = HALVING_DATES[-1] + timedelta(days=DAYS_AFTER_HALVING)
+        # End date: always yesterday (today's data is incomplete). We fetch all
+        # available data; the cycle-window limits apply later, in visualization.
+        self.history_end_date = date.today() - timedelta(days=1)
 
     @overload
     def fetch_top_coins(

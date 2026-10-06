@@ -5,21 +5,24 @@ Creates interactive Plotly charts for:
 - TOTAL2 index across halving cycles
 - BTC vs USD across halving cycles
 - Interactive coin composition viewer
+
+Every cycle is drawn on a "days from halving" x-axis. The current cycle's
+halving is a forecast (see ``analysis.halving_calendar``) until its real date
+is added to the config.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
+from statistics import geometric_mean
 
 import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
+from analysis.halving_calendar import HalvingCycle, halving_cycles
 from config import (
     BTC_CYCLE_BOTTOMS,
     BTC_CYCLE_PEAKS,
-    DAYS_AFTER_HALVING,
-    DAYS_BEFORE_HALVING,
-    HALVING_DATES,
     OUTPUT_DIR,
     TOTAL2_COMPOSITION_FILE,
     TOTAL2_INDEX_FILE,
@@ -39,7 +42,7 @@ BTC_COLORS = [
     "rgba(255, 200, 87, 0.92)",  # Cycle 2 (2016) - light orange
     "rgba(255, 145, 50, 0.95)",  # Cycle 3 (2020) - bright orange
     "rgba(255, 140, 90, 1.0)",  # Cycle 4 (2024) - lighter coral orange (better contrast)
-    "rgba(255, 100, 70, 1.0)",  # Cycle 5 (2028) - deep coral (projected)
+    "rgba(255, 100, 70, 1.0)",  # Cycle 5 (forecast) - deep coral
 ]
 
 # TOTAL2: Cyan to blue progression (skip cycle 1)
@@ -49,7 +52,7 @@ TOTAL2_COLORS = [
     "rgba(144, 224, 239, 0.9)",  # Cycle 2 (2016) - pale cyan
     "rgba(56, 189, 248, 0.95)",  # Cycle 3 (2020) - bright cyan-blue
     "rgba(100, 160, 255, 1.0)",  # Cycle 4 (2024) - lighter sky blue (better contrast)
-    "rgba(80, 130, 255, 1.0)",  # Cycle 5 (2028) - deeper blue (projected)
+    "rgba(80, 130, 255, 1.0)",  # Cycle 5 (forecast) - deeper blue
 ]
 
 # Line styles per cycle (solid or dotted)
@@ -59,8 +62,13 @@ LINE_DASH_STYLES = [
     "dot",  # Cycle 2 (2016) - dotted
     "solid",  # Cycle 3 (2020)
     "solid",  # Cycle 4 (2024)
-    "solid",  # Cycle 5 (2028)
+    "solid",  # Cycle 5 (forecast)
 ]
+
+GRID_COLOR = "rgba(128, 128, 128, 0.2)"
+HALVING_LINE = {"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}
+PEAK_LINE_COLOR = "rgba(63, 185, 80, 0.5)"  # 50% transparent green
+BOTTOM_LINE_COLOR = "rgba(248, 81, 73, 0.5)"  # 50% transparent red
 
 
 # =============================================================================
@@ -96,99 +104,203 @@ def _write_chart_with_template(
         f.write(full_html)
 
 
-def _add_cycle_extremes_lines(
-    fig: go.Figure,
-    halving_date: date,
-    xref: str = "x",
-    yref: str = "y",
-    row: int | None = None,
-    col: int | None = None,
-) -> None:
+# =============================================================================
+# Cycle data
+# =============================================================================
+
+
+def get_cycle_data(df: pl.DataFrame, cycle: HalvingCycle, price_col: str) -> pl.DataFrame:
     """
-    Add vertical lines for BTC cycle peaks (green) and bottoms (red) to a chart.
+    Extract a cycle's window with an integer ``days_from_halving`` column.
 
-    Only adds lines for peaks/bottoms that fall within the cycle window.
-    Lines are constrained to the specific subplot using row/col parameters.
-
-    Args:
-        fig: Plotly figure to add lines to
-        halving_date: The halving date for this cycle
-        xref: X-axis reference (e.g., "x", "x2" for subplots)
-        yref: Y-axis reference (e.g., "y", "y2" for subplots)
-        row: Row number for subplot (1-indexed), used with add_vline
-        col: Column number for subplot (1-indexed), used with add_vline
+    Rows without a positive ``price_col`` value are dropped (e.g. a TOTAL2/USD
+    day missing its BTC/USD rate), so every returned point can be plotted on a
+    log axis and normalized.
     """
-    cycle_start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
-    cycle_end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
-
-    # Add peak lines (50% transparent green)
-    for peak_date in BTC_CYCLE_PEAKS:
-        if cycle_start <= peak_date <= cycle_end:
-            days_from_halving = (peak_date - halving_date).days
-            fig.add_vline(
-                x=days_from_halving,
-                line={"dash": "solid", "color": "rgba(63, 185, 80, 0.5)", "width": 1},
-                row=row,
-                col=col,
-            )
-
-    # Add bottom lines (50% transparent red)
-    for bottom_date in BTC_CYCLE_BOTTOMS:
-        if cycle_start <= bottom_date <= cycle_end:
-            days_from_halving = (bottom_date - halving_date).days
-            fig.add_vline(
-                x=days_from_halving,
-                line={"dash": "solid", "color": "rgba(248, 81, 73, 0.5)", "width": 1},
-                row=row,
-                col=col,
-            )
-
-
-def get_cycle_data(
-    df: pl.DataFrame,
-    halving_date: date,
-    price_col: str = "close",
-    days_before: int = DAYS_BEFORE_HALVING,
-    days_after: int = DAYS_AFTER_HALVING,
-    normalize: bool = False,
-) -> pl.DataFrame:
-    """
-    Extract data for a halving cycle and normalize to days from halving.
-
-    Args:
-        df: DataFrame with a ``date`` column
-        halving_date: The halving date for this cycle
-        price_col: Column name for price data
-        days_before: Days before halving to include
-        days_after: Days after halving to include
-        normalize: If True, normalize prices to 1.0 at halving day
-
-    Returns:
-        DataFrame with 'days_from_halving' column and optionally normalized price
-    """
-    start = halving_date - timedelta(days=days_before)
-    end = halving_date + timedelta(days=days_after)
-
-    cycle_df = df.filter((pl.col("date") >= start) & (pl.col("date") <= end))
-    if cycle_df.is_empty():
-        return cycle_df
-
-    # Integer days from the halving date.
-    cycle_df = cycle_df.with_columns(
-        (pl.col("date") - halving_date).dt.total_days().cast(pl.Int64).alias("days_from_halving")
+    return df.filter(
+        pl.col("date").is_between(cycle.start, cycle.end) & (pl.col(price_col) > 0)
+    ).with_columns(
+        (pl.col("date") - cycle.halving).dt.total_days().cast(pl.Int64).alias("days_from_halving")
     )
 
-    if normalize and price_col in cycle_df.columns:
-        # Value at day 0 (halving day) or the closest day after.
-        after = cycle_df.filter(pl.col("days_from_halving") >= 0)
-        if not after.is_empty():
-            halving_value = after[price_col][0]
-            if halving_value is not None and halving_value > 0:
-                cycle_df = cycle_df.with_columns(
-                    (pl.col(price_col) / halving_value).alias("normalized")
+
+def _halving_day_value(cycle_df: pl.DataFrame, price_col: str) -> float | None:
+    """Value on halving day (or the closest day after), None before the halving."""
+    after = cycle_df.filter(pl.col("days_from_halving") >= 0)
+    return None if after.is_empty() else after[price_col][0]
+
+
+def _forecast_halving_value(
+    cycle_df: pl.DataFrame, price_col: str, references: list[pl.DataFrame]
+) -> float | None:
+    """
+    Halving-day value for a cycle whose halving has not happened yet.
+
+    Chosen so the cycle's first point sits at the average of the reference
+    cycles' normalized values on that same day offset. The average is a
+    geometric mean, as the values are multipliers shown on a log axis.
+    """
+    if cycle_df.is_empty():
+        return None
+    first_day = cycle_df["days_from_halving"][0]
+    multipliers = [
+        same_day["normalized"][0]
+        for ref in references
+        if not (same_day := ref.filter(pl.col("days_from_halving") == first_day)).is_empty()
+    ]
+    if not multipliers:
+        return None
+    return cycle_df[price_col][0] / geometric_mean(multipliers)
+
+
+def normalize_cycles(
+    cycle_frames: dict[HalvingCycle, pl.DataFrame], price_col: str
+) -> dict[HalvingCycle, tuple[pl.DataFrame, float]]:
+    """
+    Normalize each cycle to its halving-day value, in a ``normalized`` column.
+
+    Known cycles use their actual halving-day value. A forecast cycle uses a
+    forecast value that starts its curve at the average of the known cycles'
+    values on the same day (see ``_forecast_halving_value``); the real value
+    takes over once the real halving date is in the config.
+
+    Returns:
+        ``{cycle: (normalized frame, halving value)}`` in cycle order; cycles
+        that cannot be normalized yet are left out.
+    """
+
+    def scaled(df: pl.DataFrame, value: float) -> pl.DataFrame:
+        return df.with_columns((pl.col(price_col) / value).alias("normalized"))
+
+    normalized = {
+        cycle: (scaled(df, value), value)
+        for cycle, df in cycle_frames.items()
+        if not cycle.forecast and (value := _halving_day_value(df, price_col)) is not None
+    }
+    references = [df for df, _ in normalized.values()]
+    for cycle, df in cycle_frames.items():  # the forecast cycle is the last one
+        if cycle.forecast and (value := _forecast_halving_value(df, price_col, references)):
+            normalized[cycle] = (scaled(df, value), value)
+    return normalized
+
+
+# =============================================================================
+# Shared figure helpers
+# =============================================================================
+
+
+def _add_cycle_trace(
+    fig: go.Figure,
+    cycle: HalvingCycle,
+    cycle_df: pl.DataFrame,
+    y_col: str,
+    *,
+    row: int,
+    palette: list[str],
+    hover: str,
+    extra_cols: tuple[str, ...] = (),
+) -> None:
+    """
+    Add one cycle's curve to a row of a two-row cycle figure.
+
+    ``hover`` is the hover-template body below the date line; in it,
+    ``%{customdata[1]}``… refer to ``extra_cols``. The legend entry is shown on
+    row 1 only (both rows share a legend group, so it toggles both).
+    """
+    style = min(cycle.number, len(palette)) - 1  # reuse the last style beyond the palette
+    customdata = cycle_df.select(pl.col("date").dt.strftime("%Y-%m-%d"), *extra_cols).rows()
+    fig.add_trace(
+        go.Scatter(
+            x=cycle_df["days_from_halving"].to_list(),
+            y=cycle_df[y_col].to_list(),
+            mode="lines",
+            name=cycle.label,
+            line={"color": palette[style], "width": 1.5, "dash": LINE_DASH_STYLES[style]},
+            legendgroup=f"cycle{cycle.number}",
+            showlegend=row == 1,
+            customdata=customdata,
+            hovertemplate=f"Cycle {cycle.number}: %{{customdata[0]}}<br>{hover}<extra></extra>",
+        ),
+        row=row,
+        col=1,
+    )
+
+
+def _add_cycle_extremes_lines(fig: go.Figure, cycle: HalvingCycle, row: int) -> None:
+    """
+    Add vertical lines for the BTC cycle peaks (green) and bottoms (red)
+    falling inside a cycle's window, scoped to one subplot row.
+    """
+    for dates, color in (
+        (BTC_CYCLE_PEAKS, PEAK_LINE_COLOR),
+        (BTC_CYCLE_BOTTOMS, BOTTOM_LINE_COLOR),
+    ):
+        for extreme in dates:
+            if cycle.contains(extreme):
+                fig.add_vline(
+                    x=cycle.days_from_halving(extreme),
+                    line={"dash": "solid", "color": color, "width": 1},
+                    row=row,
+                    col=1,
                 )
 
-    return cycle_df
+
+def _finish_cycle_figure(
+    fig: go.Figure,
+    cycles: list[HalvingCycle],
+    *,
+    height: int,
+    dtick: int,
+    y_titles: tuple[str, str],
+    absolute_tickprefix: str = "",
+) -> None:
+    """
+    Style a two-row cycle figure (row 1 normalized, row 2 absolute) and add
+    its reference lines: halving day, the 1.0 multiplier, and the BTC
+    peak/bottom lines of every drawn cycle.
+    """
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+        hovermode="x unified",
+        height=height,
+        legend={
+            "yanchor": "top",
+            "y": 0.99,
+            "xanchor": "left",
+            "x": 0.01,
+            "bgcolor": "rgba(0,0,0,0.5)",
+        },
+        margin={"t": 60, "b": 40},
+    )
+    fig.update_xaxes(
+        title_text="Days from Halving", tickmode="linear", dtick=dtick, gridcolor=GRID_COLOR
+    )
+    for row, y_title in enumerate(y_titles, start=1):
+        fig.update_yaxes(title_text=y_title, type="log", gridcolor=GRID_COLOR, row=row, col=1)
+    fig.update_yaxes(tickprefix=absolute_tickprefix, row=2, col=1)
+
+    fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
+    for row in (1, 2):
+        fig.add_vline(x=0, line=HALVING_LINE, row=row, col=1)
+        for cycle in cycles:
+            _add_cycle_extremes_lines(fig, cycle, row)
+
+
+def _two_row_figure(titles: tuple[str, str]) -> go.Figure:
+    return make_subplots(
+        rows=2,
+        cols=1,
+        subplot_titles=titles,
+        vertical_spacing=0.08,
+        row_heights=[0.5, 0.5],
+    )
+
+
+# =============================================================================
+# Cycle charts
+# =============================================================================
 
 
 def create_btc_combined_chart(
@@ -203,166 +315,47 @@ def create_btc_combined_chart(
     Returns:
         Plotly Figure with 2 subplots
     """
-
-    # Load BTC-USD data
-    cache = PriceDataCache()
-    btc_df = cache.get_prices("btc", "USD")
-
+    btc_df = PriceDataCache().get_prices("btc", "USD")
     if btc_df is None or btc_df.is_empty():
         raise FileNotFoundError("BTC-USD price data not found. Run fetch-prices first.")
 
-    # Create figure with 2 rows
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        subplot_titles=(
+    frames = {cycle: get_cycle_data(btc_df, cycle, "close") for cycle in halving_cycles()}
+    frames = {cycle: df for cycle, df in frames.items() if not df.is_empty()}
+
+    fig = _two_row_figure(
+        (
             "Bitcoin (BTC) Price - Normalized to Halving Day",
             "Bitcoin (BTC) Price - Absolute (USD)",
-        ),
-        vertical_spacing=0.08,
-        row_heights=[0.5, 0.5],
+        )
     )
 
-    # Add traces for each halving cycle - NORMALIZED (row 1)
-    for i, halving_date in enumerate(HALVING_DATES):
-        cycle_num = i + 1
-        cycle_df = get_cycle_data(btc_df, halving_date, price_col="close", normalize=True)
-
-        if cycle_df.is_empty() or "normalized" not in cycle_df.columns:
-            continue
-
-        # Get actual halving price for hover
-        after = cycle_df.filter(pl.col("days_from_halving") >= 0)
-        halving_price = after["close"][0] if not after.is_empty() else 0
-
-        # Format dates for hover
-        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df["date"]]
-
-        fig.add_trace(
-            go.Scatter(
-                x=cycle_df["days_from_halving"].to_list(),
-                y=cycle_df["normalized"].to_list(),
-                mode="lines",
-                name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": BTC_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
-                legendgroup=f"cycle{cycle_num}",
-                customdata=dates_formatted,
-                hovertemplate=(
-                    ""
-                    f"Cycle {cycle_num}: %{{customdata}}<br>"
-                    "Multiplier: %{y:.2f}x<br>"
-                    f"(Halving price: ${halving_price:,.0f})"
-                    "<extra></extra>"
-                ),
-            ),
+    for cycle, (cycle_df, halving_price) in normalize_cycles(frames, "close").items():
+        price_label = "Forecast halving price" if cycle.forecast else "Halving price"
+        _add_cycle_trace(
+            fig,
+            cycle,
+            cycle_df,
+            "normalized",
             row=1,
-            col=1,
+            palette=BTC_COLORS,
+            hover=f"Multiplier: %{{y:.2f}}x<br>({price_label}: ${halving_price:,.0f})",
+        )
+    for cycle, cycle_df in frames.items():
+        _add_cycle_trace(
+            fig, cycle, cycle_df, "close", row=2, palette=BTC_COLORS, hover="Price: $%{y:,.2f}"
         )
 
-    # Add traces for each halving cycle - ABSOLUTE (row 2)
-    for i, halving_date in enumerate(HALVING_DATES):
-        cycle_num = i + 1
-        cycle_df = get_cycle_data(btc_df, halving_date, price_col="close")
-
-        if cycle_df.is_empty():
-            continue
-
-        # Format dates for hover
-        dates_formatted = [d.strftime("%Y-%m-%d") for d in cycle_df["date"]]
-
-        fig.add_trace(
-            go.Scatter(
-                x=cycle_df["days_from_halving"].to_list(),
-                y=cycle_df["close"].to_list(),
-                mode="lines",
-                name=f"Cycle {cycle_num} ({halving_date.year})",
-                line={"color": BTC_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
-                legendgroup=f"cycle{cycle_num}",
-                showlegend=False,
-                customdata=dates_formatted,
-                hovertemplate=(
-                    ""
-                    f"Cycle {cycle_num}: %{{customdata}}<br>"
-                    "Price: $%{y:,.2f}"
-                    "<extra></extra>"
-                ),
-            ),
-            row=2,
-            col=1,
-        )
-
-    # Update layout
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0d1117",
-        plot_bgcolor="#0d1117",
-        hovermode="x unified",
+    _finish_cycle_figure(
+        fig,
+        list(frames),
         height=1100,
-        legend={
-            "yanchor": "top",
-            "y": 0.99,
-            "xanchor": "left",
-            "x": 0.01,
-            "bgcolor": "rgba(0,0,0,0.5)",
-        },
-        margin={"t": 60, "b": 40},
-    )
-
-    # Update axes
-    fig.update_xaxes(
-        title_text="Days from Halving",
-        tickmode="linear",
         dtick=100,
-        gridcolor="rgba(128, 128, 128, 0.2)",
-        row=1,
-        col=1,
+        y_titles=("Price Multiplier (1.0 = Halving Day)", "BTC Price (USD)"),
+        absolute_tickprefix="$",
     )
-    fig.update_xaxes(
-        title_text="Days from Halving",
-        tickmode="linear",
-        dtick=100,
-        gridcolor="rgba(128, 128, 128, 0.2)",
-        row=2,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="Price Multiplier (1.0 = Halving Day)",
-        type="log",
-        gridcolor="rgba(128, 128, 128, 0.2)",
-        row=1,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="BTC Price (USD)",
-        type="log",
-        tickprefix="$",
-        gridcolor="rgba(128, 128, 128, 0.2)",
-        row=2,
-        col=1,
-    )
-
-    # Add vertical lines at halving for both charts (subplot-scoped)
-    fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=1, col=1
-    )
-    fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=2, col=1
-    )
-
-    # Add horizontal line at 1.0 for normalized chart
-    fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
-
-    # Add cycle peak/bottom lines for each halving cycle (subplot-scoped)
-    for halving_date in HALVING_DATES:
-        _add_cycle_extremes_lines(fig, halving_date, row=1, col=1)
-        _add_cycle_extremes_lines(fig, halving_date, row=2, col=1)
 
     if output_path:
-        _write_chart_with_template(
-            fig,
-            output_path,
-            "Bitcoin (BTC) Charts",
-        )
+        _write_chart_with_template(fig, output_path, "Bitcoin (BTC) Charts")
 
     return fig
 
@@ -375,180 +368,70 @@ def create_total2_combined_chart(
     1. TOTAL2/USD - Normalized to Halving Day
     2. TOTAL2/BTC - Absolute Values
 
+    Cycle 1 (2012) is skipped: altcoin data is too sparse.
+
     Args:
         output_path: Path to save HTML file
 
     Returns:
         Plotly Figure with 2 subplots
     """
-
-    # Load TOTAL2 data (BTC denominated)
     if not TOTAL2_INDEX_FILE.exists():
         raise FileNotFoundError("TOTAL2 index not found. Run calculate-total2 first.")
+    total2_df = pl.read_parquet(TOTAL2_INDEX_FILE).with_columns(pl.col("date").cast(pl.Date))
 
-    total2_btc_df = pl.read_parquet(TOTAL2_INDEX_FILE).with_columns(pl.col("date").cast(pl.Date))
-
-    # Load BTC-USD for conversion
-    cache = PriceDataCache()
-    btc_usd_df = cache.get_prices("btc", "USD")
-
+    btc_usd_df = PriceDataCache().get_prices("btc", "USD")
     if btc_usd_df is None or btc_usd_df.is_empty():
         raise FileNotFoundError("BTC-USD price data not found. Run fetch-prices first.")
 
-    # Calculate TOTAL2 in USD (align BTC-USD onto the index dates via a join).
-    total2_usd_df = total2_btc_df.join(
+    # TOTAL2 in USD: align BTC-USD onto the index dates via a join.
+    total2_df = total2_df.join(
         btc_usd_df.select("date", pl.col("close").alias("btc_usd")), on="date", how="left"
     ).with_columns((pl.col("total2_price") * pl.col("btc_usd")).alias("total2_usd"))
 
-    # One date → coin_count lookup for the hover customdata below.
-    coin_count_by_date = dict(
-        zip(total2_btc_df["date"].to_list(), total2_btc_df["coin_count"].to_list(), strict=True)
+    cycles = halving_cycles()[1:]
+    usd_frames = {cycle: get_cycle_data(total2_df, cycle, "total2_usd") for cycle in cycles}
+    btc_frames = {cycle: get_cycle_data(total2_df, cycle, "total2_price") for cycle in cycles}
+    usd_frames = {cycle: df for cycle, df in usd_frames.items() if not df.is_empty()}
+    btc_frames = {cycle: df for cycle, df in btc_frames.items() if not df.is_empty()}
+
+    fig = _two_row_figure(
+        ("TOTAL2/USD - Normalized to Halving Day", "TOTAL2/BTC - Absolute Values")
     )
 
-    # Create figure with 2 rows
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        subplot_titles=(
-            "TOTAL2/USD - Normalized to Halving Day",
-            "TOTAL2/BTC - Absolute Values",
-        ),
-        vertical_spacing=0.08,
-        row_heights=[0.5, 0.5],
-    )
-
-    # Add traces for each halving cycle (skip cycle 1 - insufficient data)
-    for i, halving_date in enumerate(HALVING_DATES):
-        cycle_num = i + 1
-
-        # Skip cycle 1 (2012) - data too sparse
-        if cycle_num == 1:
-            continue
-
-        # Row 1: USD normalized
-        cycle_usd = get_cycle_data(
-            total2_usd_df, halving_date, price_col="total2_usd", normalize=True
+    for cycle, (cycle_df, _) in normalize_cycles(usd_frames, "total2_usd").items():
+        _add_cycle_trace(
+            fig,
+            cycle,
+            cycle_df,
+            "normalized",
+            row=1,
+            palette=TOTAL2_COLORS,
+            hover="Multiplier: %{y:.2f}x<br>Coins: %{customdata[1]}",
+            extra_cols=("coin_count",),
         )
-        if not cycle_usd.is_empty() and "normalized" in cycle_usd.columns:
-            # Build customdata with date and coin_count
-            customdata_usd = [
-                [d.strftime("%Y-%m-%d"), int(coin_count_by_date[d])] for d in cycle_usd["date"]
-            ]
-            fig.add_trace(
-                go.Scatter(
-                    x=cycle_usd["days_from_halving"].to_list(),
-                    y=cycle_usd["normalized"].to_list(),
-                    mode="lines",
-                    name=f"Cycle {cycle_num} ({halving_date.year})",
-                    line={"color": TOTAL2_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
-                    legendgroup=f"cycle{cycle_num}",
-                    customdata=customdata_usd,
-                    hovertemplate=(
-                        ""
-                        f"Cycle {cycle_num}: %{{customdata[0]}}<br>"
-                        "Multiplier: %{y:.2f}x<br>"
-                        "Coins: %{customdata[1]}"
-                        "<extra></extra>"
-                    ),
-                ),
-                row=1,
-                col=1,
-            )
+    for cycle, cycle_df in btc_frames.items():
+        _add_cycle_trace(
+            fig,
+            cycle,
+            cycle_df,
+            "total2_price",
+            row=2,
+            palette=TOTAL2_COLORS,
+            hover="TOTAL2: %{y:.8f} BTC<br>Coins: %{customdata[1]}",
+            extra_cols=("coin_count",),
+        )
 
-        # Row 2: BTC absolute
-        cycle_abs = get_cycle_data(total2_btc_df, halving_date, price_col="total2_price")
-        if not cycle_abs.is_empty():
-            # Build customdata with date and coin_count
-            customdata_abs = [
-                [d.strftime("%Y-%m-%d"), int(coin_count_by_date[d])] for d in cycle_abs["date"]
-            ]
-            fig.add_trace(
-                go.Scatter(
-                    x=cycle_abs["days_from_halving"].to_list(),
-                    y=cycle_abs["total2_price"].to_list(),
-                    mode="lines",
-                    name=f"Cycle {cycle_num} ({halving_date.year})",
-                    line={"color": TOTAL2_COLORS[i], "width": 1.5, "dash": LINE_DASH_STYLES[i]},
-                    legendgroup=f"cycle{cycle_num}",
-                    showlegend=False,
-                    customdata=customdata_abs,
-                    hovertemplate=(
-                        ""
-                        f"Cycle {cycle_num}: %{{customdata[0]}}<br>"
-                        "TOTAL2: %{y:.8f} BTC<br>"
-                        "Coins: %{customdata[1]}"
-                        "<extra></extra>"
-                    ),
-                ),
-                row=2,
-                col=1,
-            )
-
-    # Update layout
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0d1117",
-        plot_bgcolor="#0d1117",
-        hovermode="x unified",
+    _finish_cycle_figure(
+        fig,
+        list(btc_frames),
         height=1000,
-        legend={
-            "yanchor": "top",
-            "y": 0.99,
-            "xanchor": "left",
-            "x": 0.01,
-            "bgcolor": "rgba(0,0,0,0.5)",
-        },
-        margin={"t": 60, "b": 40},
+        dtick=200,
+        y_titles=("Multiplier (1.0 = Halving)", "TOTAL2 (BTC)"),
     )
-
-    # Update axes for both rows
-    for row in [1, 2]:
-        fig.update_xaxes(
-            title_text="Days from Halving",
-            tickmode="linear",
-            dtick=200,
-            gridcolor="rgba(128, 128, 128, 0.2)",
-            row=row,
-            col=1,
-        )
-
-    fig.update_yaxes(
-        title_text="Multiplier (1.0 = Halving)",
-        type="log",
-        gridcolor="rgba(128, 128, 128, 0.2)",
-        row=1,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="TOTAL2 (BTC)",
-        type="log",
-        gridcolor="rgba(128, 128, 128, 0.2)",
-        row=2,
-        col=1,
-    )
-
-    # Add vertical lines at halving for both charts (subplot-scoped)
-    fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=1, col=1
-    )
-    fig.add_vline(
-        x=0, line={"dash": "dot", "color": "rgba(200,200,200,0.5)", "width": 1}, row=2, col=1
-    )
-
-    # Add horizontal line at 1.0 for normalized chart (row 1 only)
-    fig.add_hline(y=1, line={"dash": "dot", "color": "rgba(255,255,255,0.3)"}, row=1, col=1)
-
-    # Add cycle peak/bottom lines for each halving cycle (subplot-scoped)
-    for halving_date in HALVING_DATES:
-        _add_cycle_extremes_lines(fig, halving_date, row=1, col=1)
-        _add_cycle_extremes_lines(fig, halving_date, row=2, col=1)
 
     if output_path:
-        _write_chart_with_template(
-            fig,
-            output_path,
-            "TOTAL2 Index Charts",
-        )
+        _write_chart_with_template(fig, output_path, "TOTAL2 Index Charts")
 
     return fig
 
@@ -611,27 +494,19 @@ def create_composition_viewer_html(
         ]
         return f"{month_names[int(month) - 1]} {year}"
 
-    def get_cycle_info(d) -> str:
+    chart_cycles = halving_cycles()[1:]  # cycles shown in the TOTAL2 charts
+
+    def get_cycle_info(d: date) -> str:
         """
         Get cycle day info for a date, showing which cycle(s) it belongs to.
 
         Returns string like "C4: Day 12" or "C3: Day 880 | C4: Day -5" for overlaps.
         """
-        # Convert Pandas Timestamp to date if needed
-        if hasattr(d, "date"):
-            d = d.date()
-        cycle_infos = []
-        for i, halving_date in enumerate(HALVING_DATES):
-            cycle_num = i + 1
-            # Skip cycle 1 (not shown in charts)
-            if cycle_num == 1:
-                continue
-            start = halving_date - timedelta(days=DAYS_BEFORE_HALVING)
-            end = halving_date + timedelta(days=DAYS_AFTER_HALVING)
-            if start <= d <= end:
-                day_num = (d - halving_date).days
-                cycle_infos.append(f"C{cycle_num}: Day {day_num}")
-        return " | ".join(cycle_infos) if cycle_infos else ""
+        return " | ".join(
+            f"C{cycle.number}: Day {cycle.days_from_halving(d)}"
+            for cycle in chart_cycles
+            if cycle.contains(d)
+        )
 
     # Get all unique months
     months = sorted({get_month_key(d) for d in dates})
@@ -670,13 +545,8 @@ def create_composition_viewer_html(
         # Create date options for this month with cycle day info
         date_options_list = []
         for d in month_dates:
-            # Convert to date string for clean display
-            date_str = d.date() if hasattr(d, "date") else d
             cycle_info = get_cycle_info(d)
-            if cycle_info:
-                display = f"{date_str}  ({cycle_info})"
-            else:
-                display = str(date_str)
+            display = f"{d}  ({cycle_info})" if cycle_info else str(d)
             date_options_list.append(f'<option value="{d}">{display}</option>')
         date_options = "\n".join(date_options_list)
 

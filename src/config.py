@@ -68,37 +68,41 @@ _load_local_env(PROJECT_ROOT / ".env")
 # Bitcoin Halving Dates
 # =============================================================================
 
+# Halvings that have actually happened — add each new one once it occurs.
+# The next halving is forecast by analysis.halving_calendar (confirmed cycle
+# bottom + average bottom-to-halving lead) until its real date is listed here.
 HALVING_DATES: list[date] = [
     date(2012, 11, 28),  # 1st halving
     date(2016, 7, 9),  # 2nd halving
     date(2020, 5, 11),  # 3rd halving
     date(2024, 4, 19),  # 4th halving
-    date(2028, 3, 31),  # 5th halving (projected)
 ]
 
 # =============================================================================
-# BTC Cycle Peaks and Bottoms (verified from CryptoCompare data)
+# BTC Cycle Peaks and Bottoms (daily BTC/USD closes)
 # =============================================================================
-# These dates mark significant cycle extremes in BTC/USD price history.
-# Used for visualization to show where bottoms and peaks occurred relative to halvings.
+# These dates mark significant cycle extremes in BTC/USD price history: the
+# highest close after a halving and the lowest close of the bear market that
+# follows. Drawn as vertical lines on the cycle charts. A bottom is only added
+# once confirmed (the market has clearly entered the next cycle), as the latest
+# bottom drives the next-halving forecast (see analysis.halving_calendar).
 
-# BTC cycle peaks (bull market tops) - verified with +/-30 day accuracy
-# Note: Last peak is for current cycle and may change
+# BTC cycle peaks (bull market tops)
 BTC_CYCLE_PEAKS: list[date] = [
     # date(2011, 6, 8),  # Pre halving 1 peak: $29.60
     # date(2013, 12, 4),  # Post halving 1 peak: $1,237.55
     date(2017, 12, 16),  # Post halving 2 peak: $19,345.49
     date(2021, 11, 8),  # Post halving 3 peak: $67,549.14
-    date(2025, 10, 6),  # Post halving 4 peak (projected/current)
+    date(2025, 10, 6),  # Post halving 4 peak: $124,723.00
 ]
 
-# BTC cycle bottoms (bear market lows) - verified with +/-30 day accuracy
-# These mark the lowest points before the next bull run
+# BTC cycle bottoms (bear market lows) — the lowest close before the next bull run
 BTC_CYCLE_BOTTOMS: list[date] = [
     # date(2011, 11, 18),  # Pre halving 1 bottom: $2.05
     date(2015, 1, 14),  # Pre halving 2 bottom: $164.92
     date(2018, 12, 15),  # Pre halving 3 bottom: $3,232.51
     date(2022, 11, 21),  # Pre halving 4 bottom: $15,760.19
+    date(2026, 6, 30),  # Pre halving 5 bottom: $58,519.11
 ]
 
 # =============================================================================
@@ -108,7 +112,10 @@ BTC_CYCLE_BOTTOMS: list[date] = [
 # How far before/after halving to include in cycle analysis
 DAYS_BEFORE_HALVING = 550
 DAYS_AFTER_HALVING = 950  # Extended to capture bear market phase following bull run
-USE_YESTERDAY_AS_END_DATE = True
+
+# Expected cycle peak, in days after the halving (observed: 525, 546, 535).
+# Used as the projection date for the next-cycle price targets.
+PEAK_DAYS_AFTER_HALVING = 550
 
 # =============================================================================
 # Data Filtering Configuration
@@ -707,15 +714,6 @@ DIM_RETURN_MIN_GAIN_RATIO = 1.0
 # We use 88.6% as the cutoff: beyond this, the coin has retraced so deeply that
 # the "higher low" structure is broken — similar to a declining floor slope.
 MAX_RETRACEMENT_LEVEL = 0.886
-
-# Cycle 5 min1 approximate date for trendline regression
-# Since cycle 5 is ongoing, the actual min1 date may not yet reflect the true cycle bottom.
-# For trendline regression (which uses dates as x-coordinates), we use an approximated date
-# based on typical cycle timing: 520 days before the projected 5th halving.
-# This places min1 within the typical window [halving-550, halving] and provides a stable
-# reference point for regression calculations regardless of when the actual minimum occurs.
-# Note: The actual detected min1 date/price is still used for display and other methods.
-CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING = 520
 
 # Minimum Fibonacci retracement for cycle point validity
 # Points (min2, max1) must show at least 23.6% retracement to be considered significant.

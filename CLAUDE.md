@@ -66,6 +66,7 @@ halvix/
 │   │   └── processor.py        # Total2Processor + factory + result dataclass
 │   ├── analysis/
 │   │   ├── filters.py          # Token filtering
+│   │   ├── halving_calendar.py # Known halvings + next-halving forecast, cycle windows
 │   │   ├── cycle_points.py     # Dataclasses + pure helpers (PointType, CyclePoint, …)
 │   │   ├── point_detection.py  # Min/max identification kernel (3-pass segment scan)
 │   │   ├── projections.py      # Trendline / fib / diminishing / historical-peak models
@@ -129,6 +130,15 @@ secrets take precedence over `.env`.
 
 Full history is cached on the `raw-data` branch, so the daily job only tops up
 the most recent days for the top coins by market cap.
+
+### Halving Calendar
+
+`config.HALVING_DATES` lists only halvings that have happened. The next one is
+forecast by `analysis.halving_calendar` (confirmed `BTC_CYCLE_BOTTOMS` entry +
+average bottom→halving lead, else last halving + average interval) and used by
+the cycle charts and the pattern analysis. When a halving happens, add its real
+date to `HALVING_DATES`; when the next bear-market bottom is confirmed, add it
+to `BTC_CYCLE_BOTTOMS`.
 
 ### Token Filtering
 

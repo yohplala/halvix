@@ -121,8 +121,8 @@ poetry run python -m main generate-cycle-charts --output-dir ./my-charts
 ```
 
 **Output files:**
-- `site/charts/btc_charts.html` - BTC/USD normalized and absolute price across 4 halving cycles
-- `site/charts/total2_charts.html` - TOTAL2 index vs USD and BTC across 3 halving cycles
+- `site/charts/btc_charts.html` - BTC/USD normalized and absolute price, cycle by cycle since 2012
+- `site/charts/total2_charts.html` - TOTAL2 index vs USD and BTC, cycle by cycle since 2016
 - `site/charts/total2_composition.html` - Interactive explorer for TOTAL2 composition by date
 - `site/index.html` - Main navigation page linking all charts
 

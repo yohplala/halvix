@@ -27,6 +27,7 @@ from analysis.cycle_patterns import (
     CyclePoint,
 )
 from analysis.cycle_points import fib_retracement_ratio
+from analysis.halving_calendar import forecast_next_halving
 from config import (
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
@@ -947,7 +948,7 @@ class TestIdentifyCyclePoints:
 
     def test_min1_validation_current_cycle(self, analyzer):
         """For current/last segment, insufficient retracement produces projected min1."""
-        # Data after last halving (H4=2024-04-19, H5=2028-03-31)
+        # Data after last halving (H4=2024-04-19, H5 = forecast next halving)
         # Two segments: H3-H4 provides context, H4-H5 is current
         # Build enough context for prev_min1_price
         df = self._make_df(
@@ -968,10 +969,9 @@ class TestIdentifyCyclePoints:
         )
         points = analyzer._identify_cycle_points(df)
 
-        # The last segment should have a PROJECTED min1 (at 23.6% retracement level)
-        last_seg_min1 = [
-            p for p in points if p.point_type == "min1" and p.cycle_num == len(HALVING_DATES)
-        ]
+        # The last segment (H4-H5) should have a PROJECTED cycle-5 min1
+        # (at the 23.6% retracement level)
+        last_seg_min1 = [p for p in points if p.point_type == "min1" and p.cycle_num == 5]
         assert len(last_seg_min1) == 1
         assert last_seg_min1[0].projected is True
         # Price should be the 23.6% retracement level, not the actual 105000
@@ -998,10 +998,8 @@ class TestIdentifyCyclePoints:
         )
         points = analyzer._identify_cycle_points(df)
 
-        # min1 in last segment (H4-H5) has cycle_num = len(HALVING_DATES)
-        last_seg_min1 = [
-            p for p in points if p.point_type == "min1" and p.cycle_num == len(HALVING_DATES)
-        ]
+        # min1 in last segment (H4-H5) belongs to cycle 5
+        last_seg_min1 = [p for p in points if p.point_type == "min1" and p.cycle_num == 5]
         assert len(last_seg_min1) == 1
         assert last_seg_min1[0].price == pytest.approx(30000.0, rel=0.01)
         assert last_seg_min1[0].projected is False
@@ -1437,6 +1435,8 @@ class TestIdentifyCyclePoints:
 
     def test_post_halving_detects_current_cycle_points(self, analyzer):
         """Post-halving detection finds max2 and min1 in current cycle data."""
+        # Pin H5 so the post-H5 data below stays post-halving whatever the forecast
+        analyzer.all_halvings = [*HALVING_DATES[1:4], date(2028, 3, 31)]
         # Provide data through the last halving and beyond
         df = self._make_df(
             [
@@ -1694,12 +1694,12 @@ class TestCyclePatternAnalyzerInit:
         """Test that all_halvings is properly set."""
         analyzer = CyclePatternAnalyzer(price_cache=mock_price_cache)
 
-        # Should use cycles 2, 3, 4 (indices 1-3 of HALVING_DATES) plus projected 5th
+        # Should use cycles 2, 3, 4 (indices 1-3 of HALVING_DATES) plus the forecast 5th
         assert len(analyzer.all_halvings) == 4
         assert analyzer.all_halvings[0] == date(2016, 7, 9)
         assert analyzer.all_halvings[1] == date(2020, 5, 11)
         assert analyzer.all_halvings[2] == date(2024, 4, 19)
-        assert analyzer.all_halvings[3] == date(2028, 3, 31)  # Projected 5th halving
+        assert analyzer.all_halvings[3] == forecast_next_halving()
 
 
 class TestAnalyzeCoin:

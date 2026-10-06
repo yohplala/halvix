@@ -14,6 +14,33 @@ format YYYY.MM.patch.
 
 ### [Unreleased]
 
+**Cycle 4 bottom confirmed — cycle 5 drawn from a forecast halving**
+
+- **Added:** cycle 4's bear-market bottom (2026-06-30, $58,519 close) to
+  `BTC_CYCLE_BOTTOMS`; the 2025-10-06 peak is now confirmed ($124,723).
+- **Added:** `analysis.halving_calendar` — single source for cycle dates.
+  `HALVING_DATES` now lists only halvings that have happened; the next one is
+  forecast as the confirmed bottom + the average bottom→halving lead of cycles
+  2–4 (523 days → 2027-12-05), falling back to last halving + average interval
+  before a bottom is confirmed. Adding the real date to the config replaces it.
+- **Added:** cycle 5 on the BTC and TOTAL2 cycle charts (aligned on the forecast
+  halving), with the new bottom drawn as a red line in cycles 4 and 5. On the
+  normalized charts, cycle 5 is divided by a forecast halving value that starts
+  its curve at the average (geometric mean) of the other cycles' start values.
+- **Changed:** pattern analysis uses the same forecast halving (was a hard-coded
+  2028-03-31): targets project to forecast halving + `PEAK_DAYS_AFTER_HALVING`
+  (550 days, ~June 2029), and a projected min1 is placed on the BTC cycle
+  bottom date (replaces `CURRENT_CYCLE_MIN1_APPROX_DAYS_BEFORE_HALVING`).
+- **Fixed:** TOTAL2 included stablecoins and asset-backed tokens (United
+  Stables `U`, `CASH`, `DUSD`, `USDON`, Tether Gold, PAX Gold, Figure HELOC) —
+  now excluded; this also removes them from the pattern-analysis page.
+- **Fixed:** TOTAL2 charts drew cycle 1's bottom line although cycle 1 is not
+  plotted there; the point-detection kernel derived the current cycle number
+  from the global config instead of the halvings it was given.
+- **Refactored:** BTC and TOTAL2 cycle charts share trace/layout/reference-line
+  helpers; one `TRENDLINE_REFERENCE_DATE`; removed the dead
+  `USE_YESTERDAY_AS_END_DATE` flag and pandas-era leftovers.
+
 **pandas → polars migration**
 
 - **Changed:** The entire data pipeline now uses **polars** (with its native
