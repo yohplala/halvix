@@ -75,6 +75,13 @@ or its forecast before confirmation) is used for **both** chart display and
 trendline regression (ensuring visual alignment) — a stable x-coordinate while
 the coin's own bottom hasn't printed yet.
 
+A projected min1 exists **only while that bottom date is after the coin's last
+close**. Once the BTC bottom is in the coin's past, the coin's real prices on that
+date are known, so a point at an assumed price would hang off the price curve
+(HYPE) or even precede the coin's latest peak — WBT peaked on 2026-09-12, after
+the 2026-06-30 bottom, which drew its cycle line back in time. Such a coin simply
+has no next-cycle bottom yet (`CyclePatternAnalyzer._identify_cycle_points`).
+
 The projected min1 *price* (the assumed 23.6% retracement level) is the
 in-progress cycle's anchor for the **rebound methods too**: it is the `C` low in
 the Fibonacci extension and the base low for Diminishing Returns. The alternative

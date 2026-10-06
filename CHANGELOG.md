@@ -40,6 +40,12 @@ format YYYY.MM.patch.
   shown even though cycle 1's TOTAL2 curve is not plotted. The point-detection
   kernel derived the current cycle number from the global config instead of
   the halvings it was given.
+- **Fixed:** pattern charts drew a projected cycle-5 min1 (assumed 23.6%
+  retracement) on the confirmed BTC bottom, 2026-06-30 — now in the past — so it
+  hung below the price curve (HYPE) or came before the coin's later peak, drawing
+  the cycle and Fib lines back in time (WBT, peak 2026-09-12). A projected min1
+  is now kept only while the BTC bottom is after the coin's last close; WBT's
+  composite drops from 242% to 142% (#2 → #6), the rest of the top 14 is unchanged.
 - **Refactored:** BTC and TOTAL2 cycle charts share trace/layout/reference-line
   helpers; one `TRENDLINE_REFERENCE_DATE`; removed the dead
   `USE_YESTERDAY_AS_END_DATE` flag and pandas-era leftovers.

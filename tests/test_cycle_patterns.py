@@ -978,6 +978,38 @@ class TestIdentifyCyclePoints:
         assert last_seg_min1[0].price < 108000.0
         assert last_seg_min1[0].price != pytest.approx(105000.0, rel=0.01)
 
+    @pytest.mark.parametrize(
+        ("btc_bottom", "kept"),
+        [(date(2026, 6, 30), False), (date(2026, 12, 1), True)],
+    )
+    def test_projected_min1_only_while_btc_bottom_is_ahead(
+        self, analyzer, monkeypatch, btc_bottom, kept
+    ):
+        """A projected min1 is dropped once the BTC cycle bottom precedes the last close.
+
+        WBT-like: the coin peaks after the BTC bottom and has barely retraced.
+        Drawn on a past bottom date, the projected point would precede its
+        peak (a zigzag back in time) and sit off the price curve.
+        """
+        monkeypatch.setattr("analysis.cycle_patterns.current_cycle_bottom", lambda: btc_bottom)
+        df = self._make_df(
+            [
+                ("2016-07-10", 600.0),
+                ("2017-12-17", 19000.0),
+                ("2018-12-15", 3200.0),
+                ("2020-05-10", 9000.0),
+                ("2021-11-10", 69000.0),
+                ("2022-11-21", 15500.0),
+                ("2024-04-18", 64000.0),
+                ("2026-09-12", 108000.0),  # peak after the 2026-06-30 BTC bottom
+                ("2026-10-03", 105000.0),  # ~3% drop — not a bear yet
+            ]
+        )
+        points = analyzer._identify_cycle_points(df)
+        projected = [p for p in points if p.projected and p.point_type == "min1"]
+        assert len(projected) == int(kept)
+        assert all(not p.projected for p in points if p.point_type != "min1")
+
     def test_min1_accepted_when_deep_retracement(self, analyzer):
         """min1 accepted in last segment when retracement >= 23.6%."""
         df = self._make_df(

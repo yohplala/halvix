@@ -48,7 +48,11 @@ from analysis.cycle_points import (
     count_min1_cycles,
     count_peak_cycles,
 )
-from analysis.halving_calendar import cycle_halving_dates, projected_peak_date
+from analysis.halving_calendar import (
+    current_cycle_bottom,
+    cycle_halving_dates,
+    projected_peak_date,
+)
 from config import (
     GOLDEN_RETRACEMENT_LEVEL,
     HALVING_DATES,
@@ -217,8 +221,22 @@ class CyclePatternAnalyzer:
     # ────────────────────────────────────────────────────────────────
 
     def _identify_cycle_points(self, df: pl.DataFrame) -> list[CyclePoint]:
-        """Detect cycle min/max points across all halving-delimited segments."""
-        return point_detection.identify_cycle_points(df, self.all_halvings)
+        """
+        Detect cycle min/max points across all halving-delimited segments.
+
+        A projected min1 (assumed 23.6% retracement for a coin whose bear has
+        not unfolded) is drawn and regressed on the current BTC cycle bottom
+        date, so it is kept only while that bottom is still after the coin's
+        last close. Once the bottom is in the coin's past, its real prices
+        there are known: a point at an assumed price would hang off the price
+        curve (HYPE) or even precede the coin's latest peak (WBT peaked on
+        2026-09-12, after the 2026-06-30 bottom), so the coin has no next-cycle
+        bottom yet.
+        """
+        points = point_detection.identify_cycle_points(df, self.all_halvings)
+        if df.is_empty() or current_cycle_bottom() > df["date"].max():
+            return points
+        return [p for p in points if not (p.projected and p.point_type == "min1")]
 
     _build_segments = staticmethod(point_detection.build_segments)
     # Pure point-list helpers live in ``analysis.cycle_points`` — they
